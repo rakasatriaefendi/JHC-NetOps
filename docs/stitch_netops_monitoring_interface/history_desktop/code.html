@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NetWatch NOC - History</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-container": "#003028",
+                    "bg-base": "#14171C",
+                    "on-error": "#690005",
+                    "surface-dim": "#101413",
+                    "primary": "#7cd7c3",
+                    "on-primary-fixed-variant": "#005045",
+                    "tertiary-container": "#cf7a66",
+                    "text-primary": "#E4E6EA",
+                    "surface": "#101413",
+                    "status-high": "#C67C4E",
+                    "surface-container-lowest": "#0a0f0e",
+                    "inverse-surface": "#dfe3e1",
+                    "on-secondary": "#2d3138",
+                    "outline": "#88938f",
+                    "surface-container": "#1c211f",
+                    "surface-bright": "#353a38",
+                    "inverse-on-surface": "#2d3130",
+                    "status-medium": "#C79A45",
+                    "tertiary-fixed-dim": "#ffb4a4",
+                    "surface-tint": "#7cd7c3",
+                    "on-secondary-fixed-variant": "#43474f",
+                    "secondary": "#c3c6d0",
+                    "text-muted": "#6B7280",
+                    "on-tertiary-container": "#4f160a",
+                    "on-tertiary": "#581d10",
+                    "error": "#ffb4ab",
+                    "on-surface": "#dfe3e1",
+                    "on-primary-fixed": "#00201b",
+                    "on-secondary-container": "#b2b5be",
+                    "text-secondary": "#9AA1AC",
+                    "background": "#101413",
+                    "tertiary": "#ffb4a4",
+                    "on-surface-variant": "#bdc9c5",
+                    "border": "#2A2F38",
+                    "tertiary-fixed": "#ffdad3",
+                    "secondary-fixed": "#dfe2ec",
+                    "secondary-fixed-dim": "#c3c6d0",
+                    "surface-container-low": "#181d1b",
+                    "status-critical": "#B0524A",
+                    "status-normal": "#4C9A6A",
+                    "primary-fixed": "#98f3df",
+                    "secondary-container": "#43474f",
+                    "outline-variant": "#3e4946",
+                    "on-background": "#dfe3e1",
+                    "inverse-primary": "#006b5c",
+                    "on-error-container": "#ffdad6",
+                    "on-tertiary-fixed": "#3c0801",
+                    "on-secondary-fixed": "#181c23",
+                    "on-tertiary-fixed-variant": "#753224",
+                    "error-container": "#93000a",
+                    "surface-variant": "#313634",
+                    "surface-container-high": "#262b29",
+                    "surface-container-highest": "#313634",
+                    "primary-container": "#42a08e",
+                    "primary-fixed-dim": "#7cd7c3",
+                    "on-primary": "#00382f"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "3xl": "48px",
+                    "base": "4px",
+                    "sm": "8px",
+                    "md": "12px",
+                    "lg": "16px",
+                    "xl": "24px",
+                    "xs": "4px",
+                    "2xl": "32px"
+            },
+            "fontFamily": {
+                    "body": ["Inter"],
+                    "meta": ["Inter"],
+                    "data-display": ["JetBrains Mono"],
+                    "label-sm": ["Inter"],
+                    "section-label": ["Inter"],
+                    "headline-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "meta": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                    "data-display": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-sm": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "section-label": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                    "headline-lg": ["22px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-bg-base text-text-primary font-body flex h-screen overflow-hidden antialiased">
+<!-- SideNavBar -->
+<aside class="bg-background text-primary font-body h-screen w-64 fixed left-0 top-0 border-r border-border flat no shadows flex flex-col h-full z-20">
+<div class="px-xl py-xl border-b border-border flex items-center gap-md">
+<img alt="System Administrator Profile" class="w-8 h-8 rounded-full border border-border object-cover" data-alt="A small, professional, futuristic geometric avatar representing a system administrator or AI node in a high-tech dark mode network environment. Sharp angles, deep cyan and black color palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCSskDaMDb7q7Xi2sDAoyV9PGXoOZr-vnRKDzMiABUnmqbtEJeISxqDbGKn2YKTNIxY87DxwMvj5sNuxuk3LcHurl1afS0lkiYhDvkBsd91VX7YYjloEbW2-cmZJtzHSQVlM2QrkOqGdvikL_KU5bcaO9NdK73dtN9Q9fDQHxecFAY8G2DUkRKXTi5ERwkuqg1Ah2JlgddDeMFyob6vv6A3nfeDJRen5aWZx6V7O_ko-QAyk-G_-I5S"/>
+<div>
+<h1 class="font-headline-lg text-headline-lg font-bold text-primary">NetWatch NOC</h1>
+<p class="font-meta text-meta text-text-secondary">Network Operations Center</p>
+</div>
+</div>
+<nav class="flex-1 py-lg flex flex-col gap-base overflow-y-auto">
+<!-- Dashboard -->
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary cursor-pointer active:opacity-80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-label-sm text-label-sm">Dashboard</span>
+</a>
+<!-- Traffic -->
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary cursor-pointer active:opacity-80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-label-sm text-label-sm">Traffic</span>
+</a>
+<!-- History (Active) -->
+<a class="flex items-center gap-md px-lg py-md text-primary bg-surface-container-high border-l-4 border-primary cursor-pointer active:opacity-80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="history" style="font-variation-settings: 'FILL' 1;">history</span>
+<span class="font-label-sm text-label-sm">History</span>
+</a>
+<!-- Alerts -->
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary cursor-pointer active:opacity-80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="font-label-sm text-label-sm">Alerts</span>
+</a>
+<!-- Admin -->
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary cursor-pointer active:opacity-80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-sm text-label-sm">Admin</span>
+</a>
+</nav>
+<div class="p-lg border-t border-border">
+<button class="w-full bg-surface hover:bg-surface-container border border-border text-primary font-label-sm text-label-sm py-sm px-md rounded transition-colors flex items-center justify-center gap-sm">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                New Report
+            </button>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="bg-surface text-primary font-label-sm text-label-sm fixed top-0 right-0 left-64 h-16 border-b border-border flat no shadows flex justify-between items-center px-xl h-full z-10">
+<div class="font-headline-lg text-headline-lg font-semibold text-on-surface">
+            History Log
+        </div>
+<div class="flex items-center gap-xl text-text-secondary">
+<!-- Search implied by on_right in JSON, but using trailing icons -->
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-text-muted text-[18px]">search</span>
+<input class="bg-bg-base border border-border rounded pl-xl pr-md py-xs font-body text-body text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-text-muted w-64" placeholder="Search events..." type="text"/>
+</div>
+<button class="hover:text-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="hover:text-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button class="hover:text-primary transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-xl flex-1 overflow-y-auto w-full flex flex-col gap-xl">
+<!-- Filters Row -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-lg border-b border-border pb-lg">
+<div class="flex flex-wrap items-center gap-sm">
+<button class="bg-surface-container-high border border-primary text-primary px-md py-sm rounded-full font-label-sm text-label-sm transition-colors">
+                    All Events
+                </button>
+<button class="bg-surface border border-border text-text-secondary hover:bg-surface-container hover:text-text-primary px-md py-sm rounded-full font-label-sm text-label-sm transition-colors flex items-center gap-xs">
+<span class="w-2 h-2 rounded-full bg-status-critical"></span> Critical
+                </button>
+<button class="bg-surface border border-border text-text-secondary hover:bg-surface-container hover:text-text-primary px-md py-sm rounded-full font-label-sm text-label-sm transition-colors flex items-center gap-xs">
+<span class="w-2 h-2 rounded-full bg-status-high"></span> High
+                </button>
+<button class="bg-surface border border-border text-text-secondary hover:bg-surface-container hover:text-text-primary px-md py-sm rounded-full font-label-sm text-label-sm transition-colors flex items-center gap-xs">
+<span class="w-2 h-2 rounded-full bg-status-medium"></span> Medium
+                </button>
+<button class="bg-surface border border-border text-text-secondary hover:bg-surface-container hover:text-text-primary px-md py-sm rounded-full font-label-sm text-label-sm transition-colors flex items-center gap-xs">
+<span class="w-2 h-2 rounded-full bg-status-normal"></span> Low
+                </button>
+</div>
+<div class="flex items-center bg-surface border border-border rounded px-md py-sm text-text-secondary font-label-sm text-label-sm cursor-pointer hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined mr-sm text-[18px]">calendar_today</span>
+                Last 7 Days
+                <span class="material-symbols-outlined ml-sm text-[18px]">arrow_drop_down</span>
+</div>
+</div>
+<!-- Event List -->
+<div class="flex flex-col gap-xl">
+<!-- Group: TODAY -->
+<section>
+<div class="font-meta text-meta text-text-secondary tracking-widest mb-md pl-xs">
+                    TODAY
+                </div>
+<div class="flex flex-col gap-sm">
+<!-- Expanded Critical Alert -->
+<div class="bg-surface border border-border rounded-lg overflow-hidden flex flex-col transition-colors">
+<div class="p-md flex flex-col md:flex-row md:items-center gap-md md:gap-lg bg-surface-container-lowest border-b border-border cursor-pointer hover:bg-surface-container/50">
+<div class="flex items-center gap-md flex-1">
+<span class="material-symbols-outlined text-status-critical">warning</span>
+<span class="font-meta text-meta px-sm py-xs rounded bg-status-critical/10 border border-status-critical/20 text-status-critical uppercase">Critical</span>
+<span class="font-label-sm text-label-sm text-text-primary line-clamp-1">BGP Route Flap Detected on Core Router Alpha</span>
+</div>
+<div class="font-data-display text-data-display text-text-secondary shrink-0 flex items-center gap-md">
+                                14:32:05 UTC
+                                <span class="material-symbols-outlined text-[18px] transform rotate-180 transition-transform">expand_more</span>
+</div>
+</div>
+<!-- Expanded Content -->
+<div class="p-lg bg-surface flex flex-col gap-lg">
+<p class="font-body text-body text-text-secondary">
+                                Multiple BGP route flaps detected on interface xe-0/0/1 connecting to primary transit provider. Threshold exceeded (5 events / 60s).
+                            </p>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-lg">
+<!-- Raw Context -->
+<div class="flex flex-col gap-sm">
+<h4 class="font-label-sm text-label-sm text-text-primary">Raw Context Values</h4>
+<div class="bg-bg-base border border-border rounded p-md font-data-display text-data-display text-secondary-fixed text-sm overflow-x-auto whitespace-pre">
+{
+  "event_id": "ERR-9281-A",
+  "source": "cr-alpha-nyc1",
+  "interface": "xe-0/0/1",
+  "peer_ip": "192.0.2.1",
+  "flap_count": 7,
+  "window_ms": 60000,
+  "action_taken": "auto-quarantine"
+}</div>
+</div>
+<!-- AI Summary -->
+<div class="flex flex-col gap-sm">
+<div class="flex items-center justify-between">
+<h4 class="font-label-sm text-label-sm text-text-primary">AI Summary</h4>
+<div class="border border-primary text-primary font-meta text-meta px-sm py-xs rounded-full flex items-center gap-xs">
+<span class="material-symbols-outlined text-[14px]">psychology</span>
+                                            Hermes analysis
+                                        </div>
+</div>
+<div class="bg-surface-container border border-border rounded p-md font-body text-body text-text-secondary h-full">
+                                        Analysis indicates likely physical layer degradation or upstream provider instability. The system has automatically quarantined the route to prevent global table churn. Recommend dispatching L1 technician to verify optical levels on xe-0/0/1. No immediate impact to core transit due to redundant pathing via cr-beta-nyc1.
+                                    </div>
+</div>
+</div>
+<div class="flex justify-end gap-md pt-sm">
+<button class="px-md py-sm rounded border border-border bg-surface text-text-primary font-label-sm text-label-sm hover:bg-surface-container transition-colors">Acknowledge</button>
+<button class="px-md py-sm rounded border border-primary bg-primary-container text-on-primary-container font-label-sm text-label-sm hover:bg-primary-container/80 transition-colors">View Ticket #8842</button>
+</div>
+</div>
+</div>
+<!-- Medium Alert -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col md:flex-row md:items-center gap-md md:gap-lg hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-md flex-1">
+<span class="material-symbols-outlined text-status-medium">speed</span>
+<span class="font-meta text-meta px-sm py-xs rounded bg-status-medium/10 border border-status-medium/20 text-status-medium uppercase">Medium</span>
+<span class="font-label-sm text-label-sm text-text-primary line-clamp-1">Latency Spike on APAC Link</span>
+</div>
+<div class="font-data-display text-data-display text-text-secondary shrink-0 flex items-center gap-md">
+                            11:15:44 UTC
+                            <span class="material-symbols-outlined text-[18px]">expand_more</span>
+</div>
+</div>
+<!-- Normal/Info Alert -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col md:flex-row md:items-center gap-md md:gap-lg hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-md flex-1">
+<span class="material-symbols-outlined text-status-normal">update</span>
+<span class="font-meta text-meta px-sm py-xs rounded bg-status-normal/10 border border-status-normal/20 text-status-normal uppercase">Info</span>
+<span class="font-label-sm text-label-sm text-text-primary line-clamp-1">Scheduled Firmware Update Completed</span>
+</div>
+<div class="font-data-display text-data-display text-text-secondary shrink-0 flex items-center gap-md">
+                            09:00:02 UTC
+                            <span class="material-symbols-outlined text-[18px]">expand_more</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Group: YESTERDAY -->
+<section>
+<div class="font-meta text-meta text-text-secondary tracking-widest mb-md pl-xs">
+                    YESTERDAY
+                </div>
+<div class="flex flex-col gap-sm">
+<!-- High Alert -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col md:flex-row md:items-center gap-md md:gap-lg hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-md flex-1">
+<span class="material-symbols-outlined text-status-high">gpp_maybe</span>
+<span class="font-meta text-meta px-sm py-xs rounded bg-status-high/10 border border-status-high/20 text-status-high uppercase">High</span>
+<span class="font-label-sm text-label-sm text-text-primary line-clamp-1">Unauthorized Access Attempt - Firewall Blocked</span>
+</div>
+<div class="font-data-display text-data-display text-text-secondary shrink-0 flex items-center gap-md">
+                            22:45:11 UTC
+                            <span class="material-symbols-outlined text-[18px]">expand_more</span>
+</div>
+</div>
+<!-- Low Alert -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col md:flex-row md:items-center gap-md md:gap-lg hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-md flex-1">
+<span class="material-symbols-outlined text-text-muted">memory</span>
+<span class="font-meta text-meta px-sm py-xs rounded bg-surface-bright border border-border text-text-secondary uppercase">Low</span>
+<span class="font-label-sm text-label-sm text-text-primary line-clamp-1">Node RAM Utilization &gt; 80% (Transient)</span>
+</div>
+<div class="font-data-display text-data-display text-text-secondary shrink-0 flex items-center gap-md">
+                            16:20:00 UTC
+                            <span class="material-symbols-outlined text-[18px]">expand_more</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,14 @@
+{
+  "name": "network-monitoring-local-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.mjs",
+    "preflight": "node src/main.mjs --preflight-only",
+    "backend:status": "node scripts/backend-status.mjs",
+    "once": "node src/main.mjs --once",
+    "test": "node --test tests/*.test.mjs",
+    "e2e:localhost": "node scripts/e2e-localhost.mjs"
+  }
+}

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NetWatch NOC - Alerts</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-variant": "#313634",
+                      "text-muted": "#6B7280",
+                      "surface-dim": "#101413",
+                      "background": "#101413",
+                      "secondary-fixed": "#dfe2ec",
+                      "on-surface-variant": "#bdc9c5",
+                      "tertiary-fixed-dim": "#ffb4a4",
+                      "surface": "#101413",
+                      "primary-container": "#42a08e",
+                      "on-tertiary-container": "#4f160a",
+                      "primary": "#7cd7c3",
+                      "status-critical": "#B0524A",
+                      "border": "#2A2F38",
+                      "tertiary": "#ffb4a4",
+                      "text-secondary": "#9AA1AC",
+                      "on-surface": "#dfe3e1",
+                      "on-primary-container": "#003028",
+                      "surface-container": "#1c211f",
+                      "surface-tint": "#7cd7c3",
+                      "surface-bright": "#353a38",
+                      "inverse-primary": "#006b5c",
+                      "status-high": "#C67C4E",
+                      "outline": "#88938f",
+                      "on-secondary-fixed-variant": "#43474f",
+                      "inverse-surface": "#dfe3e1",
+                      "on-tertiary": "#581d10",
+                      "error-container": "#93000a",
+                      "on-error": "#690005",
+                      "secondary-fixed-dim": "#c3c6d0",
+                      "on-background": "#dfe3e1",
+                      "secondary-container": "#43474f",
+                      "tertiary-fixed": "#ffdad3",
+                      "on-primary-fixed": "#00201b",
+                      "text-primary": "#E4E6EA",
+                      "on-secondary-fixed": "#181c23",
+                      "primary-fixed": "#98f3df",
+                      "on-tertiary-fixed-variant": "#753224",
+                      "bg-base": "#14171C",
+                      "on-primary": "#00382f",
+                      "error": "#ffb4ab",
+                      "on-primary-fixed-variant": "#005045",
+                      "on-tertiary-fixed": "#3c0801",
+                      "secondary": "#c3c6d0",
+                      "surface-container-highest": "#313634",
+                      "primary-fixed-dim": "#7cd7c3",
+                      "tertiary-container": "#cf7a66",
+                      "on-error-container": "#ffdad6",
+                      "surface-container-lowest": "#0a0f0e",
+                      "status-normal": "#4C9A6A",
+                      "status-medium": "#C79A45",
+                      "outline-variant": "#3e4946",
+                      "surface-container-low": "#181d1b",
+                      "surface-container-high": "#262b29",
+                      "on-secondary-container": "#b2b5be",
+                      "on-secondary": "#2d3138",
+                      "inverse-on-surface": "#2d3130"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "2xl": "32px",
+                      "3xl": "48px",
+                      "base": "4px",
+                      "md": "12px",
+                      "xs": "4px",
+                      "lg": "16px",
+                      "xl": "24px",
+                      "sm": "8px"
+              },
+              "fontFamily": {
+                      "data-display": [
+                              "JetBrains Mono"
+                      ],
+                      "section-label": [
+                              "Inter"
+                      ],
+                      "body": [
+                              "Inter"
+                      ],
+                      "meta": [
+                              "Inter"
+                      ],
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "data-display": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "section-label": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "meta": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg": [
+                              "22px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+            },
+          }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings:
+            'FILL' 1,
+            'wght' 400,
+            'GRAD' 0,
+            'opsz' 24
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-text-primary font-body antialiased min-h-screen flex flex-col">
+<!-- TopNavBar (Mobile Adaptive - Simplified for specific prompt requirement) -->
+<header class="bg-surface border-b border-border h-16 flex items-center justify-between px-lg shrink-0">
+<div class="flex items-center gap-md">
+<button aria-label="Open menu" class="text-text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<h1 class="font-headline-lg text-headline-lg font-bold text-on-surface">Alerts</h1>
+</div>
+<div class="flex items-center gap-md text-text-secondary">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto p-md space-y-lg">
+<!-- Summary Chips -->
+<section aria-label="Alert Summary" class="flex gap-sm overflow-x-auto pb-sm snap-x">
+<div class="snap-start shrink-0 flex items-center gap-xs px-md py-xs rounded-full bg-status-critical/10 border border-status-critical/30">
+<span class="material-symbols-outlined text-status-critical text-[16px]">error</span>
+<span class="font-label-sm text-label-sm text-status-critical">Critical: 1</span>
+</div>
+<div class="snap-start shrink-0 flex items-center gap-xs px-md py-xs rounded-full bg-status-high/10 border border-status-high/30">
+<span class="material-symbols-outlined text-status-high text-[16px]">warning</span>
+<span class="font-label-sm text-label-sm text-status-high">High: 1</span>
+</div>
+<div class="snap-start shrink-0 flex items-center gap-xs px-md py-xs rounded-full bg-status-medium/10 border border-status-medium/30">
+<span class="material-symbols-outlined text-status-medium text-[16px]">info</span>
+<span class="font-label-sm text-label-sm text-status-medium">Medium: 1</span>
+</div>
+</section>
+<!-- Alert Cards -->
+<section aria-label="Active Alerts" class="space-y-md">
+<!-- Critical Alert -->
+<article class="bg-surface border border-border rounded-lg p-md flex flex-col gap-md relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-status-critical"></div>
+<header class="flex justify-between items-start pl-xs">
+<div class="flex flex-col gap-xs">
+<div class="flex items-center gap-xs">
+<span class="bg-status-critical/20 text-status-critical font-meta text-meta px-2 py-0.5 rounded-sm border border-status-critical/30 uppercase">Critical</span>
+<span class="font-meta text-meta text-text-muted">Node-Alpha</span>
+</div>
+<h2 class="font-section-label text-section-label text-text-primary">Core Router Unreachable</h2>
+</div>
+</header>
+<div class="pl-xs flex flex-col gap-xs">
+<p class="font-body text-body text-text-secondary">BGP session dropped. Heartbeat failure on main interface.</p>
+<div class="flex items-center gap-xs text-text-muted font-meta text-meta">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+<span>Active for 12m</span>
+</div>
+</div>
+<div class="pt-sm border-t border-border mt-auto flex justify-end pl-xs">
+<button class="bg-surface-variant hover:bg-surface-container-high border border-border text-primary font-label-sm text-label-sm px-xl py-sm rounded-DEFAULT transition-colors w-full text-center">
+                        Resolve
+                    </button>
+</div>
+</article>
+<!-- High Alert -->
+<article class="bg-surface border border-border rounded-lg p-md flex flex-col gap-md relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-status-high"></div>
+<header class="flex justify-between items-start pl-xs">
+<div class="flex flex-col gap-xs">
+<div class="flex items-center gap-xs">
+<span class="bg-status-high/20 text-status-high font-meta text-meta px-2 py-0.5 rounded-sm border border-status-high/30 uppercase">High</span>
+<span class="font-meta text-meta text-text-muted">Database-02</span>
+</div>
+<h2 class="font-section-label text-section-label text-text-primary">CPU Load Spiking</h2>
+</div>
+</header>
+<div class="pl-xs flex flex-col gap-xs">
+<p class="font-body text-body text-text-secondary">Sustained CPU usage &gt; 95% over last 5 minutes.</p>
+<div class="flex items-center gap-xs text-text-muted font-meta text-meta">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+<span>Active for 5m</span>
+</div>
+</div>
+<div class="pt-sm border-t border-border mt-auto flex justify-end pl-xs">
+<button class="bg-surface-variant hover:bg-surface-container-high border border-border text-text-primary font-label-sm text-label-sm px-xl py-sm rounded-DEFAULT transition-colors w-full text-center">
+                        Investigate
+                    </button>
+</div>
+</article>
+<!-- Medium Alert -->
+<article class="bg-surface border border-border rounded-lg p-md flex flex-col gap-md relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-status-medium"></div>
+<header class="flex justify-between items-start pl-xs">
+<div class="flex flex-col gap-xs">
+<div class="flex items-center gap-xs">
+<span class="bg-status-medium/20 text-status-medium font-meta text-meta px-2 py-0.5 rounded-sm border border-status-medium/30 uppercase">Medium</span>
+<span class="font-meta text-meta text-text-muted">Storage-Cluster-A</span>
+</div>
+<h2 class="font-section-label text-section-label text-text-primary">Disk Space Low</h2>
+</div>
+</header>
+<div class="pl-xs flex flex-col gap-xs">
+<p class="font-body text-body text-text-secondary">Volume /data is at 88% capacity.</p>
+<div class="flex items-center gap-xs text-text-muted font-meta text-meta">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+<span>Active for 2h 15m</span>
+</div>
+</div>
+<div class="pt-sm border-t border-border mt-auto flex justify-end pl-xs">
+<button class="bg-surface-variant hover:bg-surface-container-high border border-border text-text-primary font-label-sm text-label-sm px-xl py-sm rounded-DEFAULT transition-colors w-full text-center">
+                        Acknowledge
+                    </button>
+</div>
+</article>
+</section>
+</main>
+<!-- Navigation Drawer (Closed state simulation - visually hidden but structurally present for adherence to prompt context if needed, though mobile typically uses bottom nav, the prompt implies a drawer style for mobile NOC) -->
+<!-- Not rendering the full drawer as it's meant to be 'closed', but keeping the pattern in mind for interaction -->
+</body></html>

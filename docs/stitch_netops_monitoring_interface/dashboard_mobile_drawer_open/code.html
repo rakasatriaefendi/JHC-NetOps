@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NetWatch NOC - Mobile Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "primary": "#7cd7c3",
+                      "status-high": "#C67C4E",
+                      "on-secondary": "#2d3138",
+                      "surface-tint": "#7cd7c3",
+                      "surface-container-lowest": "#0a0f0e",
+                      "secondary": "#c3c6d0",
+                      "primary-container": "#42a08e",
+                      "background": "#101413",
+                      "tertiary-fixed": "#ffdad3",
+                      "on-tertiary": "#581d10",
+                      "inverse-surface": "#dfe3e1",
+                      "primary-fixed-dim": "#7cd7c3",
+                      "on-secondary-fixed-variant": "#43474f",
+                      "primary-fixed": "#98f3df",
+                      "on-surface-variant": "#bdc9c5",
+                      "on-primary": "#00382f",
+                      "tertiary-fixed-dim": "#ffb4a4",
+                      "on-tertiary-container": "#4f160a",
+                      "inverse-primary": "#006b5c",
+                      "status-normal": "#4C9A6A",
+                      "text-secondary": "#9AA1AC",
+                      "inverse-on-surface": "#2d3130",
+                      "surface": "#101413",
+                      "bg-base": "#14171C",
+                      "surface-container-highest": "#313634",
+                      "tertiary-container": "#cf7a66",
+                      "surface-bright": "#353a38",
+                      "surface-variant": "#313634",
+                      "surface-container": "#1c211f",
+                      "tertiary": "#ffb4a4",
+                      "border": "#2A2F38",
+                      "on-error-container": "#ffdad6",
+                      "on-tertiary-fixed-variant": "#753224",
+                      "surface-container-low": "#181d1b",
+                      "on-primary-fixed-variant": "#005045",
+                      "surface-dim": "#101413",
+                      "on-primary-container": "#003028",
+                      "secondary-container": "#43474f",
+                      "error": "#ffb4ab",
+                      "secondary-fixed": "#dfe2ec",
+                      "text-primary": "#E4E6EA",
+                      "on-secondary-container": "#b2b5be",
+                      "secondary-fixed-dim": "#c3c6d0",
+                      "text-muted": "#6B7280",
+                      "on-error": "#690005",
+                      "on-surface": "#dfe3e1",
+                      "on-background": "#dfe3e1",
+                      "error-container": "#93000a",
+                      "on-secondary-fixed": "#181c23",
+                      "surface-container-high": "#262b29",
+                      "status-critical": "#B0524A",
+                      "outline": "#88938f",
+                      "outline-variant": "#3e4946",
+                      "on-tertiary-fixed": "#3c0801",
+                      "status-medium": "#C79A45",
+                      "on-primary-fixed": "#00201b"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "2xl": "32px",
+                      "xl": "24px",
+                      "3xl": "48px",
+                      "sm": "8px",
+                      "xs": "4px",
+                      "base": "4px",
+                      "md": "12px",
+                      "lg": "16px"
+              },
+              "fontFamily": {
+                      "meta": ["Inter"],
+                      "data-display": ["JetBrains Mono"],
+                      "headline-lg": ["Inter"],
+                      "body": ["Inter"],
+                      "label-sm": ["Inter"],
+                      "section-label": ["Inter"]
+              },
+              "fontSize": {
+                      "meta": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                      "data-display": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "headline-lg": ["22px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "label-sm": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                      "section-label": ["16px", {"lineHeight": "24px", "fontWeight": "500"}]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        /* Base styles mapped from config */
+        body { font-family: 'Inter', sans-serif; }
+        .data-font { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Utility for drawer animation */
+        .drawer-open { transform: translateX(0); }
+        .drawer-closed { transform: translateX(-100%); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-bg-base text-text-primary font-body h-screen w-full overflow-hidden flex flex-col relative">
+<!-- OVERLAY: Dimming Backdrop (Active) -->
+<div class="fixed inset-0 bg-black/60 z-40 transition-opacity duration-300"></div>
+<!-- NAVIGATION DRAWER (OPEN) -->
+<nav class="bg-background text-primary font-body fixed inset-y-0 left-0 w-72 z-50 border-r border-border shadow-xl flex flex-col p-lg transition-transform duration-300 ease-in-out drawer-open">
+<!-- Header -->
+<div class="flex items-center gap-md mb-xl pb-md border-b border-border">
+<img class="w-12 h-12 rounded-full object-cover border border-border" data-alt="A small, stylized avatar image representing a system administrator in a dark mode interface, featuring high contrast and professional tech aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuxQNZjVroIW1DmwMNgpWQL36X7LCseehjUxwHLx3S4q86pbdCKmZAndWLB6btBAbPRKC-jjOFZ7Q6IkDL9899tulRjTqNRVy6Md6RE3n7zodFqHoFXBWICUQGP7Ra63xlnEXRYB-uo68SYMLS67UBAhLpXYcCdJ5yt5gme-UHLAATNvarLi3krxcQ8q00cBvZclCbeBz-hr8u0Y7A5f_OjYVcWjknrn0ppo0mYp8cXGwre2v_JH3u"/>
+<div class="flex flex-col">
+<span class="font-headline-lg text-headline-lg font-bold text-primary">NOC Mobile</span>
+<span class="font-meta text-meta text-text-secondary">v2.4.0</span>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="flex flex-col gap-sm flex-1">
+<!-- Active Item: Dashboard -->
+<a class="flex items-center gap-md p-md bg-primary-container text-on-primary-container rounded-lg active:bg-surface-variant" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-label-sm text-label-sm">Dashboard</span>
+</a>
+<!-- Inactive Item: Traffic -->
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-sm text-label-sm">Traffic</span>
+</a>
+<!-- Inactive Item: History -->
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-sm text-label-sm">History</span>
+</a>
+<!-- Inactive Item: Alerts -->
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined">notifications</span>
+<span class="font-label-sm text-label-sm flex-1">Alerts</span>
+<span class="bg-status-critical text-on-primary font-meta text-meta px-2 py-0.5 rounded-full">3</span>
+</a>
+<!-- Inactive Item: Admin -->
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg mt-auto" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-sm text-label-sm">Admin</span>
+</a>
+</div>
+</nav>
+<!-- BACKGROUND CONTENT (Dimmed visually by the overlay, but rendered behind it) -->
+<div class="flex-1 flex flex-col w-full h-full relative z-0">
+<!-- Mobile Top App Bar -->
+<header class="h-16 flex justify-between items-center px-lg bg-surface border-b border-border text-primary font-label-sm text-label-sm shrink-0">
+<div class="flex items-center gap-md">
+<button class="p-xs text-text-secondary">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<span class="font-headline-lg text-headline-lg font-semibold text-on-surface">NetWatch NOC</span>
+</div>
+<div class="flex gap-md items-center text-text-secondary">
+<button><span class="material-symbols-outlined">search</span></button>
+<img class="w-8 h-8 rounded-full border border-border object-cover" data-alt="A small circular user avatar image representing the logged-in user in a dark themed network monitoring dashboard." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDWFjAvFXK9ki7pVLa7mdgv9akd_NvdOoJqjjx7jtzodcATBuWQkBYogoNzuw3nn1rcDFq8XGLTyz4QpELozqayRIkqchsr3nH_xCHAXPOk2b772jP6acOrj7rtPxiEAl2GpExKTU3FqikENRFCBTVdv_mxsIl5ULqJCqXZamHzjsfEzJrnJ0QuIYRmqt2F_4F1-pENfWTrPUYBukTzOAkPQeStleNkPJNw05XqtD7NY6BYQuGu5Vd4"/>
+</div>
+</header>
+<!-- Main Dashboard Content Area -->
+<main class="flex-1 overflow-y-auto p-lg flex flex-col gap-lg bg-background">
+<!-- Global Status Widget -->
+<section class="bg-surface border border-border rounded-lg p-lg flex flex-col gap-md">
+<div class="flex justify-between items-center">
+<h2 class="font-section-label text-section-label text-text-primary">System Status</h2>
+<span class="flex items-center gap-xs px-2 py-1 rounded bg-status-normal/20 text-status-normal font-meta text-meta border border-status-normal/30">
+<span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Stable
+                    </span>
+</div>
+<div class="flex items-baseline gap-sm">
+<span class="font-data-display text-data-display text-3xl text-on-surface">99.98%</span>
+<span class="font-meta text-meta text-text-secondary">Uptime (30d)</span>
+</div>
+</section>
+<!-- Metrics Grid -->
+<div class="grid grid-cols-2 gap-md">
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col gap-xs">
+<span class="font-meta text-meta text-text-secondary flex items-center gap-xs">
+<span class="material-symbols-outlined" style="font-size: 14px;">router</span> Active Nodes
+                    </span>
+<span class="font-data-display text-data-display text-xl text-primary">1,204</span>
+</div>
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col gap-xs">
+<span class="font-meta text-meta text-text-secondary flex items-center gap-xs">
+<span class="material-symbols-outlined" style="font-size: 14px;">speed</span> Avg Latency
+                    </span>
+<span class="font-data-display text-data-display text-xl text-status-medium">42ms</span>
+</div>
+</div>
+<!-- Recent Alerts List -->
+<section class="flex flex-col gap-sm">
+<h3 class="font-label-sm text-label-sm text-text-secondary uppercase tracking-wider mb-xs">Recent Alerts</h3>
+<div class="bg-surface border border-border rounded-lg p-md flex items-start gap-md">
+<div class="mt-xs text-status-critical"><span class="material-symbols-outlined">warning</span></div>
+<div class="flex-1 flex flex-col gap-xs">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm text-on-surface">Node EU-WEST-2b Unreachable</span>
+<span class="font-meta text-meta text-text-secondary">2m ago</span>
+</div>
+<span class="font-meta text-meta text-text-muted">Connection timeout during health check probing.</span>
+</div>
+</div>
+<div class="bg-surface border border-border rounded-lg p-md flex items-start gap-md">
+<div class="mt-xs text-status-high"><span class="material-symbols-outlined">trending_up</span></div>
+<div class="flex-1 flex flex-col gap-xs">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm text-on-surface">High Traffic Anomaly: US-EAST-1</span>
+<span class="font-meta text-meta text-text-secondary">15m ago</span>
+</div>
+<span class="font-meta text-meta text-text-muted">Ingress traffic spike &gt; 300% expected baseline.</span>
+</div>
+</div>
+</section>
+</main>
+</div>
+</body></html>

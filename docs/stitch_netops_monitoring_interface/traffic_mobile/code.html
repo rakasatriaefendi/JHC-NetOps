@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NetWatch NOC - Traffic</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#3e4946",
+                    "secondary-fixed-dim": "#c3c6d0",
+                    "surface": "#101413",
+                    "tertiary-fixed": "#ffdad3",
+                    "on-tertiary-container": "#4f160a",
+                    "error-container": "#93000a",
+                    "bg-base": "#14171C",
+                    "border": "#2A2F38",
+                    "secondary-container": "#43474f",
+                    "status-critical": "#B0524A",
+                    "on-primary-container": "#003028",
+                    "tertiary": "#ffb4a4",
+                    "primary-fixed": "#98f3df",
+                    "surface-container-high": "#262b29",
+                    "on-secondary-fixed": "#181c23",
+                    "text-primary": "#E4E6EA",
+                    "text-secondary": "#9AA1AC",
+                    "primary": "#7cd7c3",
+                    "secondary-fixed": "#dfe2ec",
+                    "background": "#101413",
+                    "surface-container-highest": "#313634",
+                    "on-error-container": "#ffdad6",
+                    "status-normal": "#4C9A6A",
+                    "surface-dim": "#101413",
+                    "on-secondary-container": "#b2b5be",
+                    "surface-container-lowest": "#0a0f0e",
+                    "on-tertiary-fixed": "#3c0801",
+                    "on-primary": "#00382f",
+                    "surface-bright": "#353a38",
+                    "error": "#ffb4ab",
+                    "on-secondary": "#2d3138",
+                    "on-surface": "#dfe3e1",
+                    "surface-tint": "#7cd7c3",
+                    "inverse-on-surface": "#2d3130",
+                    "primary-container": "#42a08e",
+                    "surface-variant": "#313634",
+                    "tertiary-fixed-dim": "#ffb4a4",
+                    "text-muted": "#6B7280",
+                    "on-tertiary-fixed-variant": "#753224",
+                    "on-error": "#690005",
+                    "primary-fixed-dim": "#7cd7c3",
+                    "tertiary-container": "#cf7a66",
+                    "outline": "#88938f",
+                    "secondary": "#c3c6d0",
+                    "inverse-primary": "#006b5c",
+                    "on-secondary-fixed-variant": "#43474f",
+                    "on-background": "#dfe3e1",
+                    "status-high": "#C67C4E",
+                    "surface-container-low": "#181d1b",
+                    "inverse-surface": "#dfe3e1",
+                    "status-medium": "#C79A45",
+                    "on-tertiary": "#581d10",
+                    "surface-container": "#1c211f",
+                    "on-primary-fixed": "#00201b",
+                    "on-surface-variant": "#bdc9c5",
+                    "on-primary-fixed-variant": "#005045"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "xs": "4px",
+                    "sm": "8px",
+                    "lg": "16px",
+                    "md": "12px",
+                    "base": "4px",
+                    "2xl": "32px",
+                    "xl": "24px",
+                    "3xl": "48px"
+            },
+            "fontFamily": {
+                    "data-display": [
+                            "JetBrains Mono"
+                    ],
+                    "meta": [
+                            "Inter"
+                    ],
+                    "label-sm": [
+                            "Inter"
+                    ],
+                    "headline-lg": [
+                            "Inter"
+                    ],
+                    "body": [
+                            "Inter"
+                    ],
+                    "section-label": [
+                            "Inter"
+                    ]
+            },
+            "fontSize": {
+                    "data-display": [
+                            "14px",
+                            {
+                                    "lineHeight": "20px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "meta": [
+                            "12px",
+                            {
+                                    "lineHeight": "16px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "label-sm": [
+                            "14px",
+                            {
+                                    "lineHeight": "20px",
+                                    "fontWeight": "500"
+                            }
+                    ],
+                    "headline-lg": [
+                            "22px",
+                            {
+                                    "lineHeight": "32px",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "body": [
+                            "14px",
+                            {
+                                    "lineHeight": "20px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "section-label": [
+                            "16px",
+                            {
+                                    "lineHeight": "24px",
+                                    "fontWeight": "500"
+                            }
+                    ]
+            }
+    },
+        },
+      }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-text-primary font-body antialiased min-h-screen flex flex-col md:hidden">
+<!-- TopNavBar (Mobile Header Variant) -->
+<header class="fixed top-0 w-full h-16 bg-surface border-b border-border z-40 flex justify-between items-center px-lg">
+<div class="flex items-center gap-md">
+<button class="text-text-primary active:opacity-80 p-xs" onclick="toggleDrawer()">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<h1 class="font-headline-lg text-headline-lg font-semibold text-on-surface">Traffic</h1>
+</div>
+<div class="flex items-center gap-sm">
+<div class="flex items-center gap-xs px-sm py-xs bg-status-normal/10 border border-status-normal/30 rounded-full">
+<span class="material-symbols-outlined text-[14px] text-status-normal" data-icon="check_circle">check_circle</span>
+<span class="font-label-sm text-label-sm text-status-normal">NOMINAL</span>
+</div>
+</div>
+</header>
+<!-- NavigationDrawer (Mobile Only) - Hidden by default -->
+<div class="fixed inset-y-0 left-0 w-72 z-50 bg-background border-r border-border shadow-xl transform -translate-x-full transition-transform duration-300 ease-in-out flex flex-col p-lg" id="navDrawer">
+<div class="flex items-center justify-between mb-xl pb-md border-b border-border">
+<div>
+<h2 class="font-headline-lg text-headline-lg font-bold text-primary">NOC Mobile</h2>
+<p class="font-meta text-meta text-text-secondary">v2.4.0</p>
+</div>
+<button class="text-text-secondary active:opacity-80 p-xs" onclick="toggleDrawer()">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<nav class="flex flex-col gap-sm">
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body text-body">Dashboard</span>
+</a>
+<a class="flex items-center gap-md p-md bg-primary-container text-on-primary-container rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="analytics" data-weight="fill" style="font-variation-settings: 'FILL' 1;">analytics</span>
+<span class="font-body text-body font-bold">Traffic</span>
+</a>
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-body text-body">History</span>
+</a>
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="font-body text-body">Alerts</span>
+</a>
+<a class="flex items-center gap-md p-md text-on-surface-variant active:bg-surface-variant rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body text-body">Admin</span>
+</a>
+</nav>
+</div>
+<!-- Drawer Overlay -->
+<div class="fixed inset-0 bg-black/50 z-40 hidden opacity-0 transition-opacity duration-300" id="drawerOverlay" onclick="toggleDrawer()"></div>
+<!-- Main Content Canvas -->
+<main class="flex-1 mt-16 flex flex-col">
+<!-- Search & Filters -->
+<section class="p-md border-b border-border bg-surface-container-lowest sticky top-16 z-30">
+<div class="flex gap-sm">
+<div class="flex-1 relative">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-text-secondary" data-icon="search">search</span>
+<input class="w-full bg-surface border border-border rounded text-text-primary pl-xl pr-sm py-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body text-body placeholder:text-text-muted" placeholder="Search IP, Port, Protocol..." type="text"/>
+</div>
+<button class="p-sm bg-surface border border-border rounded text-text-primary active:bg-surface-variant transition-colors flex items-center justify-center" id="filterToggle">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+</button>
+</div>
+<!-- Collapsible Filter Panel -->
+<div class="hidden mt-md p-md bg-surface border border-border rounded-lg space-y-md" id="filterPanel">
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-text-secondary">Protocol</label>
+<div class="flex flex-wrap gap-xs">
+<button class="px-md py-xs rounded-full border border-primary bg-primary/10 text-primary font-meta text-meta">TCP</button>
+<button class="px-md py-xs rounded-full border border-border bg-surface text-text-secondary font-meta text-meta">UDP</button>
+<button class="px-md py-xs rounded-full border border-border bg-surface text-text-secondary font-meta text-meta">ICMP</button>
+</div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-text-secondary">Time Range</label>
+<select class="bg-surface border border-border rounded text-text-primary p-xs focus:outline-none focus:border-primary font-meta text-meta">
+<option>Last 15 Minutes</option>
+<option>Last Hour</option>
+<option>Last 24 Hours</option>
+</select>
+</div>
+</div>
+</section>
+<!-- Traffic Flow List (Stacked Cards) -->
+<section class="p-md flex flex-col gap-sm pb-3xl">
+<!-- Card 1 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col gap-sm overflow-hidden" onclick="toggleDetails('flow-1')">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-xs">
+<span class="px-sm py-[2px] bg-secondary-container rounded text-on-secondary-container font-data-display text-[10px] font-bold uppercase">TCP</span>
+<span class="px-sm py-[2px] bg-status-critical/10 border border-status-critical/30 rounded text-status-critical font-meta text-[10px] font-bold flex items-center gap-xs">
+<span class="material-symbols-outlined text-[12px]" data-icon="warning">warning</span> ALIEN
+                        </span>
+</div>
+<span class="font-data-display text-meta text-text-muted">14:02:45.123</span>
+</div>
+<div class="flex items-center justify-between mt-sm">
+<div class="font-data-display text-data-display text-text-primary text-center flex-1">192.168.1.104</div>
+<span class="material-symbols-outlined text-text-secondary px-sm text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+<div class="font-data-display text-data-display text-status-critical font-bold text-center flex-1">45.33.12.99</div>
+</div>
+<!-- Expandable Details -->
+<div class="hidden mt-md pt-md border-t border-border grid grid-cols-2 gap-sm" id="flow-1-details">
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Src Port</span>
+<span class="font-data-display text-meta text-text-secondary">49201</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Dst Port</span>
+<span class="font-data-display text-meta text-text-primary">443 (HTTPS)</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Bytes Out</span>
+<span class="font-data-display text-meta text-text-secondary">1.4 MB</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Bytes In</span>
+<span class="font-data-display text-meta text-text-secondary">4.2 MB</span>
+</div>
+<div class="col-span-2 flex flex-col mt-xs">
+<span class="font-meta text-[10px] text-text-muted uppercase">Metadata</span>
+<span class="font-data-display text-meta text-text-secondary break-words">TLSv1.3, SNI: suspicious-domain.com</span>
+</div>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col gap-sm overflow-hidden" onclick="toggleDetails('flow-2')">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-xs">
+<span class="px-sm py-[2px] bg-secondary-container rounded text-on-secondary-container font-data-display text-[10px] font-bold uppercase">UDP</span>
+</div>
+<span class="font-data-display text-meta text-text-muted">14:02:44.901</span>
+</div>
+<div class="flex items-center justify-between mt-sm">
+<div class="font-data-display text-data-display text-text-primary text-center flex-1">10.0.0.5</div>
+<span class="material-symbols-outlined text-text-secondary px-sm text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+<div class="font-data-display text-data-display text-text-primary text-center flex-1">8.8.8.8</div>
+</div>
+<!-- Expandable Details -->
+<div class="hidden mt-md pt-md border-t border-border grid grid-cols-2 gap-sm" id="flow-2-details">
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Src Port</span>
+<span class="font-data-display text-meta text-text-secondary">54321</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Dst Port</span>
+<span class="font-data-display text-meta text-text-primary">53 (DNS)</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Bytes Out</span>
+<span class="font-data-display text-meta text-text-secondary">64 B</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Bytes In</span>
+<span class="font-data-display text-meta text-text-secondary">128 B</span>
+</div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface border border-border rounded-lg p-md flex flex-col gap-sm overflow-hidden" onclick="toggleDetails('flow-3')">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-xs">
+<span class="px-sm py-[2px] bg-secondary-container rounded text-on-secondary-container font-data-display text-[10px] font-bold uppercase">TCP</span>
+<span class="px-sm py-[2px] bg-status-medium/10 border border-status-medium/30 rounded text-status-medium font-meta text-[10px] font-bold flex items-center gap-xs">
+<span class="material-symbols-outlined text-[12px]" data-icon="info">info</span> HIGH VOL
+                        </span>
+</div>
+<span class="font-data-display text-meta text-text-muted">14:02:42.555</span>
+</div>
+<div class="flex items-center justify-between mt-sm">
+<div class="font-data-display text-data-display text-text-primary text-center flex-1">192.168.1.50</div>
+<span class="material-symbols-outlined text-text-secondary px-sm text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+<div class="font-data-display text-data-display text-text-primary text-center flex-1">10.0.50.200</div>
+</div>
+<!-- Expandable Details -->
+<div class="hidden mt-md pt-md border-t border-border grid grid-cols-2 gap-sm" id="flow-3-details">
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Src Port</span>
+<span class="font-data-display text-meta text-text-secondary">12045</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Dst Port</span>
+<span class="font-data-display text-meta text-text-primary">22 (SSH)</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Bytes Out</span>
+<span class="font-data-display text-meta text-text-secondary">25.1 MB</span>
+</div>
+<div class="flex flex-col">
+<span class="font-meta text-[10px] text-text-muted uppercase">Bytes In</span>
+<span class="font-data-display text-meta text-text-secondary">8.4 MB</span>
+</div>
+</div>
+</div>
+<button class="mt-md w-full py-md border border-border rounded bg-surface text-primary font-label-sm text-label-sm active:bg-surface-variant transition-colors flex justify-center items-center gap-xs">
+<span class="material-symbols-outlined text-[18px]" data-icon="refresh">refresh</span>
+                Load More
+            </button>
+</section>
+</main>
+<script>
+        function toggleDrawer() {
+            const drawer = document.getElementById('navDrawer');
+            const overlay = document.getElementById('drawerOverlay');
+            
+            if (drawer.classList.contains('-translate-x-full')) {
+                drawer.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+                // Small delay to allow display block to apply before opacity transition
+                setTimeout(() => {
+                    overlay.classList.remove('opacity-0');
+                    overlay.classList.add('opacity-100');
+                }, 10);
+            } else {
+                drawer.classList.add('-translate-x-full');
+                overlay.classList.remove('opacity-100');
+                overlay.classList.add('opacity-0');
+                // Wait for transition to finish before hiding
+                setTimeout(() => {
+                    overlay.classList.add('hidden');
+                }, 300);
+            }
+        }
+
+        function toggleDetails(id) {
+            const details = document.getElementById(id + '-details');
+            if (details.classList.contains('hidden')) {
+                details.classList.remove('hidden');
+            } else {
+                details.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('filterToggle').addEventListener('click', function() {
+            const panel = document.getElementById('filterPanel');
+            panel.classList.toggle('hidden');
+        });
+    </script>
+</body></html>

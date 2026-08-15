@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>System Administration - NetWatch NOC</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "primary-fixed-dim": "#7cd7c3",
+                      "status-critical": "#B0524A",
+                      "on-secondary-container": "#b2b5be",
+                      "inverse-primary": "#006b5c",
+                      "tertiary-fixed-dim": "#ffb4a4",
+                      "surface-container-high": "#262b29",
+                      "tertiary-container": "#cf7a66",
+                      "tertiary-fixed": "#ffdad3",
+                      "status-medium": "#C79A45",
+                      "outline-variant": "#3e4946",
+                      "secondary-fixed": "#dfe2ec",
+                      "surface-container": "#1c211f",
+                      "surface-container-highest": "#313634",
+                      "surface-dim": "#101413",
+                      "error-container": "#93000a",
+                      "secondary": "#c3c6d0",
+                      "secondary-container": "#43474f",
+                      "on-surface-variant": "#bdc9c5",
+                      "tertiary": "#ffb4a4",
+                      "on-tertiary-container": "#4f160a",
+                      "inverse-on-surface": "#2d3130",
+                      "on-primary-container": "#003028",
+                      "outline": "#88938f",
+                      "error": "#ffb4ab",
+                      "primary-container": "#42a08e",
+                      "primary-fixed": "#98f3df",
+                      "status-high": "#C67C4E",
+                      "on-secondary": "#2d3138",
+                      "text-muted": "#6B7280",
+                      "surface-variant": "#313634",
+                      "text-primary": "#E4E6EA",
+                      "on-tertiary-fixed-variant": "#753224",
+                      "on-error-container": "#ffdad6",
+                      "on-background": "#dfe3e1",
+                      "bg-base": "#14171C",
+                      "on-primary": "#00382f",
+                      "on-secondary-fixed": "#181c23",
+                      "surface": "#101413",
+                      "border": "#2A2F38",
+                      "inverse-surface": "#dfe3e1",
+                      "text-secondary": "#9AA1AC",
+                      "on-error": "#690005",
+                      "on-tertiary": "#581d10",
+                      "on-secondary-fixed-variant": "#43474f",
+                      "on-surface": "#dfe3e1",
+                      "surface-container-low": "#181d1b",
+                      "surface-container-lowest": "#0a0f0e",
+                      "secondary-fixed-dim": "#c3c6d0",
+                      "on-tertiary-fixed": "#3c0801",
+                      "status-normal": "#4C9A6A",
+                      "background": "#101413",
+                      "surface-tint": "#7cd7c3",
+                      "primary": "#7cd7c3",
+                      "surface-bright": "#353a38",
+                      "on-primary-fixed": "#00201b",
+                      "on-primary-fixed-variant": "#005045"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "sm": "8px",
+                      "base": "4px",
+                      "lg": "16px",
+                      "xs": "4px",
+                      "3xl": "48px",
+                      "md": "12px",
+                      "xl": "24px",
+                      "2xl": "32px"
+              },
+              "fontFamily": {
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "data-display": [
+                              "JetBrains Mono"
+                      ],
+                      "meta": [
+                              "Inter"
+                      ],
+                      "body": [
+                              "Inter"
+                      ],
+                      "section-label": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "data-display": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "meta": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "section-label": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg": [
+                              "22px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        body {
+            background-color: #14171C; /* Forced base bg to match prompt */
+        }
+        /* Custom scrollbar for data tables */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #14171C; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2A2F38; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #43474f; 
+        }
+    </style>
+</head>
+<body class="text-text-primary antialiased bg-bg-base font-body text-body overflow-hidden h-screen flex">
+<!-- SideNavBar -->
+<aside class="bg-background dark:bg-background h-screen w-64 fixed left-0 top-0 border-r border-border border-r border-border flex flex-col h-full z-40 hidden md:flex">
+<div class="p-lg border-b border-border">
+<div class="flex items-center gap-sm mb-xs">
+<span class="material-symbols-outlined text-primary text-xl" data-icon="monitor_heart">monitor_heart</span>
+<h1 class="font-headline-lg text-headline-lg font-bold text-primary truncate">NetWatch NOC</h1>
+</div>
+<p class="font-meta text-meta text-text-secondary truncate">Network Operations Center</p>
+</div>
+<div class="p-lg">
+<button class="w-full flex items-center justify-center gap-sm bg-primary text-on-primary font-label-sm text-label-sm py-sm px-md rounded border border-primary hover:bg-primary-fixed transition-colors duration-200">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Report
+            </button>
+</div>
+<nav class="flex-1 overflow-y-auto py-sm">
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary hover:bg-surface-container transition-colors duration-200 cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-label-sm text-label-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary hover:bg-surface-container transition-colors duration-200 cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-label-sm text-label-sm">Traffic</span>
+</a>
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary hover:bg-surface-container transition-colors duration-200 cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-label-sm text-label-sm">History</span>
+</a>
+<a class="flex items-center gap-md px-lg py-md text-text-secondary hover:bg-surface-container hover:text-text-primary hover:bg-surface-container transition-colors duration-200 cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="font-label-sm text-label-sm">Alerts</span>
+</a>
+<a class="flex items-center gap-md px-lg py-md text-primary bg-surface-container-high border-l-4 border-primary hover:bg-surface-container transition-colors duration-200 cursor-pointer active:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-sm text-label-sm">Admin</span>
+</a>
+</nav>
+<div class="p-lg border-t border-border mt-auto">
+<div class="flex items-center gap-md">
+<img alt="System Administrator Profile" class="w-8 h-8 rounded-full border border-border" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQz4Hqct5SwHJInnFDR9y2cv-SIRJ5VpWye_z5az2Obr6eu7Wef2c4T_edUJd8tM-3S8XSwPHq--ptcpqchM5ZObO792PBfJBX6wQzg4ULxmGyBFT0rY7yq3K0Q0uDTEXETDB_RTXVc0i4SY1qiRiwbSXQLj_wFPfUpaVKoYzca-E1qyXF1kSaZfW9-P0GbAlqtVHckdbKAthbwlfv2Gss-ejMictzjFW8mzeZRP_Ca4QuEw6b0GX-"/>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-text-primary">Admin User</span>
+<span class="font-meta text-meta text-text-secondary">SysAdmin</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="bg-surface dark:bg-surface fixed top-0 right-0 left-0 md:left-64 h-16 border-b border-border border-b border-border flex justify-between items-center px-xl h-full z-30">
+<div class="flex items-center gap-md md:hidden">
+<button class="text-text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<span class="font-headline-lg-mobile text-headline-lg-mobile font-semibold text-on-surface truncate">NetWatch NOC</span>
+</div>
+<div class="hidden md:flex items-center">
+<h2 class="font-headline-lg text-headline-lg font-semibold text-text-primary">System Administration</h2>
+</div>
+<div class="flex items-center gap-xl">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-text-secondary text-sm" data-icon="search">search</span>
+<input class="bg-background border border-border rounded pl-xl pr-md py-sm font-body text-body text-text-primary focus:outline-none focus:border-primary placeholder:text-text-muted w-64 transition-colors" placeholder="Search resources..." type="text"/>
+</div>
+<div class="flex items-center gap-md">
+<button class="text-text-secondary hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-status-critical rounded-full"></span>
+</button>
+<button class="text-text-secondary hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button class="text-text-secondary hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+<img alt="User Avatar" class="w-8 h-8 rounded-full border border-border block md:hidden" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC6pfI004sqTVreN0_foC40vjjAkLifEpdd6T9k-r4sunX040c13uMMjbnTNn17M7k6HJGQOBx5dF-5TFfeLYMvRIlf1FgWQxoicovkBZrU4plAu_cHXBG4D-zMFgiCSycZAhVSwK9G3qv-BTlqfNG5v7e3W8-91EH03liW5qYQY3d9p_qYyp9ULVFnAKl6GzD_ivZMUe_xm0riDzNX77Ft-OS0aooMq2o6V_rXeHicWF5EhKGMgars"/>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 ml-0 md:ml-64 mt-16 p-lg md:p-xl overflow-y-auto">
+<div class="max-w-7xl mx-auto space-y-xl">
+<!-- Section 1: Pending Approvals -->
+<section class="bg-surface border border-border rounded-lg overflow-hidden flex flex-col">
+<div class="p-lg border-b border-border bg-surface-container-low flex justify-between items-center">
+<h3 class="font-section-label text-section-label text-text-primary flex items-center gap-sm">
+<span class="material-symbols-outlined text-status-medium text-lg" data-icon="pending_actions">pending_actions</span>
+                        Pending Approvals
+                        <span class="bg-surface-container-highest text-text-secondary font-meta text-meta px-2 py-0.5 rounded-full ml-sm border border-border">2</span>
+</h3>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[800px]">
+<thead>
+<tr class="bg-surface-container-lowest border-b border-border">
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Name</th>
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Email</th>
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Requested At</th>
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="font-body text-body divide-y divide-border">
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-md px-lg text-text-primary font-medium">Sarah Jenkins</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">s.jenkins@netwatch.io</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">2023-10-24 14:32:01 UTC</td>
+<td class="py-md px-lg text-right">
+<div class="flex items-center justify-end gap-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="font-label-sm text-label-sm border border-status-critical text-status-critical hover:bg-error-container hover:text-on-error-container px-md py-sm rounded transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span> Reject
+                                        </button>
+<button class="font-label-sm text-label-sm border border-primary text-primary hover:bg-primary-container hover:text-on-primary-container px-md py-sm rounded transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined text-sm" data-icon="check">check</span> Approve
+                                        </button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-md px-lg text-text-primary font-medium">Marcus Vance</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">m.vance@ext.netwatch.io</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">2023-10-24 09:15:44 UTC</td>
+<td class="py-md px-lg text-right">
+<div class="flex items-center justify-end gap-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="font-label-sm text-label-sm border border-status-critical text-status-critical hover:bg-error-container hover:text-on-error-container px-md py-sm rounded transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span> Reject
+                                        </button>
+<button class="font-label-sm text-label-sm border border-primary text-primary hover:bg-primary-container hover:text-on-primary-container px-md py-sm rounded transition-colors flex items-center gap-xs">
+<span class="material-symbols-outlined text-sm" data-icon="check">check</span> Approve
+                                        </button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Empty State Example (Hidden by default, shown here for structure reference based on prompt) -->
+<!-- <div class="p-2xl flex flex-col items-center justify-center text-center">
+                    <div class="w-16 h-16 rounded-full bg-surface-container-low flex items-center justify-center mb-md border border-border">
+                        <span class="material-symbols-outlined text-text-muted text-3xl" data-icon="how_to_reg">how_to_reg</span>
+                    </div>
+                    <p class="font-body text-body text-text-secondary">No pending registrations.</p>
+                </div> -->
+</section>
+<!-- Section 2: Approved Users -->
+<section class="bg-surface border border-border rounded-lg overflow-hidden flex flex-col">
+<div class="p-lg border-b border-border bg-surface-container-low flex justify-between items-center">
+<h3 class="font-section-label text-section-label text-text-primary flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="group">group</span>
+                        Approved Users
+                    </h3>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-text-secondary text-sm" data-icon="filter_list">filter_list</span>
+<input class="bg-background border border-border rounded pl-xl pr-md py-xs font-body text-meta text-text-primary focus:outline-none focus:border-primary placeholder:text-text-muted w-48 transition-colors" placeholder="Filter users..." type="text"/>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[800px]">
+<thead>
+<tr class="bg-surface-container-lowest border-b border-border">
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Name</th>
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Email</th>
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Role</th>
+<th class="py-md px-lg font-meta text-meta text-text-secondary font-medium w-1/4">Approved At</th>
+</tr>
+</thead>
+<tbody class="font-body text-body divide-y divide-border">
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-md px-lg text-text-primary font-medium flex items-center gap-sm">
+<img alt="Profile" class="w-6 h-6 rounded-full border border-border" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdRqutVJWoH8y944xT7LrdGc47BgJol6RdorWnFv4Tm5nheZ77GEOggaYOKd6jgrmG9ZZV4ye92ZGW33uE1VuDNgWt9q17YoRUBbQLg2X3MEVq3Hn4rk9AbAkBV5-3QjJ36adFWyii6QX4fUyV0W46_JygDJTmk_TB3m9kg43jH5iTLdVIF5-DRu5xUn142jsnbhN0ElAZsTMRVsfvWWitcvPHsN9qX4_uk3Txtp5avZWgiVs1w-iM"/>
+                                    Elena Rostova
+                                </td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">e.rostova@netwatch.io</td>
+<td class="py-md px-lg">
+<span class="inline-flex items-center gap-xs px-2 py-1 rounded bg-primary-container text-on-primary-container font-meta text-meta border border-primary/20">
+<span class="material-symbols-outlined text-[12px]" data-icon="admin_panel_settings">admin_panel_settings</span>
+                                        Admin
+                                    </span>
+</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">2023-01-15 08:00:00 UTC</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-md px-lg text-text-primary font-medium flex items-center gap-sm">
+<div class="w-6 h-6 rounded-full border border-border bg-surface-container-high flex items-center justify-center font-meta text-meta text-text-secondary">DW</div>
+                                    David Wright
+                                </td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">d.wright@netwatch.io</td>
+<td class="py-md px-lg">
+<span class="inline-flex items-center gap-xs px-2 py-1 rounded bg-surface-container-highest text-text-secondary font-meta text-meta border border-border">
+<span class="material-symbols-outlined text-[12px]" data-icon="visibility">visibility</span>
+                                        Viewer
+                                    </span>
+</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">2023-05-22 11:45:12 UTC</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-md px-lg text-text-primary font-medium flex items-center gap-sm">
+<img alt="Profile" class="w-6 h-6 rounded-full border border-border" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBunZb3Mf5HJMc8dvBX7Tgn-p1gedfKFcRTMnN5hKQs7cGjWU779F1ZqphL4K6U3BZGNLqY0ibM3O6rsljc9-i1W-rH5OBhKp5lpN4cn8HsRRC8HL56e4J3Ax_05N0QNiBiTTPephFz7lmTPq7i9z5iIY6i1c7w4ZiKuXkZaR-Oq8NOWraYuTAsMcV37xMEZAiBXY8UV6nK7svbIBLf3dcB6eDbqRunZVNQZSbd9AeikQz2VkZwdEAj"/>
+                                    James O'Connor
+                                </td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">j.oconnor@netwatch.io</td>
+<td class="py-md px-lg">
+<span class="inline-flex items-center gap-xs px-2 py-1 rounded bg-surface-container-highest text-text-secondary font-meta text-meta border border-border">
+<span class="material-symbols-outlined text-[12px]" data-icon="visibility">visibility</span>
+                                        Viewer
+                                    </span>
+</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">2023-08-04 16:20:05 UTC</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-md px-lg text-text-primary font-medium flex items-center gap-sm">
+<img alt="Profile" class="w-6 h-6 rounded-full border border-border" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAhNjLVLYEYwfNZdUlMOXICPFVw7wmwSQ7mI0o56cK0Y7ZNvcNrkdmRo9SXp4Gqg8dBXqXdv0MFYBREfyWDluHGjuTBdRrY2DLWjQ54Zm8Q4Wez_Y152dFvn0x1mGBxxjw7eoaONqH5-hFLE4_UP4a1q5TdmLV7HUWhW29eH4gJjKPfBk2oI9JGPrUThBlHAw_wXKlM0uC1rLHitAsq6eI2KENK8azFnlRHigDCKKT5I7mz4qMLLFgq"/>
+                                    Aisha Patel
+                                </td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">a.patel@netwatch.io</td>
+<td class="py-md px-lg">
+<span class="inline-flex items-center gap-xs px-2 py-1 rounded bg-primary-container text-on-primary-container font-meta text-meta border border-primary/20">
+<span class="material-symbols-outlined text-[12px]" data-icon="admin_panel_settings">admin_panel_settings</span>
+                                        Admin
+                                    </span>
+</td>
+<td class="py-md px-lg font-data-display text-data-display text-text-secondary">2023-09-11 09:30:00 UTC</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="p-sm border-t border-border bg-surface-container-lowest flex justify-between items-center">
+<span class="font-meta text-meta text-text-muted pl-md">Showing 1-4 of 142 users</span>
+<div class="flex items-center gap-sm">
+<button class="p-xs text-text-muted hover:text-text-primary transition-colors disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="p-xs text-text-muted hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

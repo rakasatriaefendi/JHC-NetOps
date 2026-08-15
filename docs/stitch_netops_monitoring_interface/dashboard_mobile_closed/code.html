@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NetWatch NOC Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#7cd7c3",
+                        "status-high": "#C67C4E",
+                        "on-secondary": "#2d3138",
+                        "surface-tint": "#7cd7c3",
+                        "surface-container-lowest": "#0a0f0e",
+                        "secondary": "#c3c6d0",
+                        "primary-container": "#42a08e",
+                        "background": "#101413",
+                        "tertiary-fixed": "#ffdad3",
+                        "on-tertiary": "#581d10",
+                        "inverse-surface": "#dfe3e1",
+                        "primary-fixed-dim": "#7cd7c3",
+                        "on-secondary-fixed-variant": "#43474f",
+                        "primary-fixed": "#98f3df",
+                        "on-surface-variant": "#bdc9c5",
+                        "on-primary": "#00382f",
+                        "tertiary-fixed-dim": "#ffb4a4",
+                        "on-tertiary-container": "#4f160a",
+                        "inverse-primary": "#006b5c",
+                        "status-normal": "#4C9A6A",
+                        "text-secondary": "#9AA1AC",
+                        "inverse-on-surface": "#2d3130",
+                        "surface": "#101413",
+                        "bg-base": "#14171C",
+                        "surface-container-highest": "#313634",
+                        "tertiary-container": "#cf7a66",
+                        "surface-bright": "#353a38",
+                        "surface-variant": "#313634",
+                        "surface-container": "#1c211f",
+                        "tertiary": "#ffb4a4",
+                        "border": "#2A2F38",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed-variant": "#753224",
+                        "surface-container-low": "#181d1b",
+                        "on-primary-fixed-variant": "#005045",
+                        "surface-dim": "#101413",
+                        "on-primary-container": "#003028",
+                        "secondary-container": "#43474f",
+                        "error": "#ffb4ab",
+                        "secondary-fixed": "#dfe2ec",
+                        "text-primary": "#E4E6EA",
+                        "on-secondary-container": "#b2b5be",
+                        "secondary-fixed-dim": "#c3c6d0",
+                        "text-muted": "#6B7280",
+                        "on-error": "#690005",
+                        "on-surface": "#dfe3e1",
+                        "on-background": "#dfe3e1",
+                        "error-container": "#93000a",
+                        "on-secondary-fixed": "#181c23",
+                        "surface-container-high": "#262b29",
+                        "status-critical": "#B0524A",
+                        "outline": "#88938f",
+                        "outline-variant": "#3e4946",
+                        "on-tertiary-fixed": "#3c0801",
+                        "status-medium": "#C79A45",
+                        "on-primary-fixed": "#00201b"
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.125rem",
+                        lg: "0.25rem",
+                        xl: "0.5rem",
+                        full: "0.75rem"
+                    },
+                    spacing: {
+                        "2xl": "32px",
+                        "xl": "24px",
+                        "3xl": "48px",
+                        "sm": "8px",
+                        "xs": "4px",
+                        "base": "4px",
+                        "md": "12px",
+                        "lg": "16px"
+                    },
+                    fontFamily: {
+                        meta: ["Inter"],
+                        "data-display": ["JetBrains Mono"],
+                        "headline-lg": ["Inter"],
+                        body: ["Inter"],
+                        "label-sm": ["Inter"],
+                        "section-label": ["Inter"]
+                    },
+                    fontSize: {
+                        meta: ["12px", { lineHeight: "16px", fontWeight: "400" }],
+                        "data-display": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "headline-lg": ["22px", { lineHeight: "32px", fontWeight: "600" }],
+                        body: ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-sm": ["14px", { lineHeight: "20px", fontWeight: "500" }],
+                        "section-label": ["16px", { lineHeight: "24px", fontWeight: "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.bg-base');
+            color: theme('colors.text-primary');
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body text-body min-h-screen flex flex-col">
+<!-- TopNavBar Mobile Approximation -->
+<header class="bg-surface border-b border-border h-16 flex justify-between items-center px-lg shrink-0">
+<div class="flex items-center gap-md">
+<button class="text-text-secondary hover:text-primary transition-colors focus:outline-none">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<span class="font-headline-lg text-headline-lg text-on-surface">NetWatch NOC</span>
+</div>
+<div class="flex items-center gap-md">
+<div class="flex items-center gap-xs bg-status-normal/10 text-status-normal px-sm py-xs rounded-full border border-status-normal/20">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="font-meta text-meta">Normal</span>
+</div>
+<button class="text-text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 overflow-y-auto p-lg flex flex-col gap-lg">
+<!-- Summary Cards (Vertical Stack for Mobile) -->
+<section class="flex flex-col gap-md">
+<!-- Active Connections -->
+<div class="bg-surface border border-border rounded-lg p-lg flex flex-col gap-sm relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+<div class="flex justify-between items-center">
+<span class="font-label-sm text-label-sm text-text-secondary">Active Connections</span>
+<span class="material-symbols-outlined text-text-secondary text-[18px]" data-icon="hub">hub</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<span class="font-data-display text-data-display text-primary text-[28px] font-bold">14,291</span>
+<span class="font-meta text-meta text-status-normal flex items-center">
+<span class="material-symbols-outlined text-[14px]" data-icon="arrow_upward">arrow_upward</span> 2.4%
+                    </span>
+</div>
+</div>
+<!-- Total Bandwidth -->
+<div class="bg-surface border border-border rounded-lg p-lg flex flex-col gap-sm relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-status-medium"></div>
+<div class="flex justify-between items-center">
+<span class="font-label-sm text-label-sm text-text-secondary">Total Bandwidth (Gbps)</span>
+<span class="material-symbols-outlined text-text-secondary text-[18px]" data-icon="speed">speed</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<span class="font-data-display text-data-display text-text-primary text-[28px] font-bold">842.6</span>
+<span class="font-meta text-meta text-status-medium flex items-center">
+<span class="material-symbols-outlined text-[14px]" data-icon="horizontal_rule">horizontal_rule</span> 0%
+                    </span>
+</div>
+</div>
+<!-- Error Rate -->
+<div class="bg-surface border border-border rounded-lg p-lg flex flex-col gap-sm relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-status-critical"></div>
+<div class="flex justify-between items-center">
+<span class="font-label-sm text-label-sm text-text-secondary">Error Rate</span>
+<span class="material-symbols-outlined text-text-secondary text-[18px]" data-icon="warning">warning</span>
+</div>
+<div class="flex items-baseline gap-sm">
+<span class="font-data-display text-data-display text-text-primary text-[28px] font-bold">0.04%</span>
+<span class="font-meta text-meta text-status-critical flex items-center">
+<span class="material-symbols-outlined text-[14px]" data-icon="arrow_upward">arrow_upward</span> 0.01%
+                    </span>
+</div>
+</div>
+</section>
+<!-- Traffic Over Time Chart (Simplified for Mobile) -->
+<section class="bg-surface border border-border rounded-lg p-md flex flex-col gap-md">
+<div class="flex justify-between items-center">
+<span class="font-section-label text-section-label text-text-primary">Traffic Over Time</span>
+<span class="font-meta text-meta text-text-secondary">Last 6 Hours</span>
+</div>
+<!-- Chart Placeholder -->
+<div class="h-32 w-full flex items-end justify-between gap-1 mt-sm opacity-80">
+<div class="w-full bg-primary/20 h-[30%] rounded-t-sm"></div>
+<div class="w-full bg-primary/30 h-[40%] rounded-t-sm"></div>
+<div class="w-full bg-primary/40 h-[60%] rounded-t-sm"></div>
+<div class="w-full bg-primary/20 h-[35%] rounded-t-sm"></div>
+<div class="w-full bg-primary/60 h-[80%] rounded-t-sm"></div>
+<div class="w-full bg-primary/80 h-[95%] rounded-t-sm"></div>
+<div class="w-full bg-primary/50 h-[65%] rounded-t-sm"></div>
+<div class="w-full bg-primary/70 h-[85%] rounded-t-sm"></div>
+<div class="w-full bg-primary/40 h-[50%] rounded-t-sm"></div>
+<div class="w-full bg-primary/30 h-[45%] rounded-t-sm"></div>
+</div>
+<div class="flex justify-between border-t border-border pt-xs">
+<span class="font-data-display text-meta text-text-secondary">12:00</span>
+<span class="font-data-display text-meta text-text-secondary">15:00</span>
+<span class="font-data-display text-meta text-text-secondary">18:00</span>
+</div>
+</section>
+<!-- Recent Alerts -->
+<section class="flex flex-col gap-sm">
+<span class="font-section-label text-section-label text-text-primary mb-xs">Recent Alerts</span>
+<!-- Alert Card 1 -->
+<div class="bg-surface border border-border rounded-lg p-md flex items-start gap-md active:bg-surface-variant transition-colors cursor-pointer">
+<div class="mt-xs">
+<span class="material-symbols-outlined text-status-critical" data-icon="error" data-weight="fill" style="font-variation-settings: 'FILL' 1;">error</span>
+</div>
+<div class="flex-1 flex flex-col gap-xs">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm text-text-primary">BGP Session Down</span>
+<span class="font-data-display text-meta text-text-secondary">2m ago</span>
+</div>
+<span class="font-body text-meta text-text-secondary line-clamp-1">Peer 192.168.1.50 unreachable in ASN 65001.</span>
+<div class="flex gap-sm mt-xs">
+<span class="px-sm py-[2px] rounded border border-border bg-bg-base font-data-display text-meta text-text-secondary">RTR-NY-01</span>
+</div>
+</div>
+</div>
+<!-- Alert Card 2 -->
+<div class="bg-surface border border-border rounded-lg p-md flex items-start gap-md active:bg-surface-variant transition-colors cursor-pointer">
+<div class="mt-xs">
+<span class="material-symbols-outlined text-status-medium" data-icon="warning" data-weight="fill" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+<div class="flex-1 flex flex-col gap-xs">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm text-text-primary">High Latency Detected</span>
+<span class="font-data-display text-meta text-text-secondary">15m ago</span>
+</div>
+<span class="font-body text-meta text-text-secondary line-clamp-1">Spike to 145ms on link LNK-EU-US.</span>
+<div class="flex gap-sm mt-xs">
+<span class="px-sm py-[2px] rounded border border-border bg-bg-base font-data-display text-meta text-text-secondary">SW-LON-03</span>
+</div>
+</div>
+</div>
+<!-- Alert Card 3 -->
+<div class="bg-surface border border-border rounded-lg p-md flex items-start gap-md active:bg-surface-variant transition-colors cursor-pointer">
+<div class="mt-xs">
+<span class="material-symbols-outlined text-primary" data-icon="info" data-weight="fill" style="font-variation-settings: 'FILL' 1;">info</span>
+</div>
+<div class="flex-1 flex flex-col gap-xs">
+<div class="flex justify-between items-start">
+<span class="font-label-sm text-label-sm text-text-primary">Config Backup Completed</span>
+<span class="font-data-display text-meta text-text-secondary">1h ago</span>
+</div>
+<span class="font-body text-meta text-text-secondary line-clamp-1">Scheduled automated backup successful.</span>
+</div>
+</div>
+<button class="mt-sm w-full py-md border border-border rounded-lg text-text-secondary hover:text-primary hover:border-primary transition-colors font-label-sm text-label-sm text-center">
+                View All Alerts
+            </button>
+</section>
+</main>
+</body></html>

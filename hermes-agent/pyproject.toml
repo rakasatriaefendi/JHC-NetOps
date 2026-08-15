@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "network-monitoring-hermes-agent"
+version = "0.1.0"
+description = "Event-based analysis service for Network Monitoring"
+requires-python = ">=3.11"
+dependencies = [
+  "flask",
+  "python-dotenv",
+  "requests",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["hermes_agent"]
+

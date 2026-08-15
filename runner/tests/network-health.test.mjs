@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { buildPingInvocation, NetworkHealthWatch } from "../src/network-health.mjs";
+
+function target(overrides = {}) {
+  return { id: "11111111-1111-4111-8111-111111111111", ip_address: "127.0.0.1", probe_method: "icmp",
+    probe_interval_seconds: 30, timeout_ms: 1000, failure_threshold: 3, recovery_threshold: 2,
+    latency_warning_ms: 100, loss_warning_percent: 40, ...overrides };
+}
+function watch(backend = { healthTargets: async () => ({ targets: [] }), publishHealth: async () => ({}) }) {
+  return new NetworkHealthWatch({ runnerId: "runner-test", backend,
+    cachePath: path.join(mkdtempSync(path.join(os.tmpdir(), "health-watch-")), "state.json"),
+    ping: async () => ({ success: true, latency_ms: 1 }), now: () => 1_000 });
+}
+
+test("state transitions require three failures and two recovery successes", () => {
+  const service = watch(); const item = target();
+  service.applySample(item, { success: true, latency_ms: 2 }, 1_000);
+  assert.equal(service.states[item.id].status, "online");
+  service.applySample(item, { success: false, latency_ms: null }, 2_000);
+  service.applySample(item, { success: false, latency_ms: null }, 3_000);
+  assert.equal(service.states[item.id].status, "degraded");
+  service.applySample(item, { success: false, latency_ms: null }, 4_000);
+  assert.equal(service.states[item.id].status, "offline");
+  service.applySample(item, { success: true, latency_ms: 2 }, 5_000);
+  assert.equal(service.states[item.id].status, "offline");
+  service.applySample(item, { success: true, latency_ms: 2 }, 6_000);
+  assert.equal(service.states[item.id].status, "online");
+  assert.deepEqual(service.pendingTransitions.map((event) => event.new_status), ["degraded", "offline", "online"]);
+});
+
+test("short window retains five samples and detects degraded latency", () => {
+  const service = watch(); const item = target({ latency_warning_ms: 20 });
+  for (let index = 0; index < 7; index += 1) service.applySample(item, { success: true, latency_ms: index === 6 ? 100 : 10 }, index * 1000);
+  assert.equal(service.states[item.id].samples.length, 5);
+  assert.equal(service.states[item.id].status, "degraded");
+});
+
+test("short-window packet loss can degrade without declaring offline", () => {
+  const service = watch(); const item = target({ loss_warning_percent: 40, failure_threshold: 3 });
+  service.applySample(item, { success: true, latency_ms: 2 }, 1_000);
+  service.applySample(item, { success: false, latency_ms: null }, 2_000);
+  assert.equal(service.states[item.id].status, "degraded");
+  assert.equal(service.states[item.id].packetLossPercent, 50);
+  assert.equal(service.states[item.id].consecutiveFailures, 1);
+});
+
+test("refresh ignores unsupported entries and handles multiple targets", async () => {
+  const targets = [target(), target({ id: "22222222-2222-4222-8222-222222222222", ip_address: "192.0.2.1" }), { ...target(), id: "bad", ip_address: "hostname" }];
+  const service = watch({ healthTargets: async () => ({ targets }), publishHealth: async () => ({}) });
+  await service.refreshTargets(1_000);
+  assert.deepEqual([...service.targets.keys()], targets.slice(0, 2).map((item) => item.id));
+});
+
+test("failed publish retains coalesced state and transition with backoff", async () => {
+  let attempts = 0;
+  const service = watch({ healthTargets: async () => ({ targets: [] }), publishHealth: async () => { attempts += 1; throw new Error("offline"); } });
+  const item = target(); service.targets.set(item.id, item);
+  service.applySample(item, { success: true, latency_ms: 1 }, 1_000);
+  service.applySample(item, { success: false, latency_ms: null }, 2_000);
+  await service.publish(2_000);
+  assert.equal(attempts, 1); assert.equal(service.states[item.id].dirty, true);
+  assert.equal(service.pendingTransitions.length, 1); assert.equal(service.retryAt, 7_000);
+});
+
+test("cached approved targets survive restart during backend outage", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "health-watch-"));
+  const cachePath = path.join(directory, "state.json");
+  const first = new NetworkHealthWatch({ runnerId: "runner-test", backend: { healthTargets: async () => ({ targets: [target()] }), publishHealth: async () => ({}) }, cachePath });
+  await first.refreshTargets(1_000);
+  const restarted = new NetworkHealthWatch({ runnerId: "runner-test", backend: { healthTargets: async () => { throw new Error("offline"); }, publishHealth: async () => ({}) }, cachePath });
+  assert.deepEqual([...restarted.targets.keys()], [target().id]);
+  await restarted.refreshTargets(2_000);
+  assert.deepEqual([...restarted.targets.keys()], [target().id]);
+});
+
+test("tick launches a probe without blocking runner polling", async () => {
+  let resolvePing; let calls = 0;
+  const service = new NetworkHealthWatch({ runnerId: "runner-test", backend: { healthTargets: async () => ({ targets: [target()] }), publishHealth: async () => ({}) },
+    cachePath: path.join(mkdtempSync(path.join(os.tmpdir(), "health-watch-")), "state.json"), now: () => 1_000,
+    ping: () => { calls += 1; return new Promise((resolve) => { resolvePing = resolve; }); } });
+  service.running = true;
+  await service.tick();
+  assert.equal(calls, 1); assert.equal(service.inFlight.size, 1);
+  resolvePing({ success: true, latency_ms: 1 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(service.inFlight.size, 0);
+});
+
+test("ping invocation is fixed, bounded, and rejects command injection", () => {
+  const invocation = buildPingInvocation("192.0.2.10", 1000);
+  assert.equal(invocation.executable, "C:\\Windows\\System32\\PING.EXE");
+  assert.deepEqual(invocation.args, ["-4", "-n", "1", "-w", "1000", "192.0.2.10"]);
+  assert.equal(invocation.options.shell, false);
+  assert.throws(() => buildPingInvocation("127.0.0.1 & whoami", 1000));
+  assert.throws(() => buildPingInvocation("127.0.0.1", 60_000));
+});

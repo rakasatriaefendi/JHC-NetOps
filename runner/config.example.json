@@ -1,0 +1,25 @@
+{
+  "runner_id": "local-wsl-runner",
+  "display_name": "Local WSL Diagnostic Runner",
+  "wsl_distro": "Ubuntu-22.04",
+  "wsl_project_root": "/mnt/c/Users/CHANGE_ME/path/to/Network-Monitoring",
+  "agent_executable": "agent/.venv/bin/network-monitor",
+  "environment_file": ".env",
+  "enable_diagnostic_demo": false,
+  "source_locations": ["Local Development"],
+  "targets": [
+    {
+      "id": "localhost-demo",
+      "label": "Localhost — TEST ENVIRONMENT",
+      "host": "127.0.0.1",
+      "iperf_port": 5201,
+      "environment": "localhost_demo",
+      "enabled": true
+    }
+  ],
+  "durations": [5, 10],
+  "traffic_interface": "eth0",
+  "traffic_durations_seconds": [300, 600, 900, 1800],
+  "poll_interval_ms": 2000,
+  "heartbeat_interval_ms": 10000
+}
