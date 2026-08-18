@@ -4,6 +4,7 @@ import { publicCapabilities, validateJob, validatePreflightRequest, validateTraf
 import { buildAgentInvocation, buildTrafficInvocation, validateAgentEvent, validateTrafficEvent } from "../src/wsl.mjs";
 import { buildNetworkContextInvocation, validateNetworkProbe } from "../src/network-context.mjs";
 import { startHeartbeatLoop } from "../src/heartbeat.mjs";
+import { backendFailureMessage } from "../src/backend.mjs";
 
 const config = {
   runner_id: "test-runner",
@@ -52,7 +53,7 @@ test("human source is accepted while invalid target, duration, and connection ar
 });
 
 test("capabilities expose only controlled fields", () => {
-  assert.deepEqual(publicCapabilities(config).operations, ["bandwidth_and_path", "traffic_live", "network_discovery"]);
+  assert.deepEqual(publicCapabilities(config).operations, ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"]);
   assert.equal(publicCapabilities(config).targets[0].host, "127.0.0.1");
 });
 
@@ -143,4 +144,12 @@ test("heartbeat continues independently while a job-sized task is pending", asyn
   } finally {
     stop();
   }
+});
+
+test("backend failures expose bounded safe details without multiline log injection", () => {
+  assert.equal(
+    backendFailureMessage("Backend", 400, { error: "Runner operations are invalid\r\nforged log" }),
+    "Backend request failed with HTTP 400: Runner operations are invalid  forged log",
+  );
+  assert.equal(backendFailureMessage("Backend", 503, {}), "Backend request failed with HTTP 503");
 });

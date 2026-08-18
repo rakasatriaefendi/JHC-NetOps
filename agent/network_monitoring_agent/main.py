@@ -22,6 +22,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "capabilities":
+            from .device_inspector import inspector_capabilities
+            print(json.dumps(inspector_capabilities(), separators=(",", ":")))
+            return
         if args.command == "bandwidth-test":
             measurement = run_iperf3(
                 args.target,
@@ -62,6 +66,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             from .traffic_live import resolve_capture_interface
             print(resolve_capture_interface(args.interface))
             return
+        if args.command == "device-inspect":
+            _run_device_inspection(args)
+            return
     except (DiagnosticCommandError, DiagnosticDeliveryError, ValueError) as exc:
         parser.exit(2, f"diagnostic failed: {exc}\n")
 
@@ -84,6 +91,10 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "monitor",
         help="run the independent 10-second aggregate metrics loop",
+    )
+    subparsers.add_parser(
+        "capabilities",
+        help="print normalized local agent capabilities without changing state",
     )
 
     bandwidth = subparsers.add_parser(
@@ -176,7 +187,46 @@ def _build_parser() -> argparse.ArgumentParser:
     traffic_check = subparsers.add_parser("traffic-interface-check", help=argparse.SUPPRESS)
     traffic_check.add_argument("--interface", required=True)
 
+    inspector = subparsers.add_parser(
+        "device-inspect",
+        help="inspect one authorized private IP and emit normalized JSON Lines",
+    )
+    inspector.add_argument("target")
+    inspector.add_argument("--route-role", required=True, choices=("default_gateway", "on_link", "routed"))
+    inspector.add_argument("--default-gateway")
+    inspector.add_argument("--same-subnet", required=True, choices=("yes", "no"))
+    inspector.add_argument("--mac")
+    inspector.add_argument("--reachable", required=True, choices=("yes", "no"))
+    inspector.add_argument("--is-this-device", required=True, choices=("yes", "no"))
+    inspector.add_argument("--interface-index", required=True, type=int)
+    inspector.add_argument("--interface-alias", required=True)
+    inspector.add_argument("--interface-description", required=True)
+    inspector.add_argument("--interface-type", required=True, choices=("physical", "virtual", "unknown"))
+
     return parser
+
+
+def _run_device_inspection(args: argparse.Namespace) -> None:
+    from .device_inspector import inspect_device
+
+    emit = lambda event: print(json.dumps(event, separators=(",", ":")), flush=True)
+    fingerprint = inspect_device(
+        args.target,
+        {
+            "route_role": args.route_role,
+            "default_gateway": args.default_gateway,
+            "same_subnet": args.same_subnet == "yes",
+            "mac": args.mac,
+            "reachable": args.reachable == "yes",
+            "is_this_device": args.is_this_device == "yes",
+            "interface_index": args.interface_index,
+            "interface_alias": args.interface_alias,
+            "interface_description": args.interface_description,
+            "interface_type": args.interface_type,
+        },
+        emit,
+    )
+    emit({"type": "result", "fingerprint": fingerprint})
 
 
 def _run_traffic_live(args: argparse.Namespace) -> None:

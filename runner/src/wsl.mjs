@@ -21,8 +21,18 @@ export function runPreflight(config) {
   captureWsl(config, ["/usr/bin/mtr", "--version"], "MTR_MISSING");
   captureWsl(config, [config.python_path, "-c", "import scapy"], "TRAFFIC_CAPTURE_FAILED");
   captureWsl(config, [config.agent_path, "traffic-interface-check", "--interface", config.traffic_interface], "TRAFFIC_CAPTURE_FAILED");
+  let deviceInspectorPayload;
+  try {
+    deviceInspectorPayload = JSON.parse(captureWslStdout(
+      config, [config.agent_path, "capabilities"], "INSPECTION_AGENT_UNAVAILABLE",
+    ).trim());
+  } catch (error) {
+    if (error?.code) throw error;
+    throw safeError("INSPECTION_AGENT_UNAVAILABLE");
+  }
+  const deviceInspector = validateInspectorCapabilities(deviceInspectorPayload);
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw safeError("RUNNER_INTERNAL_ERROR", "Runner backend credentials are unavailable");
-  return { python: pythonVersion[0], iperf3: `3.${iperfVersion[1]}`, mtr: true, traffic: true };
+  return { python: pythonVersion[0], iperf3: `3.${iperfVersion[1]}`, mtr: true, traffic: true, device_inspector: deviceInspector };
 }
 
 export function buildAgentInvocation(config, job) {
@@ -52,7 +62,30 @@ export async function runAgent(config, job, onEvent, timeoutMs) {
   return runStructuredProcess(buildAgentInvocation(config, job), validateAgentEvent, onEvent, timeoutMs);
 }
 
-async function runStructuredProcess(args, validator, onEvent, timeoutMs) {
+export function buildInspectionInvocation(config, session, context) {
+  const args = ["-d", config.wsl_distro, "--exec", config.agent_path, "device-inspect", session.target_ip,
+    "--route-role", context.route_role,
+    "--same-subnet", context.same_subnet ? "yes" : "no",
+    "--reachable", context.reachable ? "yes" : "no",
+    "--is-this-device", context.is_this_device ? "yes" : "no",
+    "--interface-index", String(context.interface_index),
+    "--interface-alias", context.interface_alias,
+    "--interface-description", context.interface_description,
+    "--interface-type", context.interface_type];
+  if (context.default_gateway) args.push("--default-gateway", context.default_gateway);
+  if (context.mac) args.push("--mac", context.mac);
+  return args;
+}
+
+export async function runInspectionAgent(config, session, context, onEvent, timeoutMs = 30_000) {
+  return runStructuredProcess(buildInspectionInvocation(config, session, context), validateInspectionEvent, onEvent, timeoutMs, {
+    start: "INSPECTION_WSL_UNAVAILABLE",
+    timeout: "INSPECTION_TIMEOUT",
+    exit: "INSPECTION_AGENT_UNAVAILABLE",
+  });
+}
+
+async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCodes = {}) {
   const child = spawn("wsl.exe", args, { windowsHide: CREATE_NO_WINDOW, shell: false, stdio: ["ignore", "pipe", "pipe"] });
   let safeAgentError = null;
   let protocolError = null;
@@ -60,7 +93,7 @@ async function runStructuredProcess(args, validator, onEvent, timeoutMs) {
   let timedOut = false;
   let stderrBytes = 0;
   const exitPromise = new Promise((resolve, reject) => {
-    child.once("error", () => reject(safeError("WSL_START_FAILED")));
+    child.once("error", () => reject(safeError(errorCodes.start ?? "WSL_START_FAILED")));
     child.once("close", resolve);
   });
   const timeout = setTimeout(() => {
@@ -93,11 +126,11 @@ async function runStructuredProcess(args, validator, onEvent, timeoutMs) {
     }
   }
   const exit = await exitPromise.finally(() => clearTimeout(timeout));
-  if (timedOut) throw safeError("JOB_TIMEOUT");
+  if (timedOut) throw safeError(errorCodes.timeout ?? "JOB_TIMEOUT");
   if (protocolError) throw protocolError;
   if (callbackError) throw callbackError;
   if (safeAgentError) throw safeAgentError;
-  if (exit !== 0) throw safeError("WSL_START_FAILED");
+  if (exit !== 0) throw safeError(errorCodes.exit ?? "WSL_START_FAILED");
   return { exit, stderr_bytes: stderrBytes };
 }
 
@@ -138,13 +171,66 @@ export function validateAgentEvent(value) {
   throw safeError("AGENT_PROTOCOL_ERROR");
 }
 
+export function validateInspectionEvent(value) {
+  if (!value || typeof value !== "object") throw safeError("AGENT_PROTOCOL_ERROR");
+  if (value.type === "stage" && ["network_role", "identity", "services", "normalizing"].includes(value.stage)) {
+    return { type: "stage", stage: value.stage };
+  }
+  if (value.type === "result") return { type: "result", fingerprint: validateFingerprint(value.fingerprint) };
+  throw safeError("AGENT_PROTOCOL_ERROR");
+}
+
+export function validateInspectorCapabilities(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || value.schema_version !== 1 ||
+      value.available !== true || value.probe_engine !== "python_socket" ||
+      !value.required || value.required.python_socket !== true) throw safeError("INSPECTION_AGENT_UNAVAILABLE");
+  const booleanMap = (input) => input && typeof input === "object" && !Array.isArray(input) &&
+    Object.values(input).every((item) => typeof item === "boolean");
+  if (!booleanMap(value.optional) || (value.collectors !== undefined && !booleanMap(value.collectors)) ||
+      !booleanMap(value.available_but_unused) || !booleanMap(value.optional_not_required) ||
+      typeof value.python_version !== "string" || value.python_version.length > 32) throw safeError("INSPECTION_AGENT_UNAVAILABLE");
+  return {
+    schema_version: 1,
+    available: true,
+    probe_engine: "python_socket",
+    python_version: value.python_version,
+    required: { python_socket: true },
+    collectors: value.collectors ? { ...value.collectors } : {
+      tcp_connect: true, http_metadata: true, tls_metadata: Boolean(value.optional.openssl),
+      upnp_unicast: true, netbios_node_status: true,
+    },
+    optional: { ...value.optional },
+    available_but_unused: { ...value.available_but_unused },
+    optional_not_required: { ...value.optional_not_required },
+  };
+}
+
+function validateFingerprint(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !privateIpv4(value.ip) ||
+      !["high", "medium", "low", "unknown"].includes(value.confidence) ||
+      typeof value.likely_device_type !== "string" || !Array.isArray(value.capabilities) || value.capabilities.length > 16 ||
+      !Array.isArray(value.evidence) || value.evidence.length > 32) throw safeError("AGENT_PROTOCOL_ERROR");
+  const encoded = JSON.stringify(value);
+  if (Buffer.byteLength(encoded, "utf8") > 64 * 1024 || /"(?:raw|stdout|stderr|html|xml|body|payload|cookie|token|authorization|credential|password|secret)"\s*:/i.test(encoded)) {
+    throw safeError("AGENT_PROTOCOL_ERROR");
+  }
+  return value;
+}
+
 function captureWsl(config, args, errorCode) {
   const result = spawnSync("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
   if (result.status !== 0) throw safeError(errorCode);
   return `${result.stdout ?? ""}${result.stderr ?? ""}`.replaceAll("\u0000", "");
 }
 
+function captureWslStdout(config, args, errorCode) {
+  const result = spawnSync("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+  if (result.status !== 0) throw safeError(errorCode);
+  return `${result.stdout ?? ""}`.replaceAll("\u0000", "");
+}
+
 function assertWsl(config, args, errorCode) { captureWsl(config, args, errorCode); }
 function requireNumber(value) { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw safeError("AGENT_PROTOCOL_ERROR"); }
 function direction(value) { return value === "upload" || value === "download"; }
 function isUuid(value) { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
+function privateIpv4(value) { if (typeof value !== "string") return false; const parts = value.split("."); if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false; const [a, b] = parts.map(Number); return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168); }

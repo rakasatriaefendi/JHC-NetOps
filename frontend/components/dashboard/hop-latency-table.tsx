@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { Button } from "@/components/ui/button";
+import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import {
   groupHopMeasurementSessions,
   type DiagnosticSortOrder,
@@ -132,6 +133,7 @@ function ObservedHop({
   targetLabel: string | null;
 }) {
   const { nodes, canManage } = useNetworkNodes();
+  const { openDeviceProfile } = useDeviceProfile();
   const [editing, setEditing] = useState(false);
   const node = findNetworkNode(nodes, hop.hop_ip);
   const primaryName = networkNodeDisplayName(
@@ -152,6 +154,7 @@ function ObservedHop({
             <p className="mt-2 text-meta text-text-muted">Inventory label: {node.name}</p>
           ) : null}
           {node ? <NodeMetadata node={node} /> : null}
+          {node?.detected_fingerprint ? <p className="mt-2 text-meta text-text-secondary">Detected: {node.detected_fingerprint.detected_identity.likely_label ?? node.detected_fingerprint.likely_device_type} · {node.detected_fingerprint.confidence.toUpperCase()}</p> : null}
         </div>
         <dl className="grid shrink-0 grid-cols-2 gap-4 text-meta sm:min-w-56">
           <Metric label="Avg latency" value={formatLatency(hop.avg_latency_ms)} />
@@ -159,6 +162,7 @@ function ObservedHop({
         </dl>
       </div>
 
+      {node && hop.hop_ip ? <button className="mt-4 mr-4 text-meta font-medium text-accent hover:underline" onClick={() => openDeviceProfile({ ipAddress: hop.hop_ip! })} type="button">View device</button> : null}
       {canManage && hop.hop_ip ? (
         <button
           className="mt-4 text-meta font-medium text-accent hover:underline"

@@ -8,7 +8,7 @@ const config = loadRunnerConfig(path.join(runnerRoot, "config.local.json"));
 const url = process.env.SUPABASE_URL.replace(/\/$/, "");
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const response = await fetch(
-  `${url}/rest/v1/diagnostic_runners?select=id,last_seen_at,health_status,health_error_code&id=eq.${encodeURIComponent(config.runner_id)}`,
+  `${url}/rest/v1/diagnostic_runners?select=id,last_seen_at,health_status,health_error_code,capabilities&id=eq.${encodeURIComponent(config.runner_id)}`,
   { headers: { Authorization: `Bearer ${key}`, apikey: key } },
 );
 if (!response.ok) throw new Error(`Runner status request failed with HTTP ${response.status}`);
@@ -23,5 +23,7 @@ console.log(JSON.stringify({
   health_status: runner.health_status,
   health_error_code: runner.health_error_code,
   last_seen_at: runner.last_seen_at,
+  operations: runner.capabilities?.operations ?? [],
+  device_inspector: runner.capabilities?.device_inspector ?? null,
 }, null, 2));
 process.exitCode = online ? 0 : 2;

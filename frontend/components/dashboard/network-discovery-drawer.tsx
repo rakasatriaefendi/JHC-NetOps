@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import type { DiscoveryHost, DiscoverySession } from "@/lib/network-discovery";
 import { NETWORK_NODE_TYPES, findNetworkNode, networkNodeTypeLabel, type NetworkNode, type NetworkNodeInput, type NetworkNodeType } from "@/lib/network-nodes";
@@ -167,9 +168,9 @@ export function NetworkDiscoveryDrawer({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-section font-semibold">Discovered devices</h3><p className="mt-1 text-meta text-text-muted">Temporary results · deduplicated by IP · no ports or services scanned.</p></div><Button variant="secondary" disabled={busy || !selectedRows.length || invalidSelection} onClick={() => void addSelected()}>Add selected to monitoring</Button></div>
             {invalidSelection ? <p className="mt-3 text-meta text-severity-medium">Selected unknown devices must be named first. This Device is not promoted as a health target.</p> : null}
             <div className="mt-4 hidden overflow-x-auto rounded-control border border-border md:block">
-              <table className="w-full min-w-[900px] text-left"><thead className="bg-bg-base text-meta text-text-secondary"><tr><th className="p-3">Select</th><th className="p-3">IP / identity</th><th className="p-3">Discovery</th><th className="p-3">Inventory</th><th className="p-3">Monitoring</th><th className="p-3">Actions</th></tr></thead><tbody>{enriched.map((row) => <DiscoveryRow key={row.host.ip_address} {...row} selected={selected.has(row.host.ip_address)} setSelected={setSelected} busy={busy} onName={setEditingIp} onMonitor={addToHealth} />)}</tbody></table>
+              <table className="w-full min-w-[900px] text-left"><thead className="bg-bg-base text-meta text-text-secondary"><tr><th className="p-3">Select</th><th className="p-3">IP / identity</th><th className="p-3">Discovery</th><th className="p-3">Inventory</th><th className="p-3">Monitoring</th><th className="p-3">Actions</th></tr></thead><tbody>{enriched.map((row) => <DiscoveryRow key={row.host.ip_address} {...row} runnerId={runner?.id ?? ""} selected={selected.has(row.host.ip_address)} setSelected={setSelected} busy={busy} onName={setEditingIp} onMonitor={addToHealth} />)}</tbody></table>
             </div>
-            <div className="mt-4 grid gap-3 md:hidden">{enriched.map((row) => <DiscoveryCard key={row.host.ip_address} {...row} selected={selected.has(row.host.ip_address)} setSelected={setSelected} busy={busy} onName={setEditingIp} onMonitor={addToHealth} />)}</div>
+            <div className="mt-4 grid gap-3 md:hidden">{enriched.map((row) => <DiscoveryCard key={row.host.ip_address} {...row} runnerId={runner?.id ?? ""} selected={selected.has(row.host.ip_address)} setSelected={setSelected} busy={busy} onName={setEditingIp} onMonitor={addToHealth} />)}</div>
           </section>
         ) : null}
         {session?.status === "completed" && !expired && enriched.length === 0 ? <Notice>No responding devices were discovered.</Notice> : null}
@@ -187,7 +188,7 @@ function Context({ session, runnerName }: { session: DiscoverySession; runnerNam
 }
 
 type EnrichedRow = { host: DiscoveryHost; node: NetworkNode | undefined; monitored: boolean; seenInTraffic: boolean };
-type RowActions = EnrichedRow & { selected: boolean; setSelected: React.Dispatch<React.SetStateAction<Set<string>>>; busy: boolean; onName: (ip: string) => void; onMonitor: (node: NetworkNode) => Promise<void> };
+type RowActions = EnrichedRow & { runnerId: string; selected: boolean; setSelected: React.Dispatch<React.SetStateAction<Set<string>>>; busy: boolean; onName: (ip: string) => void; onMonitor: (node: NetworkNode) => Promise<void> };
 
 function DiscoveryRow(props: RowActions) {
   const { host, node, monitored, seenInTraffic } = props;
@@ -199,9 +200,10 @@ function DiscoveryCard(props: RowActions) {
   return <article className="rounded-control border border-border bg-bg-base p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-data">{host.ip_address}</p><p className="mt-1 font-medium">{node?.name ?? (host.is_this_device ? "This Device" : "Unknown node")}</p></div><input aria-label={`Select ${host.ip_address}`} type="checkbox" disabled={monitored} checked={props.selected} onChange={() => toggleSelection(props.setSelected, host.ip_address)} /></div><div className="mt-3 flex flex-wrap gap-2"><DiscoveryEvidence host={host} />{node ? <Pill tone="known">KNOWN</Pill> : <Pill>DISCOVERED</Pill>}{monitored ? <Pill tone="monitored">MONITORED</Pill> : <Pill>NOT MONITORED</Pill>}{seenInTraffic ? <Pill tone="known">SEEN IN TRAFFIC</Pill> : null}</div><div className="mt-4"><Actions {...props} /></div></article>;
 }
 
-function Actions({ host, node, monitored, busy, onName, onMonitor }: RowActions) {
+function Actions({ host, node, monitored, busy, onName, onMonitor, runnerId }: RowActions) {
+  const { openDeviceProfile } = useDeviceProfile();
   if (host.is_this_device) return <span className="text-meta text-text-muted">Runner device</span>;
-  return <div className="flex flex-wrap gap-2">{!node ? <Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>Beri nama</Button> : <Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>Edit identity</Button>}{node && !monitored ? <Button disabled={busy} onClick={() => void onMonitor(node)}>Add to Health Watch</Button> : null}</div>;
+  return <div className="flex flex-wrap gap-2">{!node ? <><Button disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, inspect: true, observedStatus: "online" })}>Inspect</Button><Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>Beri nama</Button></> : <Button variant="secondary" disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, observedStatus: "online" })}>Detail</Button>}{node && !monitored ? <Button disabled={busy} onClick={() => void onMonitor(node)}>Add to Health Watch</Button> : null}</div>;
 }
 
 function NameEditor({ ipAddress, current, onClose }: { ipAddress: string; current: NetworkNode | null; onClose: () => void }) {

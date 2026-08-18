@@ -1,4 +1,5 @@
 import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-provider";
+import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { DiagnosticsWorkspace } from "@/components/diagnostics/diagnostics-workspace";
 import { loadDiagnosticJobState } from "@/lib/diagnostic-jobs";
 import { loadDiagnostics } from "@/lib/diagnostics";
@@ -22,7 +23,9 @@ export default async function DiagnosticsPage({searchParams}:{searchParams:Promi
       <p className="mt-2 text-text-secondary">On-demand, terpisah dari traffic metrics, baseline, dan severity.</p>
       <div className="mt-6 min-w-0">
         <NetworkNodesProvider initialNodes={networkNodes.data} loadError={networkNodes.error} role={profile.role}>
+          <DeviceProfileProvider role={profile.role} runners={jobState.data.runners}>
           <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={jobState.error || diagnostics.error} diagnosticsLoadError={diagnostics.error} prefillTarget={target} role={profile.role} />
+          </DeviceProfileProvider>
         </NetworkNodesProvider>
       </div>
     </main>

@@ -5,6 +5,7 @@ export class BackendClient {
     this.trafficEndpoint = `${url.replace(/\/$/, "")}/functions/v1/traffic-live`;
     this.healthEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-health`;
     this.discoveryEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-discovery`;
+    this.inspectionEndpoint = `${url.replace(/\/$/, "")}/functions/v1/device-inspector`;
     this.headers = {
       Authorization: `Bearer ${serviceRoleKey}`,
       apikey: serviceRoleKey,
@@ -52,29 +53,52 @@ export class BackendClient {
   failDiscovery(runnerId, sessionId, errorCode) {
     return this.#postDiscovery({ action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: errorCode });
   }
+  claimInspection(runnerId) { return this.#postInspection({ action: "claim_session", runner_id: runnerId }); }
+  inspectionStage(runnerId, inspectionId, stage) {
+    return this.#postInspection({ action: "update_stage", runner_id: runnerId, inspection_id: inspectionId, stage });
+  }
+  completeInspection(runnerId, inspectionId, result) {
+    return this.#postInspection({ action: "complete_session", runner_id: runnerId, inspection_id: inspectionId, result });
+  }
+  failInspection(runnerId, inspectionId, errorCode) {
+    return this.#postInspection({ action: "fail_session", runner_id: runnerId, inspection_id: inspectionId, error_code: errorCode });
+  }
 
   async #post(body) {
     const response = await fetch(this.endpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Backend request failed with HTTP ${response.status}`);
+    if (!response.ok) throw new Error(backendFailureMessage("Backend", response.status, payload));
     return payload.data;
   }
   async #postTraffic(body) {
     const response = await fetch(this.trafficEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Traffic backend request failed with HTTP ${response.status}`);
+    if (!response.ok) throw new Error(backendFailureMessage("Traffic backend", response.status, payload));
     return payload.data;
   }
   async #postHealth(body) {
     const response = await fetch(this.healthEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Network health backend request failed with HTTP ${response.status}`);
+    if (!response.ok) throw new Error(backendFailureMessage("Network health backend", response.status, payload));
     return payload.data;
   }
   async #postDiscovery(body) {
     const response = await fetch(this.discoveryEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Network discovery backend request failed with HTTP ${response.status}`);
+    if (!response.ok) throw new Error(backendFailureMessage("Network discovery backend", response.status, payload));
     return payload.data;
   }
+  async #postInspection(body) {
+    const response = await fetch(this.inspectionEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(backendFailureMessage("Device inspection backend", response.status, payload));
+    return payload.data;
+  }
+}
+
+export function backendFailureMessage(label, status, payload) {
+  const detail = typeof payload?.error === "string"
+    ? payload.error.replace(/[\r\n\x00-\x1f\x7f]/g, " ").trim().slice(0, 200)
+    : "";
+  return `${label} request failed with HTTP ${status}${detail ? `: ${detail}` : ""}`;
 }

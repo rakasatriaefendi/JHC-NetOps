@@ -180,12 +180,14 @@ async function expireSessions(db: ReturnType<typeof createClient>) {
 }
 
 async function runnerBusy(db: ReturnType<typeof createClient>, runnerId: string) {
-  const [{ count: jobs }, { count: traffic }] = await Promise.all([
+  const [{ count: jobs }, { count: traffic }, { count: inspection }] = await Promise.all([
     db.from("diagnostic_jobs").select("id", { count: "exact", head: true }).eq("runner_id", runnerId).in("status", ["queued", "running"]),
     db.from("traffic_live_sessions").select("id", { count: "exact", head: true }).eq("runner_id", runnerId).in("status", ["queued", "running", "stopping"]),
+    db.from("device_inspection_sessions").select("inspection_id", { count: "exact", head: true }).eq("runner_id", runnerId).in("status", ["queued", "running"]),
   ]);
   if ((jobs ?? 0) > 0) return { message: "Runner is busy with LAN Diagnostics" };
   if ((traffic ?? 0) > 0) return { message: "Runner is busy with Traffic capture" };
+  if ((inspection ?? 0) > 0) return { message: "Runner is busy with Device Inspector" };
   return null;
 }
 

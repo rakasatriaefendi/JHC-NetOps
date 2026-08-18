@@ -27,7 +27,18 @@ type RunnerCapabilities = {
   targets: RunnerTarget[];
   durations: number[];
   traffic_durations_seconds: number[];
-  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery")[];
+  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery" | "device_inspect")[];
+  device_inspector?: {
+    schema_version: 1;
+    available: true;
+    probe_engine: "python_socket";
+    python_version: string;
+    required: Record<string, boolean>;
+    collectors: Record<string, boolean>;
+    optional: Record<string, boolean>;
+    available_but_unused: Record<string, boolean>;
+    optional_not_required: Record<string, boolean>;
+  };
 };
 type NetworkContext = Record<string, unknown> & { connection_type: "wifi" | "ethernet" | "unknown" };
 type RouteContext = Record<string, unknown>;
@@ -203,6 +214,13 @@ async function createJob(
   }
   if ((activeTrafficCount ?? 0) > 0) {
     return jsonResponse({ error: "Runner is busy with a Traffic capture", code: "RUNNER_BUSY" }, 409);
+  }
+  const [{ count: activeDiscoveryCount }, { count: activeInspectionCount }] = await Promise.all([
+    auth.serviceClient.from("network_discovery_sessions").select("session_id", { count: "exact", head: true }).eq("runner_id", runner.id).in("status", ["queued", "running"]),
+    auth.serviceClient.from("device_inspection_sessions").select("inspection_id", { count: "exact", head: true }).eq("runner_id", runner.id).in("status", ["queued", "running"]),
+  ]);
+  if ((activeDiscoveryCount ?? 0) > 0 || (activeInspectionCount ?? 0) > 0) {
+    return jsonResponse({ error: "Runner is busy with another active operation", code: "RUNNER_BUSY" }, 409);
   }
 
   const { data, error } = await auth.serviceClient
@@ -620,10 +638,11 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
   }
   if (
     !Array.isArray(value.operations) ||
-    value.operations.length !== 3 ||
+    value.operations.length !== 4 ||
     !value.operations.includes("bandwidth_and_path") ||
     !value.operations.includes("traffic_live") ||
-    !value.operations.includes("network_discovery")
+    !value.operations.includes("network_discovery") ||
+    !value.operations.includes("device_inspect")
   ) {
     return { ok: false, error: "Runner operations are invalid" };
   }
@@ -653,6 +672,8 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
   if (new Set(targets.map((target) => target.id)).size !== targets.length) {
     return { ok: false, error: "Runner target IDs must be unique" };
   }
+  const deviceInspector = validateDeviceInspectorCapability(value.device_inspector);
+  if (!deviceInspector.ok) return deviceInspector;
   return {
     ok: true,
     value: {
@@ -660,9 +681,43 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
       targets,
       durations,
       traffic_durations_seconds: trafficDurations,
-      operations: ["bandwidth_and_path", "traffic_live", "network_discovery"],
+      operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
+      ...(deviceInspector.value ? { device_inspector: deviceInspector.value } : {}),
     },
   };
+}
+
+function validateDeviceInspectorCapability(value: unknown):
+  | { ok: true; value: RunnerCapabilities["device_inspector"] | undefined }
+  | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!isRecord(value) || value.schema_version !== 1 || value.available !== true ||
+      value.probe_engine !== "python_socket" || typeof value.python_version !== "string" ||
+      value.python_version.length > 32) return { ok: false, error: "Device Inspector capability is invalid" };
+  const booleanMap = (item: unknown): item is Record<string, boolean> =>
+    isRecord(item) && Object.keys(item).length <= 16 && Object.values(item).every((entry) => typeof entry === "boolean");
+  if (!booleanMap(value.required) || value.required.python_socket !== true ||
+      (value.collectors !== undefined && !booleanMap(value.collectors)) || !booleanMap(value.optional) ||
+      !booleanMap(value.available_but_unused) || !booleanMap(value.optional_not_required)) {
+    return { ok: false, error: "Device Inspector capability tool matrix is invalid" };
+  }
+  return { ok: true, value: {
+    schema_version: 1,
+    available: true,
+    probe_engine: "python_socket",
+    python_version: value.python_version,
+    required: value.required,
+    collectors: value.collectors ?? {
+      tcp_connect: true,
+      http_metadata: true,
+      tls_metadata: Boolean(value.optional.openssl),
+      upnp_unicast: true,
+      netbios_node_status: true,
+    },
+    optional: value.optional,
+    available_but_unused: value.available_but_unused,
+    optional_not_required: value.optional_not_required,
+  } };
 }
 
 function validateStoredPreflight(value: unknown, target: RunnerTarget):

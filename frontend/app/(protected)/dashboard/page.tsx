@@ -2,6 +2,7 @@ import { NetworkHealthDashboard } from "@/components/dashboard/network-health-da
 import { DiagnosticsSummary } from "@/components/dashboard/diagnostics-summary";
 import { LocalTrafficSummary } from "@/components/dashboard/local-traffic-summary";
 import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-provider";
+import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadDiagnostics } from "@/lib/diagnostics";
 import { loadDiscoverySessions, observedTrafficIps } from "@/lib/network-discovery";
@@ -33,6 +34,7 @@ export default async function DashboardPage() {
       </p>
 
       <NetworkNodesProvider initialNodes={nodes.data} loadError={nodes.error} role={profile.role}>
+        <DeviceProfileProvider role={profile.role} runners={traffic.data.runners}>
         <LocalTrafficSummary initialState={traffic.data} loadError={traffic.error} />
         <NetworkHealthDashboard
           targets={health.data}
@@ -44,6 +46,7 @@ export default async function DashboardPage() {
           trafficIps={observedTrafficIps(traffic.data.snapshots)}
         />
         <DiagnosticsSummary data={diagnostics.data} loadError={diagnostics.error} />
+        </DeviceProfileProvider>
       </NetworkNodesProvider>
     </main>
   );

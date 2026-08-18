@@ -12,3 +12,6 @@ verify_jwt = true
 
 [functions.network-health]
 verify_jwt = true
+
+[functions.device-inspector]
+verify_jwt = true

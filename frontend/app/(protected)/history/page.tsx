@@ -1,4 +1,5 @@
 import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-provider";
+import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { HistoryTabs } from "@/components/history/history-tabs";
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadNetworkNodes } from "@/lib/network-nodes";
@@ -16,7 +17,7 @@ export default async function HistoryPage() {
         Riwayat event jaringan tetap terpisah dari hasil pengujian bandwidth dan path.
       </p>
       <NetworkNodesProvider initialNodes={networkNodes.data} loadError={networkNodes.error} role={profile.role}>
-        <HistoryTabs events={events ?? []} />
+        <DeviceProfileProvider role={profile.role}><HistoryTabs events={events ?? []} /></DeviceProfileProvider>
       </NetworkNodesProvider>
     </main>
   );

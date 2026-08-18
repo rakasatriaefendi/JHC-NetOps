@@ -61,6 +61,11 @@ async function userAction(request: Request, body: Record<string, unknown>) {
   if(storage?.[0]?.status==="critical") return reply({error:"Traffic storage safety limit reached",code:"STORAGE_CRITICAL"},409);
   const {count:diagCount} = await auth.service.from("diagnostic_jobs").select("id",{count:"exact",head:true}).eq("runner_id",body.runner_id).in("status",["queued","running"]);
   if ((diagCount ?? 0)>0) return reply({error:"Runner is busy with diagnostics",code:"RUNNER_BUSY"},409);
+  const [{count:discoveryCount},{count:inspectionCount}] = await Promise.all([
+    auth.service.from("network_discovery_sessions").select("session_id",{count:"exact",head:true}).eq("runner_id",body.runner_id).in("status",["queued","running"]),
+    auth.service.from("device_inspection_sessions").select("inspection_id",{count:"exact",head:true}).eq("runner_id",body.runner_id).in("status",["queued","running"]),
+  ]);
+  if ((discoveryCount ?? 0)>0 || (inspectionCount ?? 0)>0) return reply({error:"Runner is busy with another active operation",code:"RUNNER_BUSY"},409);
   const {error:recoveryError} = await auth.service.rpc("expire_stale_traffic_sessions", {p_runner_id:body.runner_id});
   if (recoveryError) return reply({error:"Runner availability could not be checked"},500);
   const {data,error:insertError} = await auth.service.from("traffic_live_sessions").insert({runner_id:body.runner_id,requested_by:auth.userId,duration_seconds:body.duration_seconds}).select().single();

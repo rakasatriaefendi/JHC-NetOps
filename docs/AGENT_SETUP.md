@@ -441,3 +441,53 @@ host/context dibersihkan setelah 10 menit oleh polling runner/Edge cleanup. `Ber
 hanya menyimpan identity `network_nodes`; admin tetap harus menekan `Add to Health Watch`
 untuk membuat atau enable `network_targets`. Discovery tidak memulai Traffic capture,
 iperf3/MTR, SNMP, atau sweep berkala.
+
+## 11. Quick Device Inspector
+
+Terapkan migration dan deploy endpoint, lalu restart runner agar capability `device_inspect` diterbitkan:
+
+```powershell
+npx supabase db push
+npx supabase functions deploy device-inspector
+.\runner\task.ps1 restart
+```
+
+Preflight runner menjalankan capability check satu kali saat startup melalui project
+virtualenv. Gunakan command berikut untuk audit manual dari jalur WSL yang sama:
+
+```powershell
+wsl.exe -d Ubuntu-22.04 --exec `
+  /mnt/c/Users/rakas/OneDrive/Documents/JHC-work/Network-Monitoring/agent/.venv/bin/network-monitor `
+  capabilities
+
+node.exe runner\src\main.mjs --preflight-only
+```
+
+Output capability harus menyatakan `probe_engine: "python_socket"` dan
+`required.python_socket: true`. `openssl` serta database OUI Scapy bersifat opsional;
+ketidaktersediaannya menghasilkan fingerprint parsial. `nmap` dan `curl` diaudit agar
+status runtime terlihat, tetapi collector Device Inspector saat ini tidak memanggil
+keduanya. `arp-scan`, `nbtscan`, dan mDNS juga tidak wajib. Browser tidak memasang tool
+atau Python dependency secara otomatis.
+
+Untuk memeriksa context Windows satu target inventory secara read-only:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File runner\scripts\get-device-inspection-context.ps1 `
+  -TargetIp 192.168.188.249
+```
+
+Helper memilih object `MSFT_NetIPAddress` dan `MSFT_NetRoute` secara eksplisit dari
+`Find-NetRoute`. Jangan membaca `InterfaceIndex` langsung dari array gabungan kedua
+object tersebut. Output juga membawa `is_this_device`, `interface_alias`,
+`interface_description`, `interface_index`, dan `interface_type`. `is_this_device`
+harus berasal dari kecocokan target dengan alamat host Windows; klasifikasi virtual
+berasal dari metadata adapter (`HardwareInterface`, vEthernet/Hyper-V/WSL/VM adapter),
+bukan subnet atau nama `eth0` WSL.
+
+Inspection hanya dapat dimulai admin untuk satu IP pada hasil Discovery yang belum expired atau inventory `network_nodes`. Target inventory tetap valid tanpa sesi Discovery aktif. Tidak ada input command, CIDR, URI, port, atau scanner flags di UI. Agent memakai TCP 22/80/443/445/554/631/1883/8080/8443/9100, SSDP unicast UDP/1900, dan NetBIOS Node Status UDP/137 hanya ketika SMB/445 terbuka. Concurrency seluruh probe optional maksimal 4, timeout per koneksi 1 detik, metadata HTTP maksimal 16 KiB, XML UPnP maksimal 32 KiB, dan hard timeout runner 30 detik. Nmap tidak wajib dan tidak digunakan collector saat ini.
+
+MAC/OUI hanya diambil dari Windows neighbor untuk target same-subnet. Target routed tidak mendapat MAC dari next-hop. Lookup OUI memakai database lokal Scapy; locally administered MAC dianggap tidak reliable. HTTP/HTTPS hanya mengambil status/header/title kecil tanpa mengikuti redirect. TLS menyimpan CN/SAN/issuer/masa berlaku normalized. URL UPnP harus `http`, tanpa credential, resolve kembali ke IP target, dan redirect deskripsi ditolak. NetBIOS hanya meminta satu Node Status untuk hostname—tanpa share/user/file/auth. mDNS dilewati; SNMP, LLDP, full-port/deep/vulnerability scan tetap di luar scope.
+
+Hasil sementara berada di satu `device_inspection_sessions` row per runner dan expired 10 menit. Menutup drawer unknown tanpa Save tidak membuat `network_nodes`. `Save identity` menyimpan operator name/location/type/notes secara eksplisit; `Save detected evidence` menyimpan fingerprint terstruktur. Reinspection hanya boleh memperbarui `detected_fingerprint` dan `last_inspected_at` tanpa mengubah identity atau Health Watch. Bila evidence `This Device` bertentangan dengan kategori operator, perbaiki inventory secara eksplisit melalui form—warning tidak melakukan overwrite otomatis. Jangan menulis raw tool stdout, HTML/XML/body, token, atau credential ke Supabase/log.

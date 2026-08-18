@@ -10,12 +10,14 @@ import {
   type NetworkNodeInput,
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
+import type { DeviceFingerprint } from "@/lib/device-inspector";
 
 type NetworkNodesContextValue = {
   nodes: NetworkNode[];
   canManage: boolean;
   loadError: boolean;
-  saveNode: (current: NetworkNode | null, input: NetworkNodeInput) => Promise<string | null>;
+  saveNode: (current: NetworkNode | null, input: NetworkNodeInput, fingerprint?: DeviceFingerprint | null) => Promise<string | null>;
+  saveFingerprint: (node: NetworkNode, fingerprint: DeviceFingerprint) => Promise<string | null>;
   deleteNode: (node: NetworkNode) => Promise<string | null>;
 };
 
@@ -35,7 +37,7 @@ export function NetworkNodesProvider({
   const [nodes, setNodes] = useState(initialNodes);
   const canManage = role === "admin";
 
-  async function saveNode(current: NetworkNode | null, input: NetworkNodeInput) {
+  async function saveNode(current: NetworkNode | null, input: NetworkNodeInput, fingerprint?: DeviceFingerprint | null) {
     if (!canManage) return "Hanya admin yang boleh mengubah label network node.";
     const validationError = validateNetworkNodeInput(input);
     if (validationError) return validationError;
@@ -48,6 +50,7 @@ export function NetworkNodesProvider({
       device_type: input.device_type,
       location: optionalText(input.location),
       notes: optionalText(input.notes),
+      ...(fingerprint ? { detected_fingerprint: fingerprint, last_inspected_at: new Date().toISOString() } : {}),
     };
     const supabase = createClient();
     const query = current
@@ -56,6 +59,7 @@ export function NetworkNodesProvider({
           device_type: payload.device_type,
           location: payload.location,
           notes: payload.notes,
+          ...(fingerprint ? { detected_fingerprint: fingerprint, last_inspected_at: payload.last_inspected_at } : {}),
         }).eq("id", current.id)
       : supabase.from("network_nodes").insert(payload);
     const { data, error } = await query
@@ -73,6 +77,18 @@ export function NetworkNodesProvider({
     return null;
   }
 
+  async function saveFingerprint(node: NetworkNode, fingerprint: DeviceFingerprint) {
+    if (!canManage) return "Hanya admin yang boleh menyimpan detected fingerprint.";
+    if (fingerprint.ip !== normalizeNetworkNodeIp(node.ip_address)) return "Fingerprint tidak cocok dengan IP inventory.";
+    const supabase = createClient();
+    const { data, error } = await supabase.from("network_nodes")
+      .update({ detected_fingerprint: fingerprint, last_inspected_at: new Date().toISOString() })
+      .eq("id", node.id).select(NETWORK_NODE_SELECT).single<NetworkNode>();
+    if (error || !data) return "Detected fingerprint gagal disimpan.";
+    setNodes((values) => values.map((value) => value.id === data.id ? data : value));
+    return null;
+  }
+
   async function deleteNode(node: NetworkNode) {
     if (!canManage) return "Hanya admin yang boleh menghapus label network node.";
     const supabase = createClient();
@@ -84,7 +100,7 @@ export function NetworkNodesProvider({
 
   return (
     <NetworkNodesContext.Provider
-      value={{ nodes, canManage, loadError, saveNode, deleteNode }}
+      value={{ nodes, canManage, loadError, saveNode, saveFingerprint, deleteNode }}
     >
       {children}
     </NetworkNodesContext.Provider>

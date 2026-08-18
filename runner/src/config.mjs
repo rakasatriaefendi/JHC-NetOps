@@ -70,6 +70,14 @@ export function validateDiscoverySession(session, config) {
   return { session_id: session.session_id, phase: session.phase };
 }
 
+export function validateInspectionSession(session, config) {
+  if (!session || typeof session !== "object" || !isUuid(session.inspection_id) || session.runner_id !== config.runner_id ||
+      !privateIpv4(session.target_ip) || !["discovery", "inventory"].includes(session.authorization_source)) {
+    throw safeError("INVALID_INSPECTION_SESSION");
+  }
+  return { inspection_id: session.inspection_id, target_ip: session.target_ip, authorization_source: session.authorization_source };
+}
+
 export function validatePreflightRequest(request, config) {
   if (!request || typeof request !== "object" || !isUuid(request.request_id) || request.runner_id !== config.runner_id) {
     throw safeError("INVALID_JOB");
@@ -79,7 +87,7 @@ export function validatePreflightRequest(request, config) {
   return { request_id: request.request_id, target };
 }
 
-export function publicCapabilities(config) {
+export function publicCapabilities(config, runtimeCapabilities = {}) {
   const demoEnabled = diagnosticDemoEnabled(config);
   return {
     source_locations: config.source_locations.filter((label) => demoEnabled || label !== "Local Development"),
@@ -88,7 +96,8 @@ export function publicCapabilities(config) {
     })),
     durations: config.durations.filter((duration) => duration === 5 || duration === 10),
     traffic_durations_seconds: config.traffic_durations_seconds,
-    operations: ["bandwidth_and_path", "traffic_live", "network_discovery"],
+    operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
+    ...(runtimeCapabilities.device_inspector ? { device_inspector: runtimeCapabilities.device_inspector } : {}),
   };
 }
 
@@ -110,6 +119,15 @@ export function safeMessage(code) {
     INVALID_TARGET: "Diagnostic target is not authorized locally",
     INVALID_TRAFFIC_SESSION: "Traffic capture session is invalid",
     INVALID_DISCOVERY_SESSION: "Network discovery session is invalid",
+    INVALID_INSPECTION_SESSION: "Device inspection session is invalid",
+    INVALID_INSPECTION_TARGET: "Device inspection target is not authorized locally",
+    INSPECTION_CONTEXT_UNAVAILABLE: "Windows inspection context could not be collected",
+    INSPECTION_NETWORK_CONTEXT_UNAVAILABLE: "Windows network context for the inspection target could not be resolved",
+    INSPECTION_CONTEXT_INVALID: "Windows inspection context was invalid",
+    INSPECTION_WSL_UNAVAILABLE: "The configured WSL environment could not be started for Device Inspector",
+    INSPECTION_AGENT_UNAVAILABLE: "The Device Inspector agent is unavailable in the configured WSL environment",
+    INSPECTION_TIMEOUT: "Device inspection exceeded its safe execution time",
+    INSPECTION_FAILED: "Device inspection could not be completed",
     DISCOVERY_CONTEXT_UNAVAILABLE: "Windows discovery context could not be collected",
     DISCOVERY_CONTEXT_INVALID: "Windows discovery context was invalid",
     DISCOVERY_SCOPE_TOO_LARGE: "Detected subnet is larger than the authorized discovery limit",
@@ -194,4 +212,10 @@ function isLabel(value) {
 
 function isUuid(value) {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function privateIpv4(value) {
+  if (typeof value !== "string" || value.split(".").length !== 4 || !value.split(".").every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
+  const [a, b] = value.split(".").map(Number);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }

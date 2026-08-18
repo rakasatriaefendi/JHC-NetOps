@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
+import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
+import { findNetworkNode } from "@/lib/network-nodes";
 import type { DiagnosticsData } from "@/lib/diagnostics";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -19,17 +22,19 @@ export function TrafficLivePage({
   initialState,
   diagnostics,
   loadError,
+  initialSearch,
 }: {
   initialState: TrafficState;
   diagnostics: DiagnosticsData;
   loadError: boolean;
+  initialSearch?: string;
 }) {
   const [state, setState] = useState(initialState);
   const [runnerId, setRunnerId] = useState(initialState.runners[0]?.id ?? "");
   const [now, setNow] = useState(() => Date.now());
   const [duration, setDuration] = useState(600);
   const [tab, setTab] = useState<Tab>("flows");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch ?? "");
   const [protocol, setProtocol] = useState("all");
   const [status, setStatus] = useState("all");
   const [detail, setDetail] = useState<TrafficFlow | null>(null);
@@ -306,6 +311,13 @@ function FlowExplorer({
   setStatus: (value: string) => void;
   onDetail: (flow: TrafficFlow) => void;
 }) {
+  const { nodes } = useNetworkNodes();
+  const { openDeviceProfile } = useDeviceProfile();
+  const endpointCell = (ip: string, port: number | null) => {
+    const node = findNetworkNode(nodes, ip);
+    if (!node) return <span className="font-data">{endpoint(ip, port)}</span>;
+    return <button className="text-left text-accent hover:underline" onClick={() => openDeviceProfile({ ipAddress: ip })}><span className="block font-medium">{node.name}</span><span className="font-data text-meta text-text-secondary">{endpoint(ip, port)}</span>{node.detected_fingerprint ? <span className="block text-meta text-text-muted">{node.detected_fingerprint.detected_identity.likely_label ?? node.detected_fingerprint.likely_device_type}</span> : null}</button>;
+  };
   return (
     <div className="mt-5">
       <div className="grid gap-3 md:grid-cols-3">
@@ -352,8 +364,8 @@ function FlowExplorer({
             {flows.map((flow) => (
               <tr className="border-b border-border" key={flow.flow_key}>
                 <td className="px-3 py-3 font-data text-meta">{formatTime(flow.last_seen)}</td>
-                <td className="px-3 py-3 font-data">{endpoint(flow.src_ip, flow.src_port)}</td>
-                <td className="px-3 py-3 font-data">{endpoint(flow.dst_ip, flow.dst_port)}</td>
+                <td className="px-3 py-3">{endpointCell(flow.src_ip, flow.src_port)}</td>
+                <td className="px-3 py-3">{endpointCell(flow.dst_ip, flow.dst_port)}</td>
                 <td className="px-3 py-3">
                   {flow.protocol.toUpperCase()}
                   <span className="block text-meta text-text-muted">{flow.service ?? "Unknown"}</span>
@@ -422,13 +434,15 @@ function Conversations({ snapshot }: { snapshot?: TrafficSnapshot }) {
 }
 
 function Talkers({ snapshot }: { snapshot?: TrafficSnapshot }) {
+  const { nodes } = useNetworkNodes();
+  const { openDeviceProfile } = useDeviceProfile();
   return (
     <div className="mt-5 grid gap-3">
       {snapshot?.top_talkers.map((talker, index) => (
         <article className="flex items-center justify-between rounded-control border border-border bg-bg-base p-4" key={talker.ip}>
           <p>
             <span className="mr-3 font-data text-text-muted">#{index + 1}</span>
-            <span className="font-data">{talker.ip}</span>
+            {findNetworkNode(nodes, talker.ip) ? <button className="text-accent hover:underline" onClick={() => openDeviceProfile({ ipAddress: talker.ip })}><span className="font-medium">{findNetworkNode(nodes, talker.ip)?.name}</span><span className="ml-2 font-data text-meta">{talker.ip}</span></button> : <span className="font-data">{talker.ip}</span>}
             <span className="ml-3 text-meta text-text-muted">{talker.active_flows ?? 0} active flows</span>
           </p>
           <p className="font-data text-accent">{(talker.rate_mbps ?? 0).toFixed(3)} Mbps</p>

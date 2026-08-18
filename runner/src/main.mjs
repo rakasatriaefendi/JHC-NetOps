@@ -2,11 +2,12 @@ import path from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BackendClient } from "./backend.mjs";
-import { loadRunnerConfig, publicCapabilities, safeError, safeMessage, validateDiscoverySession, validateJob, validatePreflightRequest, validateTrafficSession } from "./config.mjs";
+import { loadRunnerConfig, publicCapabilities, safeError, safeMessage, validateDiscoverySession, validateInspectionSession, validateJob, validatePreflightRequest, validateTrafficSession } from "./config.mjs";
 import { collectNetworkContext } from "./network-context.mjs";
 import { collectDiscoveryContext, publicDiscoveryContext, runNetworkDiscovery } from "./network-discovery.mjs";
+import { collectInspectionContext, validateInspectionScope } from "./device-inspector.mjs";
 import { startHeartbeatLoop } from "./heartbeat.mjs";
-import { runAgent, runPreflight, runTrafficAgent } from "./wsl.mjs";
+import { runAgent, runInspectionAgent, runPreflight, runTrafficAgent } from "./wsl.mjs";
 import { NetworkHealthWatch } from "./network-health.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -28,9 +29,11 @@ try {
 
 let healthStatus = "degraded";
 let healthErrorCode = "RUNNER_INTERNAL_ERROR";
+let runtimeCapabilities = {};
 for (let attempt = 1; attempt <= 3; attempt += 1) {
   try {
     const versions = runPreflight(config);
+    runtimeCapabilities = { device_inspector: versions.device_inspector };
     healthStatus = "online";
     healthErrorCode = null;
     log(`Preflight passed (${versions.python}, iperf3 ${versions.iperf3}, mtr available)`);
@@ -48,14 +51,14 @@ for (let attempt = 1; attempt <= 3; attempt += 1) {
   }
 }
 
-await sendHeartbeat().catch(() => log("Heartbeat failed"));
+await sendHeartbeat().catch((error) => logHeartbeatFailure(error));
 if (preflightOnly) process.exit(healthStatus === "online" ? 0 : 2);
 if (healthStatus !== "online") process.exit(2);
 
 const stopHeartbeat = startHeartbeatLoop(
   sendHeartbeat,
   config.heartbeat_interval_ms,
-  () => log("Heartbeat failed"),
+  (error) => logHeartbeatFailure(error),
 );
 const healthWatch = new NetworkHealthWatch({
   runnerId: config.runner_id,
@@ -77,6 +80,10 @@ try {
       else {
         const rawDiscovery = await backend.claimDiscovery(config.runner_id).catch(() => null);
         if (rawDiscovery) await executeDiscovery(rawDiscovery);
+        else {
+          const rawInspection = await backend.claimInspection(config.runner_id).catch(() => null);
+          if (rawInspection) await executeInspection(rawInspection);
+        }
       }
       }
     }
@@ -145,6 +152,37 @@ async function executeDiscovery(rawSession) {
     const code = typeof error?.code === "string" ? error.code : "DISCOVERY_FAILED";
     await backend.failDiscovery(config.runner_id, session.session_id, code).catch(() => {});
     log(`Discovery ${session.session_id} failed: ${code}`);
+  }
+}
+
+async function executeInspection(rawSession) {
+  let session;
+  try { session = validateInspectionSession(rawSession, config); }
+  catch (error) {
+    if (rawSession?.inspection_id) await backend.failInspection(config.runner_id, rawSession.inspection_id, error.code ?? "INVALID_INSPECTION_SESSION").catch(() => {});
+    return;
+  }
+  try {
+    log(`Device inspection ${session.inspection_id}: authorized ${session.authorization_source} target ${session.target_ip}`);
+    await backend.inspectionStage(config.runner_id, session.inspection_id, "network_role");
+    const context = validateInspectionScope(session, await collectInspectionContext(session.target_ip));
+    log(`Device inspection ${session.inspection_id}: Windows context ready (${context.route_role}, same_subnet=${context.same_subnet})`);
+    let fingerprint = null;
+    log(`Device inspection ${session.inspection_id}: starting WSL agent`);
+    await runInspectionAgent(config, session, context, async (event) => {
+      if (event.type === "stage") await backend.inspectionStage(config.runner_id, session.inspection_id, event.stage);
+      if (event.type === "result") {
+        if (event.fingerprint.ip !== session.target_ip) throw safeError("AGENT_PROTOCOL_ERROR");
+        fingerprint = event.fingerprint;
+      }
+    }, 30_000);
+    if (!fingerprint) throw safeError("AGENT_PROTOCOL_ERROR");
+    await backend.completeInspection(config.runner_id, session.inspection_id, fingerprint);
+    log(`Device inspection ${session.inspection_id} completed`);
+  } catch (error) {
+    const code = typeof error?.code === "string" ? error.code : "INSPECTION_FAILED";
+    await backend.failInspection(config.runner_id, session.inspection_id, code).catch(() => {});
+    log(`Device inspection ${session.inspection_id} failed: ${code}`);
   }
 }
 
@@ -234,8 +272,13 @@ async function sendHeartbeat() {
     display_name: config.display_name,
     health_status: healthStatus,
     health_error_code: healthErrorCode,
-    capabilities: publicCapabilities(config),
+    capabilities: publicCapabilities(config, runtimeCapabilities),
   });
+}
+
+function logHeartbeatFailure(error) {
+  const detail = error instanceof Error ? error.message : "Unknown backend error";
+  log(`Heartbeat failed: ${detail}`);
 }
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }

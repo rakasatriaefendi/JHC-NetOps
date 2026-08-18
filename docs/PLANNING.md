@@ -4,6 +4,20 @@ Dokumen ini pelacak progres, terpisah dari `PRD.md` (requirement) dan `AGENTS.md
 
 Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
+## Prioritas MVP — Reusable Quick Device Inspector
+
+- [x] Architecture/docs: single-target bounded inspection, evidence/confidence model, detected vs operator identity, privacy, safety, dan reusable drawer
+- [x] Migration `device_inspection_sessions` + bounded fingerprint pada `network_nodes`, RLS, Realtime, expiry, dan device type vocabulary
+- [x] Edge Function structured inspection lifecycle, admin/service authorization, current Discovery/inventory target validation, busy guard, dan payload bounds
+- [x] Agent collector: fixed probes, offline OUI, same-subnet/routed MAC safety, normalized evidence, classifier/confidence, partial failures, fixtures A–E
+- [x] Existing runner operation `device_inspect`: fixed Windows context, WSL invocation, target revalidation, normalized capability preflight, stage/result transport, no raw output; unit test, live WSL inspection, heartbeat, dan live runner session terverifikasi
+- [x] Reusable Device Profile drawer + explicit save/reinspect/Health Watch actions
+- [x] Fingerprint Enrichment V1: bounded HTTP/HTTPS, TLS CN/SAN/issuer/validity, same-target UPnP, conditional NetBIOS hostname, service-state evidence, conservative classifier, partial-result UX, fixtures, controlled live inspection, dan regression
+- [x] Discovery, Health Watch, LAN Diagnostic hop, dan Traffic memakai satu reusable Device Profile; authenticated browser E2E empat surface membuktikan navigation tetap di surface asal, Traffic/MTR tidak memulai Inspect otomatis, dan target monitored tidak menawarkan Add to Health Watch duplikat
+- [x] Security/RLS/resource/regression dan remote deployment selesai; authenticated browser admin/viewer desktop/mobile lulus, self/virtual tampil faktual, tidak ada horizontal overflow, dan semua fixture exact-ID terhapus dengan delta events/traffic_metrics 0
+
+**Definition of done:** admin dapat menginspeksi satu IP Discovery/inventory secara aman, melihat evidence normalized di reusable drawer tanpa refresh, menyimpan operator identity secara eksplisit, sementara viewer hanya membaca profile tersimpan dan workflow lain tidak berubah atau otomatis melakukan active scan.
+
 ---
 
 ## Fase 0 — Scaffolding
@@ -150,7 +164,58 @@ inventory/monitoring tanpa pilihan eksplisit.
 
 ## Catatan tambahan
 
+- [2026-08-18] Fingerprint Enrichment V1 selesai tanpa migration/dependency baru dan
+  tanpa Nmap. Fixed allow-list menjadi TCP 22/80/443/445/554/631/1883/8080/8443/9100,
+  SSDP unicast UDP/1900, serta NetBIOS Node Status UDP/137 hanya ketika SMB terbuka.
+  HTTP/HTTPS bounded tidak mengikuti redirect dan menghapus query/credential dari
+  Location; TLS menormalisasi CN/SAN/issuer/validity; UPnP hanya mengambil description
+  dari IP target yang sama dan fixture malicious LOCATION membuktikan fetch eksternal
+  tidak dilakukan. Fixture TP-Link/Laragon/PoliKlinikk/randomized-MAC/routed-target
+  lulus. Controlled live collector ke inventory PoliKlinikk selesai 10,8 detik:
+  SMB/445 open, HTTP/TLS/UPnP/NetBIOS identity tidak terpapar, hasil complete partial
+  `unknown`/LOW tanpa raw output. Context helper production pada saat pengecekan live
+  terpisah mengembalikan `INSPECTION_NETWORK_CONTEXT_UNAVAILABLE`, sehingga tidak ada
+  remote session/Supabase write dan tidak diklaim sebagai browser/production E2E baru.
+  Full agent suite 47 test (1 opt-in skip), runner 31, frontend 27, lint, typecheck,
+  dan production build lulus; source Edge Function yang memperbolehkan capability
+  collector baru belum dideploy pada task ini.
+- [2026-08-18] Device Inspector live runner selesai diperbaiki dan diverifikasi pada
+  node inventory `PoliKlinikk` (`192.168.188.249`). Root cause
+  `INSPECTION_CONTEXT_UNAVAILABLE` adalah `Find-NetRoute` mengembalikan gabungan
+  `MSFT_NetIPAddress` dan `MSFT_NetRoute`; pembacaan `InterfaceIndex` dari array
+  menghasilkan `System.Object[]` dan menggagalkan `Get-NetIPConfiguration`. Helper
+  sekarang memilih kedua CIM object secara eksplisit. Capability startup memakai
+  `network-monitor capabilities`: engine `python_socket`, Python 3.12.13, OpenSSL dan
+  Scapy OUI tersedia; Nmap 7.80/curl tersedia tetapi tidak digunakan; arp-scan,
+  nbtscan, dan mDNS tidak wajib. Live helper menghasilkan source
+  `192.168.188.180/24`, on-link, MAC target valid; CLI dan temporary runner session
+  menghasilkan partial fingerprint SMB/TCP 445, stage `complete`, authorization
+  `inventory`, tanpa raw output, tanpa mengubah operator identity, serta delta
+  `events=0` dan `traffic_metrics=0`. `diagnostic-jobs` dan `device-inspector` sudah
+  dideploy ulang tanpa migration baru; heartbeat remote online dan capability tersimpan.
+  Agent 41 test (1 opt-in skip), runner 31 test, frontend 25 test, lint, typecheck, dan
+  production build lulus. Authenticated browser automation nyata belum diklaim lulus:
+  verifier dapat login dan melihat target tetapi pemicu row headless tidak membuka
+  drawer; percobaan/akun sementara dibersihkan dan script gagal tidak disimpan.
+- [2026-08-15] Quick Device Inspector migration `202608150001` dan Edge Functions
+  `device-inspector`, `network-discovery`, `traffic-live`, serta `diagnostic-jobs` aktif
+  pada project `krsixpywzeqazuhrgvib`. Remote RLS/security fixture lulus: viewer active
+  inspect/temp read/write ditolak, admin inventory/discovery target diterima, Internet IP
+  dan command/flags/ports/NSE/URI/CIDR ditolak, raw output ditolak, temporary result tidak
+  membuat/mengubah inventory, events/traffic_metrics delta 0. Payload fixture temporary
+  dan persisted masing-masing 686 byte; estimasi 100 fingerprint sekitar 0.065 MiB sebelum
+  overhead database.
+- [2026-08-15] Authenticated Chrome E2E Dashboard lulus untuk unknown Inspect/Beri nama,
+  drawer terbuka langsung, progress, Realtime result tanpa refresh, evidence/type/
+  confidence/capabilities, explicit Save identity, Detail reopen, Add to Health Watch,
+  dan mobile tanpa horizontal overflow. Frontend tests/lint/typecheck/Turbopack build dan
+  seluruh 27 runner unit tests lulus; delapan Device Inspector agent fixtures lulus pada
+  Python host. Restart runner saat verifikasi terakhir gagal preflight `AGENT_VENV_MISSING`
+  karena WSL command juga keluar tanpa output dari sesi automation. Oleh karena itu live
+  WSL Device Inspect dan browser-specific checks dari Health/Traffic/LAN hop tetap `[~]`;
+  tidak diklaim selesai atau disimulasikan.
 - Setiap kali sebuah task selesai, update checklist ini di commit yang sama dengan kodenya — jangan biarkan file ini basi/tidak sinkron dengan kondisi repo.
+- [2026-08-15] Runner heartbeat pulih. Root cause adalah kontrak capability yang tidak sinkron: runner mengirim operasi keempat `device_inspect`, sedangkan validator `diagnostic-jobs` yang sudah dideploy masih mengharuskan tepat tiga operasi lama dan mengembalikan HTTP 400 `Runner operations are invalid`. Validator serta safe heartbeat logging diperbaiki, `diagnostic-jobs` dideploy ulang, 28 runner tests lulus, Scheduled Task direstart, dan backend terverifikasi `online` dengan heartbeat age 9 detik. Live Device Inspect belum dijalankan sehingga item operasi tetap `[~]`.
 - Kalau ada keputusan yang menyimpang dari `PRD.md`/`AGENTS.md`/`DESIGN.md` di tengah jalan, catat alasannya singkat di bagian ini sebelum lanjut, dan konfirmasi ke Raka.
 - [2026-08-11] Target iperf3/mtr asli masih pending izin dari B (belum dapat
   PC/VM di LAN yang confirmed boleh dipakai bebas). Sementara pipeline
@@ -307,3 +372,30 @@ inventory/monitoring tanpa pilihan eksplisit.
   urutan Dashboard, Local Traffic RX/TX copy, Admin-only drawer, tidak ada input
   arbitrary scope, dan tidak ada horizontal overflow pada viewport 390px.
   Frontend 23 test, lint, typecheck, production build, serta runner 22 test lulus.
+- [2026-08-18] Reusable Quick Device Inspector direkonsiliasi terhadap source,
+  deployment, runner nyata, tests, dan dokumen. `device-inspector` remote v2
+  sudah identik dengan source; hanya `diagnostic-jobs` yang stale lalu dideploy
+  menjadi v14 ACTIVE dengan JWT verification aktif. Helper produksi berhasil
+  untuk target inventory on-link `192.168.188.249` melalui Wi-Fi fisik dan untuk
+  self address `192.168.112.1` melalui `vEthernet (WSL (Hyper-V firewall)) 2`;
+  target kedua menghasilkan `This Device`, `interface_type=virtual`, MAC null,
+  tanpa hardcode IP. Dua E2E runner→helper→WSL→agent→Supabase selesai dengan
+  authorization source inventory, operator identity tetap, raw output tidak ada,
+  serta delta events dan traffic_metrics masing-masing 0. Remote security verifier
+  membuktikan admin/viewer/RLS, target authorization, injection rejection,
+  lifecycle service-role, payload 686 byte, explicit save, dan viewer read-only.
+  UX kini memberi warning bila kategori operator bertentangan dengan role self,
+  memakai copy `Save detected evidence`, dan menyembunyikan Add to Health Watch
+  untuk target enabled. Agent 49 test (1 skip), runner 32 test, frontend 32 test,
+  lint, typecheck, build, syntax verifier, dan diff check lulus. Authenticated
+  authenticated browser E2E empat surface kemudian lulus memakai fixture marker
+  unik `e2e-device-profile-*`: Discovery, Health Watch, Traffic, dan LAN
+  Diagnostic hop membuka reusable Device Profile; admin active Inspect dan viewer
+  read-only lulus; Traffic serta hop tidak memulai Inspect otomatis; target yang
+  sudah dimonitor tidak menawarkan Add to Health Watch duplikat; self/virtual
+  tampil sebagai `This Device` dan `virtual`; desktop/mobile tidak overflow.
+  Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
+  inspection session, dan user fixture hanya data terkontrol; tidak ada network
+  probe, packet capture, iperf3, atau MTR yang dijalankan. Cleanup `finally`
+  berbasis ID terverifikasi untuk seluruh fixture, audit marker pasca-run bersih,
+  count operasional kembali ke baseline, dan delta events/traffic_metrics 0.

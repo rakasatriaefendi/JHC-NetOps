@@ -53,6 +53,8 @@ AGENTS.md
     sementara per runner yang dioverwrite dan dibersihkan setelah expiry; jangan membuat
     `network_nodes` atau `network_targets` tanpa action admin eksplisit.
 
+20. **Quick Device Inspector adalah single-target, bounded, admin-only.** Target harus berasal dari hasil Discovery aktif atau `network_nodes`, lalu divalidasi ulang runner. Browser tidak boleh mengirim command, CIDR, URI, port list, Nmap flags/NSE, atau script. Gunakan fixed TCP 22/80/443/445/554/631/1883/8080/8443/9100, SSDP unicast UDP/1900, serta NetBIOS Node Status UDP/137 hanya ketika SMB/445 terbuka; concurrency maksimal 4 dan total timeout 30 detik. HTTP/HTTPS tidak mengikuti redirect dan UPnP LOCATION wajib kembali ke target yang sama. Simpan hanya fingerprint normalized; jangan simpan raw stdout/HTML/XML/body/payload/secrets. MAC target hanya untuk same-subnet; routed target wajib MAC `null`. Detected identity tidak boleh menimpa operator identity atau membuat alert/severity event.
+
 ## Konvensi coding per komponen
 
 ### `/agent` (Python)
@@ -84,6 +86,14 @@ AGENTS.md
   `/24`, hentikan setelah satu sweep, dan kirim progress maksimal per 32 alamat—bukan
   satu request/row per ping. Discovery tidak memakai WSL, Scapy, iperf3, atau MTR.
 
+- Device Inspector memakai runner yang sama dan structured operation `device_inspect`. Windows helper hanya mengumpulkan route/neighbor serta metadata adapter context; parsing metadata, evidence normalization, classifier, dan confidence tetap di agent Python. Jika target sama dengan IPv4 lokal Windows, helper wajib menandai `This Device` dan menentukan physical/virtual dari metadata adapter—bukan range IP atau nama interface WSL. Konflik dengan kategori operator hanya warning dan tidak boleh memutasi identity, Health target, event, atau severity. Optional probe failure menghasilkan partial profile, bukan menggagalkan seluruh inspection.
+- Fingerprint enrichment hanya boleh membaca header/title HTTP terbatas, metadata sertifikat TLS, deskripsi UPnP same-target, dan optional hostname NetBIOS. Jangan browse share, user, file, mDNS daemon, SNMP, LLDP, atau menganggap timeout TCP sebagai bukti port difilter.
+- Capability Device Inspector wajib diperiksa dari executable project melalui
+  `network-monitor capabilities` saat startup runner dan disimpan ringkas di
+  `diagnostic_runners.capabilities`. Engine MVP adalah Python socket; Nmap/curl yang
+  terpasang tidak boleh diam-diam dijadikan dependency atau dipanggil tanpa perubahan
+  requirement. Tool opsional yang hilang tidak boleh membuat seluruh runner offline.
+
 ### `/frontend` (Next.js)
 - Gunakan App Router.
 - Auth & data fetching pakai `@supabase/supabase-js`, subscribe Realtime untuk update live (dashboard, alert).
@@ -96,6 +106,8 @@ AGENTS.md
   menjelaskan keterbatasan ICMP; link diagnostics tidak boleh auto-run. Admin mengelola
   identitas/promosi dari `network_nodes`, bukan input subnet/arbitrary host.
 
+- Device Profile harus satu reusable drawer untuk Discovery, Health Watch, Traffic, dan LAN Diagnostic hops. Approved viewer hanya membaca saved profile; admin dapat Inspect, Inspect again, Save identity/fingerprint, dan Add to Health Watch secara eksplisit. Target yang sudah enabled di Health Watch tidak boleh ditawari Add lagi; tampilkan status/link Health. Traffic dan MTR tidak boleh otomatis memicu active inspection.
+
 ### `/hermes-agent` (Flask)
 - Endpoint utama: `POST /analyze` — terima `event_id`, ambil context dari Supabase, panggil LLM, tulis balik `ai_summary`.
 - Karena HF Spaces free tier bisa sleep, desain endpoint idempotent dan tahan cold start.
@@ -107,6 +119,8 @@ AGENTS.md
 - `network_discovery_sessions` admin-read dan service-role-write. Tepat satu slot per
   runner; results bounded JSON sementara, bukan inventory/history, dan wajib expired.
 
+- `device_inspection_sessions` admin-read dan service-role-write; satu slot per runner, result maksimal 64 KiB dan expired 10 menit. `network_nodes.detected_fingerprint` maksimal 32 KiB, normalized, dan tidak memuat raw tool response.
+
 ## Definisi severity (jangan diubah tanpa approval Raka)
 
 | Severity | Kondisi |
@@ -117,6 +131,8 @@ AGENTS.md
 | critical | Gateway/DNS unreachable (not internet), atau anomali ekstrem |
 
 ## Yang TIDAK boleh dilakukan AI assistant
+
+- Jangan mengubah Device Inspector menjadi deep/full-port/vulnerability scan, SNMP, credential guessing, topology discovery, atau Internet scanner.
 
 - Jangan sarankan menyimpan raw pcap di Postgres/Supabase Storage sebagai default behavior.
 - Jangan bikin fitur capture paket berjalan di serverless/cloud — itu tidak mungkin secara teknis (butuh akses NIC lokal).
