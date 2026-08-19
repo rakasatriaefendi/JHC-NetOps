@@ -160,6 +160,44 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 tervalidasi, hasil muncul progresif dan hilang setelah expiry, serta tidak ada host menjadi
 inventory/monitoring tanpa pilihan eksplisit.
 
+## Prioritas MVP — Managed Infrastructure Telemetry (SNMP read-only)
+
+- [x] Migration `202608160001_managed_infrastructure_telemetry.sql`
+  (`managed_telemetry_targets`, `managed_device_latest`, `managed_interface_latest`,
+  RLS, index, Realtime): diterapkan manual oleh Raka dan terverifikasi remote —
+  tabel ada, RLS approved-read untuk admin/viewer fixture (HTTP 200), dan Realtime
+  latest-state terverifikasi lewat browser E2E tanpa refresh
+- [x] Agent SNMP collector read-only: OID tetap dan terbatas, normalisasi interface
+  fisik/logis, tanpa SET/walk bebas/LLDP/topology; unit tests fixture lulus
+- [x] Runner scheduler telemetry terpisah: polling bounded per target enabled,
+  credential profile lokal (`monitoring-readonly`/`core-readonly`), counter cache
+  lokal, latest-state upsert, event `source = managed_telemetry` hanya transisi;
+  unit/regression tests lulus
+- [x] Frontend helper `managed-telemetry.ts`: threshold fixed, formatter, credential
+  profile status, warning interface; unit tests lulus
+- [x] Device Profile bagian Managed Infrastructure Telemetry: status koneksi target,
+  identitas/uptime, tabel interface + utilisasi/error/discard + peringatan, satu
+  subscription Realtime; lint, typecheck, production build, dan unit tests lulus
+- [x] Admin config UI `/admin#managed-telemetry`: tambah/ubah/nonaktifkan target dari
+  `network_nodes`, pilih runner + SNMP version + credential profile (nama saja, tanpa
+  secret), action `saveManagedTelemetryTargetAction` dengan RLS approved-read;
+  lint, typecheck, production build, dan unit tests lulus
+- [x] Authenticated browser E2E synthetic `scripts/verify_managed_telemetry_browser.mjs`
+  lulus: admin config form, Device Profile telemetry section, physical/logical
+  semantics, interface table/detail, null util, Realtime tanpa refresh, viewer
+  read-only, desktop/mobile tanpa overflow, tidak ada secret di DOM, smoke Traffic/
+  Diagnostics/Dashboard, dan Device Inspector surface tetap tampil; tanpa probe
+  SNMP/UDP-161 nyata dan tanpa ping/MTR/iperf3/capture/Device Inspector probe
+- [~] Edge Function `managed-telemetry`: IMPLEMENTED + CONTRACT/UNIT VERIFIED, tetapi
+  **belum runtime/deployment verified dan belum di-deploy**
+
+**Definition of done:** admin dapat menambah target telemetry dari inventory untuk runner
+ber-profil lokal, runner mem-poll read-only bounded dan menyimpan latest-state, Device
+Profile menampilkan telemetry perangkat secara realtime dengan peringatan interface,
+approved viewer hanya membaca, dan tidak ada secret di Supabase/browser serta tidak ada
+row per poll. (Tercapai untuk frontend/runner/agent/schema; deployment Edge Function
+sengaja ditunda.)
+
 ---
 
 ## Catatan tambahan
@@ -394,8 +432,39 @@ inventory/monitoring tanpa pilihan eksplisit.
   read-only lulus; Traffic serta hop tidak memulai Inspect otomatis; target yang
   sudah dimonitor tidak menawarkan Add to Health Watch duplikat; self/virtual
   tampil sebagai `This Device` dan `virtual`; desktop/mobile tidak overflow.
-  Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
-  inspection session, dan user fixture hanya data terkontrol; tidak ada network
-  probe, packet capture, iperf3, atau MTR yang dijalankan. Cleanup `finally`
-  berbasis ID terverifikasi untuk seluruh fixture, audit marker pasca-run bersih,
-  count operasional kembali ke baseline, dan delta events/traffic_metrics 0.
+Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
+   inspection session, dan user fixture hanya data terkontrol; tidak ada network
+   probe, packet capture, iperf3, atau MTR yang dijalankan. Cleanup `finally`
+   berbasis ID terverifikasi untuk seluruh fixture, audit marker pasca-run bersih,
+   count operasional kembali ke baseline, dan delta events/traffic_metrics 0.
+- [2026-08-19] Managed Infrastructure Telemetry (SNMP read-only) fase 1 selesai
+  diimplementasikan dan diverifikasi lokal. Frontend Device Profile bagian telemetry,
+  Admin config UI, helper `managed-telemetry.ts`, agent SNMP collector read-only
+  (OID tetap, tanpa SET/LLDP/topology), dan runner scheduler telemetry (credential
+  profile lokal, counter cache, latest-state upsert, event transisi) lulus unit test,
+  lint, typecheck, dan production build; total frontend 44 test lulus. Migration
+  `202608160001_managed_infrastructure_telemetry.sql` diaudit dan aman (additive/
+  scoped), tetapi **belum diterapkan ke project `krsixpywzeqazuhrgvib` — diterapkan
+  manual oleh Raka**, sehingga schema/RLS/Realtime remote verification masih pending.
+  Edge Function `managed-telemetry` tetap **belum di-deploy** (IMPLEMENTED +
+  CONTRACT/UNIT VERIFIED only). Browser E2E synthetic
+  `scripts/verify_managed_telemetry_browser.mjs` sudah ditulis dan lolos syntax check,
+  tetapi **belum dijalankan** sampai migration diterapkan; E2E hanya memakai fixtures
+  synthetic dengan marker unik, tanpa probe SNMP/UDP-161 nyata, tanpa ping/MTR/
+  iperf3/packet capture/Device Inspector probes, dan membersihkan semua fixture
+  berbasis exact ID. Tidak ada secret SNMP di Supabase/browser; hanya nama credential
+  profile lokal runner yang disimpan.
+- [2026-08-19] Authenticated browser E2E synthetic Managed Infrastructure Telemetry
+  lulus setelah migration `202608160001` diterapkan manual oleh Raka. Marker unik
+  `e2e-managed-telemetry-*`: admin config form tersimpan dan muncul di daftar,
+  Device Profile menampilkan status Connected + identitas sistem + uptime + tabel
+  interface (10 total, 8 physical, 7 up/1 down, errors 1, discards 2, null util
+  sebagai "—" bukan 0%), interface detail dengan warning link issue/speed changed/
+  logical, Realtime update device/interface tanpa refresh (pathname+timeOrigin sama),
+  viewer read-only tanpa kontrol admin dan tanpa secret di DOM, desktop/mobile tanpa
+  horizontal overflow, Device Inspector surface tetap menampilkan stored evidence
+  tanpa probe, dan smoke Traffic/Diagnostics/Dashboard tetap berfungsi. Semua
+  assertion lulus; fixture dibersihkan exact-ID (16 cek `true`), audit marker pasca-run
+  `clean: true`, dan operational counts kembali ke baseline dengan delta events = 1
+  (hanya fixture speed event). Tidak ada SNMP/UDP-161, ping, MTR, iperf3, packet
+  capture, atau Device Inspector probe yang dijalankan.

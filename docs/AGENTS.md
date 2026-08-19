@@ -55,6 +55,8 @@ AGENTS.md
 
 20. **Quick Device Inspector adalah single-target, bounded, admin-only.** Target harus berasal dari hasil Discovery aktif atau `network_nodes`, lalu divalidasi ulang runner. Browser tidak boleh mengirim command, CIDR, URI, port list, Nmap flags/NSE, atau script. Gunakan fixed TCP 22/80/443/445/554/631/1883/8080/8443/9100, SSDP unicast UDP/1900, serta NetBIOS Node Status UDP/137 hanya ketika SMB/445 terbuka; concurrency maksimal 4 dan total timeout 30 detik. HTTP/HTTPS tidak mengikuti redirect dan UPnP LOCATION wajib kembali ke target yang sama. Simpan hanya fingerprint normalized; jangan simpan raw stdout/HTML/XML/body/payload/secrets. MAC target hanya untuk same-subnet; routed target wajib MAC `null`. Detected identity tidak boleh menimpa operator identity atau membuat alert/severity event.
 
+21. **Managed Infrastructure Telemetry adalah SNMP read-only untuk target allow-listed.** Hanya perangkat yang sudah ada di `network_nodes` yang boleh dijadikan target. Admin menambahkan target di `/admin#managed-telemetry` dan hanya memilih **nama credential profile** lokal runner (`monitoring-readonly`/`core-readonly`); jangan terima atau masukkan community string, username, atau password SNMP di form, browser, Supabase, atau log. Runner melakukan polling bounded SNMPv2c/v3 read-only dengan OID tetap dan terbatas (identitas sistem, uptime, interface, octet counters, error/discard); tanpa walk bebas, credential guessing, SNMP SET, LLDP/CDP, topology mapping, atau deep scan. Hanya simpan latest-state (satu `managed_device_latest` + satu row per `managed_interface_latest`) dan event transisi saat threshold terlampaui; jangan membuat row per poll. Browser hanya `select`; write latest lewat service-role runner endpoint dan config lewat admin action, dengan RLS approved-read.
+
 ## Konvensi coding per komponen
 
 ### `/agent` (Python)
@@ -67,6 +69,7 @@ AGENTS.md
 - Hasil WiFi tetap valid sebagai pengukuran end-to-end, tetapi jangan dipresentasikan sebagai bukti bottleneck wired. MTR hanya memperlihatkan hop Layer 3 yang merespons, bukan setiap switch Layer 2; UI dan laporan hanya boleh menyebut *suspected bottleneck* tanpa memastikan perangkat penyebab tanpa bukti tambahan.
 - Command `diagnostic-run` boleh mengeluarkan JSON Lines yang sudah dinormalisasi (`stage`, `interval`, `summary`, `complete`) untuk dikonsumsi runner. Jangan keluarkan raw packet, secret, atau stack trace ke stdout protocol.
 - Command `traffic-live` memakai Scapy header-only, aggregate 5-tuple in-memory, snapshot 2 detik, cumulative persistence 10 detik, queue SQLite yang coalescing dan bounded, serta hard timeout 30 menit. ICMP memakai port `null`.
+- Command `snmp-telemetry` read-only memakai OID tetap dan terbatas, polling bounded sesuai interval target, dan menormalisasi interface fisik/logis tanpa SNMP SET, walk bebas, LLDP/CDP, atau topology. Sekret profil SNMP hanya di config lokal; jangan kirim community/credential ke Supabase, log, atau stdout protocol.
 
 ### `/runner` (Windows)
 - Gunakan service credential hanya dari `.env` lokal yang tidak di-commit dan jangan pernah log/return key.
@@ -87,6 +90,7 @@ AGENTS.md
   satu request/row per ping. Discovery tidak memakai WSL, Scapy, iperf3, atau MTR.
 
 - Device Inspector memakai runner yang sama dan structured operation `device_inspect`. Windows helper hanya mengumpulkan route/neighbor serta metadata adapter context; parsing metadata, evidence normalization, classifier, dan confidence tetap di agent Python. Jika target sama dengan IPv4 lokal Windows, helper wajib menandai `This Device` dan menentukan physical/virtual dari metadata adapter—bukan range IP atau nama interface WSL. Konflik dengan kategori operator hanya warning dan tidak boleh memutasi identity, Health target, event, atau severity. Optional probe failure menghasilkan partial profile, bukan menggagalkan seluruh inspection.
+- SNMP telemetry memakai scheduler terpisah di runner yang sama, independen dari capture/Health Watch/Discovery/Diagnostics. Polling hanya ke `managed_telemetry_targets` yang enabled dengan interval configurable, concurrency kecil, timeout pendek, dan profile credential di-resolve dari config lokal runner—bukan dari Supabase. Simpan counter cache lokal untuk menghitung rate/utilisasi antar-poll; upsert satu `managed_device_latest` + satu `managed_interface_latest` per interface, dan buat `events.source = managed_telemetry` hanya saat transisi. Jangan pernah menulis secret ke Supabase/log dan jangan publish per-poll ke browser.
 - Fingerprint enrichment hanya boleh membaca header/title HTTP terbatas, metadata sertifikat TLS, deskripsi UPnP same-target, dan optional hostname NetBIOS. Jangan browse share, user, file, mDNS daemon, SNMP, LLDP, atau menganggap timeout TCP sebagai bukti port difilter.
 - Capability Device Inspector wajib diperiksa dari executable project melalui
   `network-monitor capabilities` saat startup runner dan disimpan ringkas di
@@ -107,6 +111,7 @@ AGENTS.md
   identitas/promosi dari `network_nodes`, bukan input subnet/arbitrary host.
 
 - Device Profile harus satu reusable drawer untuk Discovery, Health Watch, Traffic, dan LAN Diagnostic hops. Approved viewer hanya membaca saved profile; admin dapat Inspect, Inspect again, Save identity/fingerprint, dan Add to Health Watch secara eksplisit. Target yang sudah enabled di Health Watch tidak boleh ditawari Add lagi; tampilkan status/link Health. Traffic dan MTR tidak boleh otomatis memicu active inspection.
+- Device Profile menampilkan bagian Managed Infrastructure Telemetry: status koneksi target, identitas sistem/uptime, dan tabel interface dengan utilisasi/error/discard plus peringatan per interface. Pakai satu subscription Realtime untuk latest-state (state berubah tanpa refresh). Tampilkan status credential profile (`available`/`missing`) tanpa pernah menampilkan nilai secret. Admin mengelola target di `/admin#managed-telemetry`; approved viewer read-only. Nilai SNMP hanyalah snapshot, bukan bukti perangkat rusak.
 
 ### `/hermes-agent` (Flask)
 - Endpoint utama: `POST /analyze` — terima `event_id`, ambil context dari Supabase, panggil LLM, tulis balik `ai_summary`.
@@ -120,6 +125,7 @@ AGENTS.md
   runner; results bounded JSON sementara, bukan inventory/history, dan wajib expired.
 
 - `device_inspection_sessions` admin-read dan service-role-write; satu slot per runner, result maksimal 64 KiB dan expired 10 menit. `network_nodes.detected_fingerprint` maksimal 32 KiB, normalized, dan tidak memuat raw tool response.
+- `managed_telemetry_targets` approved-read/admin-write (config via admin action) dan hanya menyimpan `credential_profile` sebagai nama profil lokal runner—tanpa secret. `managed_device_latest` dan `managed_interface_latest` approved-read dan service-role-write, tepat satu row latest per target/interface. Event `source = managed_telemetry` terpisah dari baseline `ingest` traffic dan dari Health Watch.
 
 ## Definisi severity (jangan diubah tanpa approval Raka)
 
@@ -132,7 +138,7 @@ AGENTS.md
 
 ## Yang TIDAK boleh dilakukan AI assistant
 
-- Jangan mengubah Device Inspector menjadi deep/full-port/vulnerability scan, SNMP, credential guessing, topology discovery, atau Internet scanner.
+- Jangan mengubah Device Inspector menjadi deep/full-port/vulnerability scan, SNMP, credential guessing, topology discovery, atau Internet scanner. Satu-satunya jalur SNMP adalah workflow read-only Managed Infrastructure Telemetry (rule 21) untuk target allow-listed; Device Inspector tetap tidak memanggil SNMP/LLDP.
 
 - Jangan sarankan menyimpan raw pcap di Postgres/Supabase Storage sebagai default behavior.
 - Jangan bikin fitur capture paket berjalan di serverless/cloud — itu tidak mungkin secara teknis (butuh akses NIC lokal).
@@ -141,4 +147,6 @@ AGENTS.md
 - Jangan menjalankan subnet scan otomatis/berulang, menerima arbitrary CIDR dari
   browser, auto-promote hasil discovery, menambah SNMP credential, atau menyimpulkan
   topology/perangkat mati. Satu-satunya pengecualian discovery adalah sweep ringan
-  admin-only pada subnet Windows `/24`–`/30` yang diatur rule 19.
+  admin-only pada subnet Windows `/24`–`/30` yang diatur rule 19. SNMP juga hanya
+  read-only polling target terkelola yang diatur rule 21—tanpa scanning luas,
+  credential guessing, SNMP SET, LLDP/CDP, atau topology inference.

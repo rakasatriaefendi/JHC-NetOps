@@ -6,6 +6,7 @@ export class BackendClient {
     this.healthEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-health`;
     this.discoveryEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-discovery`;
     this.inspectionEndpoint = `${url.replace(/\/$/, "")}/functions/v1/device-inspector`;
+    this.telemetryEndpoint = `${url.replace(/\/$/, "")}/functions/v1/managed-telemetry`;
     this.headers = {
       Authorization: `Bearer ${serviceRoleKey}`,
       apikey: serviceRoleKey,
@@ -63,6 +64,10 @@ export class BackendClient {
   failInspection(runnerId, inspectionId, errorCode) {
     return this.#postInspection({ action: "fail_session", runner_id: runnerId, inspection_id: inspectionId, error_code: errorCode });
   }
+  managedTelemetryTargets(runnerId) { return this.#postTelemetry({ action: "list_targets", runner_id: runnerId }); }
+  publishManagedTelemetry(runnerId, device, interfaces, transitions) {
+    return this.#postTelemetry({ action: "publish", runner_id: runnerId, device, interfaces, transitions });
+  }
 
   async #post(body) {
     const response = await fetch(this.endpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
@@ -92,6 +97,12 @@ export class BackendClient {
     const response = await fetch(this.inspectionEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(backendFailureMessage("Device inspection backend", response.status, payload));
+    return payload.data;
+  }
+  async #postTelemetry(body) {
+    const response = await fetch(this.telemetryEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(backendFailureMessage("Managed telemetry backend", response.status, payload));
     return payload.data;
   }
 }

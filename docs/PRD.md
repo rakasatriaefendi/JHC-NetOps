@@ -136,12 +136,12 @@ Halaman:
 - Flow dan conversation berbeda: flow mempertahankan arah A→B; conversation menormalisasi pasangan endpoint tetapi tetap menyimpan byte A→B dan B→A.
 - Fine-grained flow disimpan 48 jam dan dibersihkan hourly dalam batch 5.000. Snapshot stale dibersihkan setelah 2 jam dan terminal session setelah 7 hari. Pada ukuran `flows` >300 MB backend memberi warning; >400 MB optional flow history dihentikan agar events dan diagnostic result tetap diprioritaskan.
 - Observed traffic/rate tidak sama dengan available bandwidth. Flow Detail hanya boleh menautkan **latest measured path** terpisah; jangan mengklaim hop MTR sebagai exact route flow.
-- SPAN, NetFlow, SNMP, dan infrastructure collector tetap future scope dan tidak diimplementasikan pada MVP ini.
+- SPAN, NetFlow, dan broad infrastructure collector tetap future scope. Managed Infrastructure Telemetry (SNMP read-only untuk target allow-listed) diimplementasikan sebagai workflow terpisah pada bagian 7.11.
 
 ### 7.8 Lightweight Network Health Watch
 
 - Dashboard menjadi pemilik status reachability kontinu untuk target inventory yang dikenal: `online`, `degraded`, atau `offline`.
-- Target dipilih eksplisit dari `network_nodes` dan ditugaskan ke Windows runner yang sudah ada. Health Watch sendiri tidak melakukan subnet scan/discovery, SNMP, credential perangkat, atau topology inference. Hasil discovery on-demand pada bagian 7.9 hanya menjadi target setelah promosi admin eksplisit.
+- Target dipilih eksplisit dari `network_nodes` dan ditugaskan ke Windows runner yang sudah ada. Health Watch sendiri tidak melakukan subnet scan/discovery, SNMP, credential perangkat, atau topology inference. SNMP read-only telemetry adalah workflow terpisah pada bagian 7.11, bukan bagian dari Health Watch. Hasil discovery on-demand pada bagian 7.9 hanya menjadi target setelah promosi admin eksplisit.
 - Runner menjalankan ICMP probe bounded secara asynchronous dengan concurrency terbatas. Default interval 30 detik; target critical boleh 15 detik. Tiga kegagalan beruntun diperlukan untuk `offline`, dan dua keberhasilan beruntun untuk recovery; threshold dapat dikonfigurasi admin dalam batas aman.
 - ICMP failure tidak membuktikan perangkat mati. Firewall/rate-limit/path failure dapat mencegah respons; UI dan event wajib memakai bahasa hati-hati.
 - Sampel disimpan sebagai short window lokal maksimal lima hasil. Backend hanya menyimpan satu latest row per target dan event saat status berubah; tidak membuat row per ping.
@@ -157,7 +157,8 @@ Halaman:
   physical route Windows dan hanya mengizinkan prefix `/24` sampai `/30`.
 - Metode MVP menggabungkan Windows neighbor cache dengan satu ICMP bounded per usable
   address, concurrency 4 dan timeout 400 ms. Tidak ada port/service scan, OS fingerprint,
-  vulnerability scan, SNMP, payload, atau sweep berulang.
+  vulnerability scan, SNMP, payload, atau sweep berulang. SNMP read-only telemetry (7.11)
+  hanya memakai target yang sudah ada di `network_nodes` dan tidak berbagi engine/mekanisme Discovery.
 - Hasil progresif disimpan dalam satu temporary slot per runner, dioverwrite maksimal
   setiap 32 alamat, bounded 254 host/64 KiB, dan dibersihkan 10 menit setelah selesai.
   Tidak ada row per ping dan tidak ada history discovery permanen.
@@ -178,7 +179,18 @@ Halaman:
 - Detected identity (`detected_fingerprint`, `last_inspected_at`) terpisah dari operator identity (`name`, `location`, `device_type`, `notes`). Reinspection tidak boleh menimpa operator identity atau status Health Watch dan tidak membuat event alert.
 - Hasil inspection pertama bersifat temporary dalam satu slot per runner dan expired setelah 10 menit. Unknown device tidak otomatis dibuat sebagai inventory. Penyimpanan fingerprint/operator identity memerlukan action admin eksplisit; approved viewer hanya dapat melihat profile yang sudah disimpan. Konflik antara role otomatis `This Device` dan kategori operator hanya menghasilkan peringatan inventory-quality; sistem tidak mengubah nama/kategori operator, membuat Health target, atau membuat alert secara otomatis.
 - Satu reusable Device Profile drawer dipakai dari Discovery, Health Watch, Traffic, dan hop LAN Diagnostics. Unmanaged Layer-2 switch tanpa IP management mungkin tidak terlihat, MTR hanya menampilkan responding Layer-3 hops, dan hasil adalah evidence identitas—bukan topology discovery atau bukti perangkat rusak.
-- SNMP, LLDP, topology mapping, deep scan, SPAN/NetFlow, dan vulnerability assessment tetap di luar scope iterasi ini.
+- SNMP read-only untuk target terkelola (allow-list) diimplementasikan pada bagian 7.11; LLDP/CDP, topology mapping, SNMP SET, deep scan, SPAN/NetFlow, dan vulnerability assessment tetap di luar scope iterasi ini.
+
+### 7.11 Managed Infrastructure Telemetry (SNMP read-only)
+
+- Fitur ini menjawab "berapa throughput/utilisasi/error/discard port perangkat terkelola yang disetujui" dari perangkat itu sendiri (SNMP read-only), terpisah dari Traffic pasif pada bagian 7.1–7.7, Health Watch (7.8), Discovery (7.9), dan Device Inspector (7.10).
+- Hanya perangkat yang sudah ada di `network_nodes` yang boleh dijadikan target. Admin menambahkan satu target melalui `/admin#managed-telemetry` dan memilih **credential profile** yang sudah didefinisikan (bukan memasukkan community string atau username/password SNMP di form). Nama profile dapat merujuk ke `monitoring-readonly` atau `core-readonly`; sekretnya hanya ada di config lokal runner dan tidak pernah dikirim ke Supabase, browser, atau log.
+- Runner memakai profil lokal untuk melakukan polling SNMPv2c/v3 read-only dengan OID tetap dan terbatas (identitas sistem, uptime, satu set interface fisik/logis, oktet counters, dan error/discard). Tidak ada walk bebas, kredensial tebakan, SNMP SET, LLDP/CDP, topology discovery, atau deep scan.
+- Polling bounded: interval default 60 detik (boleh 30–300 sesuai target), concurrency kecil, timeout pendek, dan tidak mengganggu capture/Health Watch/Diagnostics. Runner hanya menyimpan **latest-state** (satu row device + satu row per interface) plus event transisi saat nilai ambang terlewati; tidak membuat row per poll.
+- Credential profile dapat berlabel `available`/`missing` pada runner. UI hanya menampilkan status ketersediaan; profile yang tidak tersedia tidak mencoba polling dan diberi label di UI.
+- UI: bagian Device Profile menampilkan status koneksi target, identitas sistem, uptime, daftar interface dengan utilisasi/history arah/error/discard, dan peringatan per interface (up/down, link flap, speed change, utilisasi tinggi). Drawer tetap realtime (state berubah tanpa refresh). Admin dapat menambah/mengubah/menonaktifkan target; approved viewer read-only.
+- Nilai ambang (`errors`/`discards`/`up_percent`/`down_percent`/`util_percent`) bersifat tetap dan terpusat di frontend helper, bukan per-target. Bahasa UI hati-hati: throughput/error/discard SNMP tidak membuktikan perangkat rusak.
+- Browser hanya melakukan `select` pada tabel telemetry; penulisan state latest hanya lewat service-role runner endpoint dan config lewat action admin dengan RLS.
 
 ## 8. Skema data (ringkas)
 
@@ -203,6 +215,12 @@ Halaman:
 **network_discovery_sessions**: runner_id (PK/FK `diagnostic_runners`, satu temporary slot per runner), session_id (uuid unik), requested_by, status (`idle`/`queued`/`running`/`completed`/`failed`/`expired`), phase (`prepare`/`scan`), connection/interface/local IPv4/subnet context, total/scanned/found count, results (jsonb bounded), error_code, created/started/completed/expires/updated timestamps. Admin read-only; mutation melalui Edge Function/service runner. Results dibersihkan saat expiry dan bukan inventory/history.
 
 **device_inspection_sessions**: runner_id (PK/FK `diagnostic_runners`, satu temporary slot per runner), inspection_id (uuid unik), requested_by, target_ip, authorization_source (`discovery`/`inventory`), status (`queued`/`running`/`completed`/`failed`/`expired`), stage, result (normalized jsonb bounded 64 KiB), error_code, created/started/completed/expires/updated timestamps. Admin read-only; mutation hanya melalui Edge Function/service runner; payload expired dibersihkan setelah 10 menit dan tidak otomatis membuat inventory.
+
+**managed_telemetry_targets**: id (PK, uuid), node_id (FK `network_nodes`, unique bersama runner), runner_id (FK `diagnostic_runners`), enabled, snmp_version (`2c`/`3`), snmp_port, credential_profile (text), poll_interval_seconds, thresholds (jsonb: errors/discards/up_percent/down_percent/util_percent), created_by, created_at, updated_at. Approved user read; admin CRUD via action. Tidak menyimpan secret/community string di kolom mana pun; `credential_profile` hanya nama profil lokal runner.
+
+**managed_device_latest**: target_id (PK/FK `managed_telemetry_targets`, tepat satu row per target), connected (bool), polled_at, sys_name, sys_descr, sys_uptime_seconds, sys_object_id, sys_contact, sys_location, manufacturer, model, serial_number, firmware_version, num_physical_interfaces, num_logical_interfaces, updated_at. Browser approved read-only; write hanya melalui service-role runner endpoint.
+
+**managed_interface_latest**: target_id (FK `managed_telemetry_targets`, unique bersama if_index), if_index, if_name, if_alias, if_type (`physical`/`logical`), if_speed, if_admin_status, if_oper_status, if_last_change, in_octets, out_octets, in_ucast_pkts, out_ucast_pkts, in_errors, in_discards, in_multicast_pkts, in_broadcast_pkts, rx_util_pct, tx_util_pct, rx_rate_bps, tx_rate_bps, updated_at. Browser approved read-only; write hanya melalui service-role runner endpoint; uptime-interval values (rx/tx rate/util) hanya snapshot latest dan bukan janji historis.
 
 **diagnostic_runners**: id (PK, text), display_name, last_seen_at, health_status (`online`/`degraded`), health_error_code, capabilities (jsonb: source/target/duration allow-list untuk UI dan capability runtime Device Inspector yang ringkas; engine MVP `python_socket`, tool opsional tidak menjadi hard dependency), preflight (jsonb ephemeral satu slot untuk target allow-listed), created_at, updated_at
 
@@ -254,8 +272,9 @@ Admin pertama (Raka) di-seed manual lewat SQL editor Supabase setelah register p
 3. **Klasifikasi & alert** — rule engine severity, halaman History & Alert.
 4. **AI layer** — integrasi Hermes Agent untuk ringkasan otomatis per event.
 5. **Bandwidth & path diagnostics (opsional, on-demand)** — job iperf3/mtr terpisah, tabel & halaman diagnostik baru, tidak masuk baseline severity.
-6. **Operational network visibility** — Traffic pasif, selective Health Watch, dan
-   on-demand bounded Network Discovery dari Dashboard tetap sebagai tiga workflow terpisah.
+6. **Operational network visibility** — Traffic pasif, selective Health Watch,
+   on-demand bounded Network Discovery, dan Managed Infrastructure Telemetry (SNMP
+   read-only, 7.11) tetap sebagai workflow terpisah.
 
 ## 13. Risiko & catatan teknis
 

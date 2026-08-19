@@ -1,5 +1,6 @@
 import { ViewerAccessControl } from "@/components/admin/viewer-access-control";
 import { NetworkHealthTargets } from "@/components/admin/network-health-targets";
+import { ManagedTelemetryTargets } from "@/components/admin/managed-telemetry-targets";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireAdminProfile, type Profile } from "@/lib/auth";
 
@@ -9,17 +10,20 @@ type AdminPageProps = {
     notice?: string;
     health_notice?: string;
     health_error?: string;
+    telemetry_notice?: string;
+    telemetry_error?: string;
   }>;
 };
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const { supabase } = await requireAdminProfile();
   const params = await searchParams;
-  const [{ data }, { data: nodes }, { data: runners }, { data: healthTargets }] = await Promise.all([
+  const [{ data }, { data: nodes }, { data: runners }, { data: healthTargets }, { data: telemetryTargets }] = await Promise.all([
     supabase.from("profiles").select("id, email, full_name, role, status, created_at, approved_at, approved_by").eq("role", "viewer").order("created_at", { ascending: true }).returns<Profile[]>(),
     supabase.from("network_nodes").select("id,name,ip_address,location").order("name"),
-    supabase.from("diagnostic_runners").select("id,display_name").order("display_name"),
+    supabase.from("diagnostic_runners").select("id,display_name,capabilities").order("display_name"),
     supabase.from("network_targets").select("id,node_id,runner_id,enabled,critical,probe_interval_seconds,timeout_ms,failure_threshold,recovery_threshold,latency_warning_ms,loss_warning_percent").order("created_at"),
+    supabase.from("managed_telemetry_targets").select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds").order("created_at"),
   ]);
   const viewerProfiles = data ?? [];
   const approvedCount = viewerProfiles.filter(
@@ -102,6 +106,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         )}
       </section>
       <NetworkHealthTargets nodes={nodes ?? []} runners={runners ?? []} targets={healthTargets ?? []} notice={params.health_notice} error={params.health_error} />
+      <ManagedTelemetryTargets nodes={nodes ?? []} runners={runners ?? []} targets={telemetryTargets ?? []} notice={params.telemetry_notice} error={params.telemetry_error} />
     </main>
   );
 }

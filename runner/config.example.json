@@ -21,5 +21,23 @@
   "traffic_interface": "eth0",
   "traffic_durations_seconds": [300, 600, 900, 1800],
   "poll_interval_ms": 2000,
-  "heartbeat_interval_ms": 10000
+  "heartbeat_interval_ms": 10000,
+  "enable_snmp_telemetry": false,
+  "snmp_max_concurrent": 2,
+  "snmp_timeout_seconds": 3,
+  "snmp_poll_intervals_seconds": [30, 60],
+  "snmp_credential_profiles": {
+    "monitoring-readonly-v3": {
+      "version": "3",
+      "username": "monitoring-readonly",
+      "auth_protocol": "SHA256",
+      "auth_password": "CHANGE_ME_AUTH_PASSWORD",
+      "priv_protocol": "AES128",
+      "priv_password": "CHANGE_ME_PRIV_PASSWORD"
+    },
+    "monitoring-readonly-v2c": {
+      "version": "2c",
+      "community": "CHANGE_ME_READONLY_COMMUNITY"
+    }
+  }
 }
