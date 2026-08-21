@@ -145,3 +145,57 @@ test("heartbeat continues during a simulated long asynchronous Inspector child",
     assert.ok(heartbeats >= 3);
   } finally { stop(); }
 });
+
+test("Inspector returns partial within outer ceiling after scaled WSL startup overhead", async () => {
+  let fingerprint = null;
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    setTimeout(() => child.stdout.write(`${JSON.stringify({ type: "stage", stage: "services" })}\n`), 60);
+    setTimeout(() => {
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.228", likely_device_type: "unknown", confidence: "unknown",
+        capabilities: [], evidence: [], probe_summary: { partial: true, deadline_reached: true },
+      } })}\n`);
+      child.stdout.end();
+      child.emit("close", 0);
+    }, 220);
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  const started = Date.now();
+  await runInspectionAgent(config, { target_ip: "192.168.188.228" }, context, async (event) => {
+    if (event.type === "result") fingerprint = event.fingerprint;
+  }, 300, spawnProcess);
+  assert.ok(Date.now() - started < 300);
+  assert.equal(fingerprint?.probe_summary?.partial, true);
+});
+
+test("Inspector outer ceiling still kills a genuinely hung WSL child", async () => {
+  let killed = false;
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      killed = true;
+      child.stdout.end();
+      child.stderr.end();
+      queueMicrotask(() => child.emit("close", null));
+      return true;
+    };
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  await assert.rejects(
+    runInspectionAgent(config, { target_ip: "192.168.188.228" }, context, async () => {}, 50, spawnProcess),
+    (error) => error.code === "INSPECTION_TIMEOUT",
+  );
+  assert.equal(killed, true);
+});

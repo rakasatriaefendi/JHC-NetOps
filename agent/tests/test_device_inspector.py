@@ -1,5 +1,8 @@
 import json
+import multiprocessing
 import struct
+import subprocess
+import sys
 import time
 from contextlib import redirect_stdout
 from io import StringIO
@@ -10,6 +13,7 @@ from types import SimpleNamespace
 from network_monitoring_agent.device_inspector import (
     TCP_PORTS,
     INSPECTION_BUDGET_SECONDS,
+    PROCESS_EXIT_GRACE_SECONDS,
     InspectionDeadlineExceeded,
     classify_device,
     http_metadata,
@@ -119,7 +123,73 @@ class DeviceInspectorClassifierTest(TestCase):
     def test_probe_plan_is_fixed_and_small(self) -> None:
         self.assertEqual(TCP_PORTS, (22, 80, 443, 445, 554, 631, 1883, 8080, 8443, 9100))
         self.assertEqual(len(TCP_PORTS), 10)
-        self.assertEqual(INSPECTION_BUDGET_SECONDS, 24.5)
+        self.assertEqual(INSPECTION_BUDGET_SECONDS, 18.0)
+        self.assertEqual(PROCESS_EXIT_GRACE_SECONDS, 2.0)
+
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_never_returning_worker_is_terminated_and_partial_serializes(self, _tcp) -> None:
+        def never_returns(*_args, **_kwargs):
+            time.sleep(60)
+
+        before = {child.pid for child in multiprocessing.active_children()}
+        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=never_returns):
+            started = time.monotonic()
+            result = inspect_device("192.168.188.20", {
+                "route_role": "on_link", "same_subnet": True, "mac": None,
+                "reachable": True, "is_this_device": False, "interface_index": 20,
+                "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+                "interface_type": "physical",
+            }, total_budget_seconds=1.0)
+            serialized = json.dumps(result)
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertTrue(result["probe_summary"]["partial"])
+        self.assertIn('"partial": true', serialized)
+        time.sleep(0.05)
+        self.assertEqual(
+            {child.pid for child in multiprocessing.active_children()} - before,
+            set(),
+        )
+
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_worker_exceeding_remaining_budget_finalizes_existing_evidence(self, _tcp) -> None:
+        def exceeds_budget(*_args, **_kwargs):
+            time.sleep(0.5)
+
+        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=exceeds_budget):
+            started = time.monotonic()
+            result = inspect_device("192.168.188.20", {
+                "route_role": "on_link", "same_subnet": True, "mac": None,
+                "reachable": True, "is_this_device": False, "interface_index": 20,
+                "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+                "interface_type": "physical",
+            }, total_budget_seconds=0.5)
+        self.assertLess(time.monotonic() - started, 0.9)
+        self.assertTrue(result["probe_summary"]["deadline_reached"])
+
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_subprocess_collector_and_descendant_are_terminated(self, _tcp) -> None:
+        def stuck_subprocess(*_args, **_kwargs):
+            subprocess.run(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                check=False,
+            )
+
+        before = {child.pid for child in multiprocessing.active_children()}
+        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=stuck_subprocess):
+            started = time.monotonic()
+            result = inspect_device("192.168.188.20", {
+                "route_role": "on_link", "same_subnet": True, "mac": None,
+                "reachable": True, "is_this_device": False, "interface_index": 20,
+                "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+                "interface_type": "physical",
+            }, total_budget_seconds=1.0)
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertTrue(result["probe_summary"]["partial"])
+        time.sleep(0.05)
+        self.assertEqual(
+            {child.pid for child in multiprocessing.active_children()} - before,
+            set(),
+        )
 
     @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])

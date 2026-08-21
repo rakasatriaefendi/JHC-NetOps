@@ -37,37 +37,31 @@ export function NetworkDiscoveryDrawer({
   const [editingIp, setEditingIp] = useState<string | null>(null);
   const [promotedNodes, setPromotedNodes] = useState<Set<string>>(new Set());
   const [recentTrafficIps, setRecentTrafficIps] = useState<Set<string>>(() => new Set(trafficIps));
-  const [runnerHeartbeats, setRunnerHeartbeats] = useState<Record<string, DiscoveryRunner>>(
-    () => Object.fromEntries(runners.map((runner) => [runner.id, runner])),
-  );
+  const [runnerHeartbeats, setRunnerHeartbeats] = useState<Record<string, DiscoveryRunner>>({});
   const [freshnessNow, setFreshnessNow] = useState(() => Date.now());
   const prepared = useRef<Set<string>>(new Set());
   const { nodes } = useNetworkNodes();
   const selectedRunner = eligibleRunners.find((item) => item.id === runnerId) ?? eligibleRunners[0];
-  const runner = selectedRunner ? runnerHeartbeats[selectedRunner.id] ?? selectedRunner : undefined;
+  const realtimeRunner = selectedRunner ? runnerHeartbeats[selectedRunner.id] : undefined;
+  const runner = selectedRunner && realtimeRunner
+    && Date.parse(realtimeRunner.last_seen_at) > Date.parse(selectedRunner.last_seen_at)
+    ? { ...selectedRunner, ...realtimeRunner }
+    : selectedRunner;
   const session = sessions.find((item) => item.runner_id === runner?.id) ?? null;
   const runnerOnline = isDiscoveryRunnerOnline(runner, freshnessNow);
 
-  useEffect(() => {
-    setRunnerHeartbeats((current) => Object.fromEntries(runners.map((runner) => [
-      runner.id,
-      current[runner.id] && Date.parse(current[runner.id].last_seen_at) > Date.parse(runner.last_seen_at)
-        ? current[runner.id]
-        : { ...current[runner.id], ...runner },
-    ])));
-  }, [runners]);
+  const runnerLastSeenAt = runner?.last_seen_at;
 
   useEffect(() => {
-    if (!open || !runner) return;
+    if (!open || !runnerLastSeenAt) return;
     const now = Date.now();
-    setFreshnessNow(now);
-    const expiresAt = Date.parse(runner.last_seen_at) + DISCOVERY_RUNNER_FRESHNESS_MS;
+    const expiresAt = Date.parse(runnerLastSeenAt) + DISCOVERY_RUNNER_FRESHNESS_MS;
     const timer = window.setTimeout(
       () => setFreshnessNow(Date.now()),
       Math.max(0, expiresAt - now + 1),
     );
     return () => window.clearTimeout(timer);
-  }, [open, runner?.id, runner?.last_seen_at]);
+  }, [open, runnerLastSeenAt]);
 
   useEffect(() => {
     if (!open || !runner?.id) return;
