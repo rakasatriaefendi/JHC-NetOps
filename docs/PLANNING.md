@@ -188,15 +188,22 @@ inventory/monitoring tanpa pilihan eksplisit.
   read-only, desktop/mobile tanpa overflow, tidak ada secret di DOM, smoke Traffic/
   Diagnostics/Dashboard, dan Device Inspector surface tetap tampil; tanpa probe
   SNMP/UDP-161 nyata dan tanpa ping/MTR/iperf3/capture/Device Inspector probe
-- [~] Edge Function `managed-telemetry`: IMPLEMENTED + CONTRACT/UNIT VERIFIED, tetapi
-  **belum runtime/deployment verified dan belum di-deploy**
+- [x] Edge Function `managed-telemetry`: di-deploy ke project (versi 4, ACTIVE,
+  `verify_jwt = true`) dan terverifikasi remote penuh dengan
+  `scripts/verify_managed_telemetry_function.mjs`: authorization (anon 403,
+  non-JWT 401, cross-runner 403), `list_targets` scoped per runner,
+  `publish` device/interface/event upsert, dedup transisi, recovery resolution,
+  stale-cleanup scoped ke satu target, limit interface (201) dan payload (64 KiB),
+  penolakan secret-shaped key, RLS approved-read, tidak ada secret tersimpan,
+  dan Realtime delivery state yang dihasilkan function ke subscriber
+  approved (tanpa refresh)
 
 **Definition of done:** admin dapat menambah target telemetry dari inventory untuk runner
 ber-profil lokal, runner mem-poll read-only bounded dan menyimpan latest-state, Device
 Profile menampilkan telemetry perangkat secara realtime dengan peringatan interface,
 approved viewer hanya membaca, dan tidak ada secret di Supabase/browser serta tidak ada
-row per poll. (Tercapai untuk frontend/runner/agent/schema; deployment Edge Function
-sengaja ditunda.)
+row per poll. (Tercapai untuk frontend/runner/agent/schema + deployment Edge Function;
+satu-satunya sisa adalah validasi SNMP polling nyata ke perangkat managed.)
 
 ---
 
@@ -468,3 +475,26 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   `clean: true`, dan operational counts kembali ke baseline dengan delta events = 1
   (hanya fixture speed event). Tidak ada SNMP/UDP-161, ping, MTR, iperf3, packet
   capture, atau Device Inspector probe yang dijalankan.
+- [2026-08-19] Edge Function `managed-telemetry` di-deploy ke project
+  `krsixpywzeqazuhrgvib` (versi 4, ACTIVE, `verify_jwt = true` lewat
+  `[functions.managed-telemetry]` di `supabase/config.toml`) dan terverifikasi remote
+  penuh dengan `scripts/verify_managed_telemetry_function.mjs` (marker
+  `verify-fn-managed-telemetry-*`, `ok: true`). Dua bug nyata ditemukan dan diperbaiki
+  lewat probe remote: (1) stale-cleanup membangun `not.in.1` (PGRST100) → filter
+  parenthesized `(1,2,3)`, dan (2) root cause 500 `ReferenceError: target_id is not
+  defined` karena shorthand `target_id` di map interfaceRows → `target_id: targetId`.
+  Verifikasi mencakup authorization (anon 403, non-JWT 401, cross-runner 403),
+  `list_targets` scoped per runner + shape + empty-runner `[]`, publish device/6
+  interface/event upsert, dedup transisi (0 event), recovery resolution (event terbuka
+  ter-resolve), stale-cleanup scoped ke satu target (B/C tidak tersentuh), limit
+  interface 201 → 400 dan payload >64 KiB → 400, penolakan secret-shaped key
+  (community → 400), RLS approved-read (admin JWT baca latest), tidak ada secret
+  tersimpan (`snmp2c_community_encrypted` null), `list_targets` mencerminkan latest,
+  dan Realtime delivery state `managed_device_latest` hasil function ke subscriber
+  approved tanpa refresh. Regression bersih: runner nyata `raka-local-wsl` online
+  dengan heartbeat segar dan `device_inspector.available`, versi function lain tidak
+  berubah (diagnostics v8, diagnostic-jobs v14, traffic-live v5, network-health v2,
+  network-discovery v4, device-inspector v2), count operasional kembali ke baseline,
+  dan semua fixture dibersihkan exact-ID dengan audit `clean: true`. Sisa blocker:
+  validasi SNMP polling nyata ke perangkat managed (runner capability
+  `snmp_telemetry` belum diterbitkan runner live).

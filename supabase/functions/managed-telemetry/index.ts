@@ -86,7 +86,7 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
   const interfaceRows = interfaces.map((item) => {
     const row = item as Record<string, unknown>;
     return {
-      target_id, if_index: row.if_index, name: nullableText(row.name), description: nullableText(row.description),
+      target_id: targetId, if_index: row.if_index, name: nullableText(row.name), description: nullableText(row.description),
       if_type: row.if_type ?? null, is_physical: row.is_physical === true,
       admin_status: row.admin_status ?? null, oper_status: row.oper_status ?? null,
       speed_bps: row.speed_bps ?? null, rx_rate_bps: row.rx_rate_bps ?? null, tx_rate_bps: row.tx_rate_bps ?? null,
@@ -103,7 +103,7 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
     if (interfaceError) return reply({ error: "Latest managed interface state could not be stored" }, 500);
   }
   let staleQuery = db.from("managed_interface_latest").delete().eq("target_id", targetId);
-  if (interfaceRows.length) staleQuery = staleQuery.not("if_index", "in", interfaceRows.map((row) => row.if_index));
+  if (interfaceRows.length) staleQuery = staleQuery.not("if_index", "in", `(${interfaceRows.map((row) => row.if_index).join(",")})`);
   const { error: staleError } = await staleQuery;
   if (staleError) return reply({ error: "Stale managed interface state could not be removed" }, 500);
 
