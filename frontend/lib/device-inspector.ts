@@ -43,6 +43,8 @@ export type DeviceFingerprint = {
     tcp_states?: ObservedServiceState[];
     upnp_checked: boolean;
     netbios_checked?: boolean;
+    partial?: boolean;
+    deadline_reached?: boolean;
     optional_skips: string[];
   };
   limitations: string[];

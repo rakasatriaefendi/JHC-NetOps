@@ -4,27 +4,28 @@ import { safeError } from "./config.mjs";
 
 const CREATE_NO_WINDOW = true;
 
-export function runPreflight(config) {
-  const distroList = spawnSync("wsl.exe", ["--list", "--quiet"], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8" });
+export function runPreflight(config, spawnSyncProcess = spawnSync) {
+  const distroList = spawnSyncProcess("wsl.exe", ["--list", "--quiet"], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+  assertWslInvocation(distroList, "WSL_RUNTIME_FAILED");
   const distros = `${distroList.stdout ?? ""}${distroList.stderr ?? ""}`.replaceAll("\u0000", "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-  if (distroList.status !== 0 || !distros.includes(config.wsl_distro)) throw safeError("WSL_DISTRO_NOT_FOUND");
+  if (!distros.includes(config.wsl_distro)) throw safeError("WSL_DISTRO_NOT_FOUND");
 
-  assertWsl(config, ["/usr/bin/test", "-d", config.wsl_project_root], "AGENT_VENV_MISSING");
-  assertWsl(config, ["/usr/bin/test", "-x", config.agent_path], "AGENT_VENV_MISSING");
-  const python = captureWsl(config, [config.python_path, "--version"], "AGENT_PYTHON_UNSUPPORTED");
+  assertWslPath(config, ["/usr/bin/test", "-d", config.wsl_project_root], "AGENT_VENV_MISSING", spawnSyncProcess);
+  assertWslPath(config, ["/usr/bin/test", "-x", config.agent_path], "AGENT_VENV_MISSING", spawnSyncProcess);
+  const python = captureWsl(config, [config.python_path, "--version"], "AGENT_PYTHON_UNSUPPORTED", spawnSyncProcess);
   const pythonVersion = python.match(/Python\s+(\d+)\.(\d+)/);
   if (!pythonVersion || Number(pythonVersion[1]) < 3 || (Number(pythonVersion[1]) === 3 && Number(pythonVersion[2]) < 11)) throw safeError("AGENT_PYTHON_UNSUPPORTED");
 
-  const iperf = captureWsl(config, ["/usr/local/bin/iperf3", "--version"], "IPERF3_MISSING");
+  const iperf = captureWsl(config, ["/usr/local/bin/iperf3", "--version"], "IPERF3_MISSING", spawnSyncProcess);
   const iperfVersion = iperf.match(/iperf\s+3\.(\d+)/i);
   if (!iperfVersion || Number(iperfVersion[1]) < 7) throw safeError("IPERF3_MISSING");
-  captureWsl(config, ["/usr/bin/mtr", "--version"], "MTR_MISSING");
-  captureWsl(config, [config.python_path, "-c", "import scapy"], "TRAFFIC_CAPTURE_FAILED");
-  captureWsl(config, [config.agent_path, "traffic-interface-check", "--interface", config.traffic_interface], "TRAFFIC_CAPTURE_FAILED");
+  captureWsl(config, ["/usr/bin/mtr", "--version"], "MTR_MISSING", spawnSyncProcess);
+  captureWsl(config, [config.python_path, "-c", "import scapy"], "TRAFFIC_CAPTURE_FAILED", spawnSyncProcess);
+  captureWsl(config, [config.agent_path, "traffic-interface-check", "--interface", config.traffic_interface], "TRAFFIC_CAPTURE_FAILED", spawnSyncProcess);
   let deviceInspectorPayload;
   try {
     deviceInspectorPayload = JSON.parse(captureWslStdout(
-      config, [config.agent_path, "capabilities"], "INSPECTION_AGENT_UNAVAILABLE",
+      config, [config.agent_path, "capabilities"], "INSPECTION_AGENT_UNAVAILABLE", spawnSyncProcess,
     ).trim());
   } catch (error) {
     if (error?.code) throw error;
@@ -77,16 +78,16 @@ export function buildInspectionInvocation(config, session, context) {
   return args;
 }
 
-export async function runInspectionAgent(config, session, context, onEvent, timeoutMs = 30_000) {
+export async function runInspectionAgent(config, session, context, onEvent, timeoutMs = 30_000, spawnProcess = spawn) {
   return runStructuredProcess(buildInspectionInvocation(config, session, context), validateInspectionEvent, onEvent, timeoutMs, {
     start: "INSPECTION_WSL_UNAVAILABLE",
     timeout: "INSPECTION_TIMEOUT",
     exit: "INSPECTION_AGENT_UNAVAILABLE",
-  });
+  }, spawnProcess);
 }
 
-async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCodes = {}) {
-  const child = spawn("wsl.exe", args, { windowsHide: CREATE_NO_WINDOW, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCodes = {}, spawnProcess = spawn) {
+  const child = spawnProcess("wsl.exe", args, { windowsHide: CREATE_NO_WINDOW, shell: false, stdio: ["ignore", "pipe", "pipe"] });
   let safeAgentError = null;
   let protocolError = null;
   let callbackError = null;
@@ -177,6 +178,9 @@ export function validateInspectionEvent(value) {
     return { type: "stage", stage: value.stage };
   }
   if (value.type === "result") return { type: "result", fingerprint: validateFingerprint(value.fingerprint) };
+  if (value.type === "error" && value.code === "INSPECTION_TIMEOUT" && typeof value.message === "string" && value.message.length <= 160 && !/[\r\n]/.test(value.message)) {
+    return { type: "error", code: "INSPECTION_TIMEOUT", message: value.message };
+  }
   throw safeError("AGENT_PROTOCOL_ERROR");
 }
 
@@ -217,19 +221,36 @@ function validateFingerprint(value) {
   return value;
 }
 
-function captureWsl(config, args, errorCode) {
-  const result = spawnSync("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
-  if (result.status !== 0) throw safeError(errorCode);
+function captureWsl(config, args, errorCode, spawnSyncProcess = spawnSync) {
+  const result = spawnSyncProcess("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+  assertWslInvocation(result, errorCode);
   return `${result.stdout ?? ""}${result.stderr ?? ""}`.replaceAll("\u0000", "");
 }
 
-function captureWslStdout(config, args, errorCode) {
-  const result = spawnSync("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
-  if (result.status !== 0) throw safeError(errorCode);
+function captureWslStdout(config, args, errorCode, spawnSyncProcess = spawnSync) {
+  const result = spawnSyncProcess("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+  assertWslInvocation(result, errorCode);
   return `${result.stdout ?? ""}`.replaceAll("\u0000", "");
 }
 
-function assertWsl(config, args, errorCode) { captureWsl(config, args, errorCode); }
+function assertWslPath(config, args, errorCode, spawnSyncProcess) {
+  const result = spawnSyncProcess("wsl.exe", ["-d", config.wsl_distro, "--exec", ...args], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+  assertWslInvocation(result, errorCode, { pathCheck: true });
+}
+
+export function assertWslInvocation(result, commandErrorCode, { pathCheck = false } = {}) {
+  const timedOut = result?.error?.code === "ETIMEDOUT";
+  if (timedOut) throw safeError("WSL_INVOCATION_TIMEOUT");
+  if (result?.error || result?.status === null || result?.status === undefined) throw safeError("WSL_RUNTIME_FAILED");
+  if (result.status !== 0) {
+    const stderr = `${result.stderr ?? ""}`.replaceAll("\u0000", "").trim();
+    if (pathCheck && (result.status !== 1 || wslRuntimeFailure(stderr))) throw safeError("WSL_RUNTIME_FAILED");
+    throw safeError(commandErrorCode);
+  }
+}
+function wslRuntimeFailure(stderr) {
+  return /(?:failed to (?:configure|mount|start)|mount failed|wsl\/(?:service|e_)|error code|access is denied|distribution.*(?:not found|not running))/i.test(stderr);
+}
 function requireNumber(value) { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw safeError("AGENT_PROTOCOL_ERROR"); }
 function direction(value) { return value === "upload" || value === "download"; }
 function isUuid(value) { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }

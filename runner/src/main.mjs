@@ -40,7 +40,7 @@ for (let attempt = 1; attempt <= 3; attempt += 1) {
     break;
   } catch (error) {
     healthErrorCode = error.code ?? "RUNNER_INTERNAL_ERROR";
-    const retryable = ["AGENT_VENV_MISSING", "TRAFFIC_CAPTURE_FAILED", "WSL_DISTRO_NOT_FOUND"].includes(healthErrorCode);
+    const retryable = ["AGENT_VENV_MISSING", "TRAFFIC_CAPTURE_FAILED", "WSL_DISTRO_NOT_FOUND", "WSL_INVOCATION_TIMEOUT", "WSL_RUNTIME_FAILED"].includes(healthErrorCode);
     if (attempt < 3 && retryable) {
       log(`Preflight attempt ${attempt} failed: ${healthErrorCode}; retrying`);
       await delay(3000);

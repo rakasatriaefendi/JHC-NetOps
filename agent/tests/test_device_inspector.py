@@ -1,5 +1,6 @@
 import json
 import struct
+import time
 from contextlib import redirect_stdout
 from io import StringIO
 from unittest import TestCase
@@ -8,6 +9,8 @@ from types import SimpleNamespace
 
 from network_monitoring_agent.device_inspector import (
     TCP_PORTS,
+    INSPECTION_BUDGET_SECONDS,
+    InspectionDeadlineExceeded,
     classify_device,
     http_metadata,
     inspect_device,
@@ -116,6 +119,51 @@ class DeviceInspectorClassifierTest(TestCase):
     def test_probe_plan_is_fixed_and_small(self) -> None:
         self.assertEqual(TCP_PORTS, (22, 80, 443, 445, 554, 631, 1883, 8080, 8443, 9100))
         self.assertEqual(len(TCP_PORTS), 10)
+        self.assertEqual(INSPECTION_BUDGET_SECONDS, 24.5)
+
+    @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_normal_fast_completion_is_not_marked_partial(self, *_mocks) -> None:
+        result = inspect_device("192.168.188.20", {
+            "route_role": "on_link", "same_subnet": True, "mac": None,
+            "reachable": True, "is_this_device": False, "interface_index": 20,
+            "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+            "interface_type": "physical",
+        })
+        self.assertFalse(result["probe_summary"]["partial"])
+
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_slow_optional_collector_returns_partial_existing_evidence(self, _tcp) -> None:
+        def slow_upnp(*_args, **_kwargs):
+            time.sleep(0.08)
+            return None
+
+        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=slow_upnp):
+            started = time.monotonic()
+            result = inspect_device("192.168.188.20", {
+                "route_role": "on_link", "same_subnet": True, "mac": None,
+                "reachable": True, "is_this_device": False, "interface_index": 20,
+                "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+                "interface_type": "physical",
+            }, total_budget_seconds=0.03)
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertTrue(result["probe_summary"]["partial"])
+        self.assertIn("deadline", result["probe_summary"]["optional_skips"])
+
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_deadline_before_usable_evidence_is_bounded_timeout(self, _tcp) -> None:
+        def slow_upnp(*_args, **_kwargs):
+            time.sleep(0.08)
+            return None
+
+        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=slow_upnp):
+            with self.assertRaises(InspectionDeadlineExceeded):
+                inspect_device("192.168.188.20", {
+                    "route_role": "on_link", "same_subnet": True, "mac": None,
+                    "reachable": False, "is_this_device": False, "interface_index": 20,
+                    "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+                    "interface_type": "physical",
+                }, total_budget_seconds=0.03)
 
     @patch("network_monitoring_agent.device_inspector.shutil.which", return_value=None)
     def test_capabilities_do_not_require_nmap_or_optional_tools(self, _which) -> None:

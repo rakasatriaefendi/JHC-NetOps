@@ -168,6 +168,7 @@ function DeviceProfileDrawer({ opened, node, fingerprint, session, canManage, ru
       {active ? <Progress stage={session?.stage ?? "validating_target"} /> : null}
       {session?.status === "failed" ? <InspectionFailure code={session.error_code} /> : null}
       {error ? <Notice critical>{error}</Notice> : null}
+      {fingerprint?.probe_summary.partial && !insufficient ? <Notice><p className="font-medium text-text-primary">Inspection completed — partial evidence.</p><p className="mt-2">The internal safety deadline stopped optional probes. Evidence already collected remains valid; missing fields were not inferred.</p></Notice> : null}
       {insufficient ? <Notice><p className="font-medium text-text-primary">Inspection completed — insufficient identity evidence.</p><p className="mt-2">The target responded, but the bounded probes did not expose enough metadata to name a manufacturer, model, or exact device type. This is a successful partial result, not an inspection failure.</p></Notice> : null}
 
       <Section title="Likely identity">

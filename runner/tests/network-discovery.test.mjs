@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { startHeartbeatLoop } from "../src/heartbeat.mjs";
 
 import {
   buildDiscoveryContextInvocation,
+  discoveryWorstCaseWallMs,
   runNetworkDiscovery,
   usableAddresses,
   validateDiscoveryContext,
@@ -26,6 +28,33 @@ test("discovery helper has a fixed shell-free interface with no browser scope", 
     "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
     "C:\\fixed\\get-discovery-context.ps1",
   ]);
+});
+
+test("synthetic /24 uses at most four workers and has a bounded worst case", async () => {
+  const context = validateDiscoveryContext({ ok: true, context: {
+    ...rawContext.context,
+    local_ipv4: "192.168.188.1",
+    subnet_cidr: "192.168.188.0/24",
+    prefix_length: 24,
+    default_gateway: "192.168.188.254",
+    neighbors: [],
+  } });
+  let active = 0;
+  let peak = 0;
+  const started = Date.now();
+  const result = await runNetworkDiscovery(context, async () => {}, {
+    ping: async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+      return { success: false, latency_ms: null };
+    },
+  });
+  assert.equal(result.scanned_hosts, 254);
+  assert.equal(peak, 4);
+  assert.ok(Date.now() - started < 2_000);
+  assert.equal(discoveryWorstCaseWallMs(254), 41_600);
 });
 
 test("runner accepts only its current bounded IPv4 subnet", () => {
@@ -63,4 +92,19 @@ test("neighbor and ICMP observations are deduplicated into bounded progressive r
   assert.equal(result.results[1].latency_ms, 1.25);
   assert.ok(updates.length <= 2);
   assert.equal(updates.at(-1).scanned_hosts, 2);
+});
+
+test("heartbeat continues during a simulated long asynchronous Discovery", async () => {
+  const context = validateDiscoveryContext(rawContext);
+  let heartbeats = 0;
+  const stop = startHeartbeatLoop(async () => { heartbeats += 1; }, 10);
+  try {
+    await runNetworkDiscovery(context, async () => {}, {
+      ping: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return { success: false, latency_ms: null };
+      },
+    });
+    assert.ok(heartbeats >= 3);
+  } finally { stop(); }
 });

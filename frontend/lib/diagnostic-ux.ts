@@ -73,6 +73,8 @@ export function diagnosticSteps(job: DiagnosticJob): DiagnosticStep[] {
 export function safeFailureMessage(code: string | null) {
   return ({
     WSL_DISTRO_NOT_FOUND: "Distribusi WSL tidak ditemukan.",
+    WSL_INVOCATION_TIMEOUT: "WSL belum siap sebelum batas waktu preflight.",
+    WSL_RUNTIME_FAILED: "WSL gagal menjalankan pemeriksaan awal runner.",
     WSL_START_FAILED: "WSL gagal dijalankan.",
     AGENT_VENV_MISSING: "Virtualenv agent tidak ditemukan.",
     AGENT_PYTHON_UNSUPPORTED: "Versi Python agent tidak didukung.",

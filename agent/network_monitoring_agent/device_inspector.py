@@ -14,6 +14,8 @@ import socket
 import ssl
 import struct
 import subprocess
+import sys
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
@@ -29,12 +31,38 @@ MAX_HTTP_BYTES = 16 * 1024
 MAX_UPNP_BYTES = 32 * 1024
 MAX_TLS_OUTPUT_BYTES = 16 * 1024
 MAX_NETBIOS_BYTES = 2048
+INSPECTION_BUDGET_SECONDS = 24.5
+MIN_OPTIONAL_BUDGET_SECONDS = 0.05
 
 SERVICE_NAMES = {
     22: "SSH", 80: "HTTP", 443: "HTTPS", 445: "SMB",
     554: "RTSP", 631: "IPP", 1883: "MQTT", 8080: "HTTP Alternate",
     8443: "HTTPS Alternate", 9100: "Printer",
 }
+
+
+class InspectionDeadlineExceeded(TimeoutError):
+    """The agent-wide Device Inspector budget was exhausted safely."""
+
+
+class _InspectionDeadline:
+    def __init__(self, budget_seconds: float, monotonic: Callable[[], float]) -> None:
+        if budget_seconds <= 0:
+            raise ValueError("Inspection budget must be positive")
+        self._monotonic = monotonic
+        self._expires_at = monotonic() + budget_seconds
+
+    def remaining(self) -> float:
+        return max(0.0, self._expires_at - self._monotonic())
+
+    def timeout(self, maximum: float) -> float:
+        remaining = self.remaining()
+        if remaining <= 0:
+            raise InspectionDeadlineExceeded("Device inspection deadline reached")
+        return max(0.001, min(maximum, remaining))
+
+    def has_time(self, minimum: float = MIN_OPTIONAL_BUDGET_SECONDS) -> bool:
+        return self.remaining() > minimum
 
 
 def inspector_capabilities() -> dict[str, Any]:
@@ -83,12 +111,16 @@ def inspect_device(
     target: str,
     context: dict[str, Any],
     emit: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    total_budget_seconds: float = INSPECTION_BUDGET_SECONDS,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
     """Inspect one private IPv4 using a fixed low-impact probe plan."""
     ip = str(ipaddress.ip_address(target))
     if not ipaddress.ip_address(ip).is_private:
         raise ValueError("Device Inspector target must be a private IPv4 address")
     notify = emit or (lambda _event: None)
+    deadline = _InspectionDeadline(total_budget_seconds, monotonic)
     notify({"type": "stage", "stage": "network_role"})
     normalized_context = _normalize_context(ip, context)
 
@@ -102,7 +134,9 @@ def inspect_device(
             mac_vendor = lookup_mac_vendor(mac)
 
     notify({"type": "stage", "stage": "services"})
-    tcp_states = probe_tcp_service_states(ip)
+    deadline_reached = not deadline.has_time()
+    tcp_states = probe_tcp_service_states(ip, deadline) if not deadline_reached else []
+    deadline_reached = deadline_reached or (len(tcp_states) < len(TCP_PORTS) and not deadline.has_time())
     open_ports = [item["port"] for item in tcp_states if item["state"] == "open"]
     http: list[dict[str, Any]] = []
     tls: list[dict[str, Any]] = []
@@ -111,31 +145,57 @@ def inspect_device(
     tasks: list[tuple[str, int | None, Callable[[], Any]]] = []
     for port in (*HTTP_PORTS, *HTTPS_PORTS):
         if port in open_ports:
-            tasks.append(("http", port, lambda port=port: http_metadata(ip, port, use_tls=port in HTTPS_PORTS)))
+            tasks.append(("http", port, lambda port=port: http_metadata(ip, port, use_tls=port in HTTPS_PORTS, deadline=deadline)))
     for port in HTTPS_PORTS:
         if port in open_ports:
-            tasks.append(("tls", port, lambda port=port: tls_metadata(ip, port)))
-    tasks.append(("upnp", None, lambda: upnp_metadata(ip)))
+            tasks.append(("tls", port, lambda port=port: tls_metadata(ip, port, deadline=deadline)))
+    tasks.append(("upnp", None, lambda: upnp_metadata(ip, deadline=deadline)))
     if 445 in open_ports:
-        tasks.append(("netbios", None, lambda: netbios_metadata(ip)))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as pool:
-        futures = {pool.submit(task): (kind, port) for kind, port, task in tasks}
-        for future in concurrent.futures.as_completed(futures):
-            kind, _port = futures[future]
-            try:
-                metadata = future.result()
-            except (OSError, ValueError, subprocess.SubprocessError):
-                metadata = None
-            if kind == "http" and metadata:
-                http.append(metadata)
-            elif kind == "tls" and metadata:
-                tls.append(metadata)
-            elif kind == "upnp":
-                upnp = metadata
-            elif kind == "netbios":
-                netbios = metadata
+        tasks.append(("netbios", None, lambda: netbios_metadata(ip, deadline=deadline)))
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY)
+    futures: dict[concurrent.futures.Future[Any], tuple[str, int | None]] = {}
+    try:
+        if deadline.has_time():
+            futures = {pool.submit(task): (kind, port) for kind, port, task in tasks}
+        else:
+            deadline_reached = True
+        pending = set(futures)
+        while pending:
+            remaining = deadline.remaining()
+            if remaining <= 0:
+                deadline_reached = True
+                break
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=remaining,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                deadline_reached = True
+                break
+            for future in done:
+                kind, _port = futures[future]
+                try:
+                    metadata = future.result()
+                except (OSError, ValueError, subprocess.SubprocessError, InspectionDeadlineExceeded):
+                    metadata = None
+                if kind == "http" and metadata:
+                    http.append(metadata)
+                elif kind == "tls" and metadata:
+                    tls.append(metadata)
+                elif kind == "upnp":
+                    upnp = metadata
+                elif kind == "netbios":
+                    netbios = metadata
+        if pending:
+            deadline_reached = True
+            for future in pending:
+                future.cancel()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     http.sort(key=lambda item: int(item.get("port", 0)))
     tls.sort(key=lambda item: int(item.get("port", 0)))
+    deadline_reached = deadline_reached or not deadline.has_time()
 
     evidence_input = {
         "ip": ip,
@@ -156,7 +216,10 @@ def inspect_device(
         "tls": tls,
         "upnp": upnp,
         "netbios": netbios,
+        "partial": deadline_reached,
     }
+    if deadline_reached and not _has_usable_evidence(evidence_input):
+        raise InspectionDeadlineExceeded("Device inspection deadline reached before usable evidence")
     notify({"type": "stage", "stage": "normalizing"})
     return classify_device(evidence_input)
 
@@ -219,13 +282,16 @@ def lookup_mac_vendor(mac: str) -> str | None:
     return _clean_text(vendor, 120)
 
 
-def probe_tcp_service_states(target: str) -> list[dict[str, Any]]:
+def probe_tcp_service_states(
+    target: str,
+    deadline: _InspectionDeadline | None = None,
+) -> list[dict[str, Any]]:
     """Probe only the fixed allow-list and retain conservative connection states."""
     def check(port: int) -> dict[str, Any]:
         state = "unknown"
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                probe.settimeout(TCP_TIMEOUT_SECONDS)
+                probe.settimeout(_bounded_timeout(deadline, TCP_TIMEOUT_SECONDS))
                 result = probe.connect_ex((target, port))
             if result == 0:
                 state = "open"
@@ -239,8 +305,29 @@ def probe_tcp_service_states(target: str) -> list[dict[str, Any]]:
             state = "unknown"
         return {"name": SERVICE_NAMES[port], "protocol": "tcp", "port": port, "state": state}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as pool:
-        return list(pool.map(check, TCP_PORTS))
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY)
+    futures = {pool.submit(check, port): port for port in TCP_PORTS}
+    completed: dict[int, dict[str, Any]] = {}
+    try:
+        pending = set(futures)
+        while pending:
+            wait_timeout = deadline.remaining() if deadline else None
+            if wait_timeout is not None and wait_timeout <= 0:
+                break
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=wait_timeout,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                break
+            for future in done:
+                completed[futures[future]] = future.result()
+        for future in pending:
+            future.cancel()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return [completed[port] for port in TCP_PORTS if port in completed]
 
 
 def probe_tcp_ports(target: str) -> list[int]:
@@ -248,23 +335,30 @@ def probe_tcp_ports(target: str) -> list[int]:
     return [item["port"] for item in probe_tcp_service_states(target) if item["state"] == "open"]
 
 
-def http_metadata(target: str, port: int, *, use_tls: bool = False) -> dict[str, Any] | None:
+def http_metadata(
+    target: str,
+    port: int,
+    *,
+    use_tls: bool = False,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, Any] | None:
     request = (
         f"GET / HTTP/1.0\r\nHost: {target}\r\n"
         "User-Agent: NetOps-Quick-Inspector/1\r\nAccept: text/html\r\nConnection: close\r\n\r\n"
     ).encode("ascii")
     try:
-        with socket.create_connection((target, port), timeout=METADATA_TIMEOUT_SECONDS) as plain:
+        with socket.create_connection((target, port), timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS)) as plain:
             connection: socket.socket = plain
+            plain.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             if use_tls:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
                 connection = context.wrap_socket(plain, server_hostname=target)
-            connection.settimeout(METADATA_TIMEOUT_SECONDS)
+            connection.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             connection.sendall(request)
-            response = _receive_bounded(connection, MAX_HTTP_BYTES)
-    except (OSError, ssl.SSLError):
+            response = _receive_bounded(connection, MAX_HTTP_BYTES, deadline)
+    except (OSError, ssl.SSLError, InspectionDeadlineExceeded):
         return None
     head, _, content = response.partition(b"\r\n\r\n")
     header_lines = head.decode("latin-1", errors="replace").splitlines()
@@ -289,14 +383,19 @@ def http_metadata(target: str, port: int, *, use_tls: bool = False) -> dict[str,
     return result or None
 
 
-def tls_metadata(target: str, port: int) -> dict[str, Any] | None:
+def tls_metadata(
+    target: str,
+    port: int,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, Any] | None:
     openssl = shutil.which("openssl")
     if not openssl:
         return None
     try:
         handshake = subprocess.run(
             [openssl, "s_client", "-connect", f"{target}:{port}", "-servername", target, "-showcerts"],
-            input="", capture_output=True, text=True, timeout=METADATA_TIMEOUT_SECONDS, check=False,
+            input="", capture_output=True, text=True,
+            timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS), check=False,
         )
         match = re.search(
             r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
@@ -308,9 +407,10 @@ def tls_metadata(target: str, port: int) -> dict[str, Any] | None:
         certificate = match.group(0)[:MAX_TLS_OUTPUT_BYTES]
         decoded = subprocess.run(
             [openssl, "x509", "-noout", "-subject", "-issuer", "-dates", "-ext", "subjectAltName", "-nameopt", "RFC2253"],
-            input=certificate, capture_output=True, text=True, timeout=METADATA_TIMEOUT_SECONDS, check=False,
+            input=certificate, capture_output=True, text=True,
+            timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS), check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, InspectionDeadlineExceeded):
         return None
     fields: dict[str, str] = {}
     decoded_output = decoded.stdout[:MAX_TLS_OUTPUT_BYTES]
@@ -337,7 +437,10 @@ def tls_metadata(target: str, port: int) -> dict[str, Any] | None:
     return fields or None
 
 
-def upnp_metadata(target: str) -> dict[str, Any] | None:
+def upnp_metadata(
+    target: str,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, Any] | None:
     message = (
         "M-SEARCH * HTTP/1.1\r\n"
         f"HOST: {target}:1900\r\n"
@@ -345,7 +448,7 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
     ).encode("ascii")
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.settimeout(METADATA_TIMEOUT_SECONDS)
+            udp.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             udp.sendto(message, (target, 1900))
             response, address = udp.recvfrom(8192)
     except OSError:
@@ -362,8 +465,8 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
         return {"detected": True}
     parsed = urlsplit(location)
     try:
-        resolved = socket.gethostbyname(parsed.hostname or "")
-    except OSError:
+        resolved = _resolve_ipv4_bounded(parsed.hostname or "", deadline)
+    except (OSError, InspectionDeadlineExceeded):
         return {"detected": True, "location_rejected": True, "rejection_reason": "unresolvable_host"}
     if parsed.scheme != "http" or resolved != target or parsed.username or parsed.password:
         return {"detected": True, "location_rejected": True, "rejection_reason": "unsafe_location"}
@@ -378,10 +481,11 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
         path += "?" + parsed.query
     request = f"GET {path} HTTP/1.0\r\nHost: {target}:{port}\r\nUser-Agent: NetOps-Quick-Inspector/1\r\nConnection: close\r\n\r\n".encode("ascii", errors="ignore")
     try:
-        with socket.create_connection((target, port), timeout=METADATA_TIMEOUT_SECONDS) as connection:
+        with socket.create_connection((target, port), timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS)) as connection:
+            connection.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             connection.sendall(request)
-            response = _receive_bounded(connection, MAX_UPNP_BYTES)
-    except OSError:
+            response = _receive_bounded(connection, MAX_UPNP_BYTES, deadline)
+    except (OSError, InspectionDeadlineExceeded):
         return {"detected": True}
     head, _, xml_data = response.partition(b"\r\n\r\n")
     status = re.match(rb"HTTP/\d(?:\.\d)?\s+(\d{3})", head)
@@ -405,7 +509,10 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
     return result
 
 
-def netbios_metadata(target: str) -> dict[str, str] | None:
+def netbios_metadata(
+    target: str,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, str] | None:
     """Request one NetBIOS node-status response; never enumerate shares or users."""
     wildcard = b"*" + (b" " * 15)
     encoded = b"".join(bytes((65 + (byte >> 4), 65 + (byte & 0x0F))) for byte in wildcard)
@@ -414,7 +521,7 @@ def netbios_metadata(target: str) -> dict[str, str] | None:
     query += bytes((len(encoded),)) + encoded + b"\x00" + struct.pack("!HH", 0x21, 1)
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.settimeout(METADATA_TIMEOUT_SECONDS)
+            udp.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             udp.sendto(query, (target, 137))
             response, address = udp.recvfrom(MAX_NETBIOS_BYTES)
     except OSError:
@@ -618,27 +725,77 @@ def classify_device(observed: dict[str, Any]) -> dict[str, Any]:
         "observed_software": sorted(set(software)),
         "evidence": evidence[:32],
         "probe_summary": {
-            "tcp_ports_checked": list(TCP_PORTS),
+            "tcp_ports_checked": [item["port"] for item in tcp_states],
             "tcp_open_count": len(ports),
             "tcp_states": tcp_states,
-            "upnp_checked": True,
-            "netbios_checked": 445 in ports,
-            "optional_skips": ["mdns"],
+            "upnp_checked": not bool(observed.get("partial")) or upnp_detected,
+            "netbios_checked": 445 in ports and (not bool(observed.get("partial")) or bool(netbios)),
+            "partial": bool(observed.get("partial")),
+            "deadline_reached": bool(observed.get("partial")),
+            "optional_skips": ["mdns", *(["deadline"] if observed.get("partial") else [])],
         },
         "limitations": limitations,
     }
 
 
-def _receive_bounded(connection: socket.socket, maximum: int) -> bytes:
+def _receive_bounded(
+    connection: socket.socket,
+    maximum: int,
+    deadline: _InspectionDeadline | None = None,
+) -> bytes:
     chunks: list[bytes] = []
     remaining = maximum
     while remaining > 0:
+        if deadline:
+            connection.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
         chunk = connection.recv(min(4096, remaining))
         if not chunk:
             break
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def _bounded_timeout(deadline: _InspectionDeadline | None, maximum: float) -> float:
+    return deadline.timeout(maximum) if deadline else maximum
+
+
+def _resolve_ipv4_bounded(hostname: str, deadline: _InspectionDeadline | None) -> str:
+    try:
+        return str(ipaddress.ip_address(hostname))
+    except ValueError:
+        pass
+    if not deadline:
+        return socket.gethostbyname(hostname)
+    try:
+        resolution = subprocess.run(
+            [sys.executable, "-c", "import socket,sys;print(socket.gethostbyname(sys.argv[1]))", hostname],
+            capture_output=True,
+            text=True,
+            timeout=deadline.timeout(METADATA_TIMEOUT_SECONDS),
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise OSError("Hostname resolution failed") from error
+    if resolution.returncode != 0:
+        raise OSError("Hostname resolution failed")
+    value = resolution.stdout.strip()
+    if not value or ipaddress.ip_address(value).version != 4:
+        raise OSError("Hostname did not resolve to IPv4")
+    return value
+
+
+def _has_usable_evidence(observed: dict[str, Any]) -> bool:
+    return bool(
+        observed.get("reachable")
+        or observed.get("is_this_device")
+        or observed.get("mac")
+        or observed.get("open_ports")
+        or observed.get("http")
+        or observed.get("tls")
+        or observed.get("upnp")
+        or observed.get("netbios")
+    )
 
 
 def _clean_text(value: Any, maximum: int) -> str:

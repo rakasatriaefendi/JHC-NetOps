@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import { validateInspectionSession } from "../src/config.mjs";
@@ -9,7 +11,8 @@ import {
   validateInspectionContext,
   validateInspectionScope,
 } from "../src/device-inspector.mjs";
-import { buildInspectionInvocation, validateInspectionEvent, validateInspectorCapabilities } from "../src/wsl.mjs";
+import { buildInspectionInvocation, runInspectionAgent, validateInspectionEvent, validateInspectorCapabilities } from "../src/wsl.mjs";
+import { startHeartbeatLoop } from "../src/heartbeat.mjs";
 
 const config = {
   runner_id: "test-runner",
@@ -112,4 +115,33 @@ test("runner accepts normalized result and rejects raw output or Internet IP", (
   assert.equal(validateInspectionEvent({ type: "result", fingerprint }).fingerprint.ip, "192.168.188.50");
   assert.throws(() => validateInspectionEvent({ type: "result", fingerprint: { ...fingerprint, stdout: "raw" } }));
   assert.throws(() => validateInspectionEvent({ type: "result", fingerprint: { ...fingerprint, ip: "8.8.8.8" } }));
+  assert.equal(validateInspectionEvent({ type: "error", code: "INSPECTION_TIMEOUT", message: "Internal deadline reached" }).code, "INSPECTION_TIMEOUT");
+});
+
+test("heartbeat continues during a simulated long asynchronous Inspector child", async () => {
+  let heartbeats = 0;
+  const stop = startHeartbeatLoop(async () => { heartbeats += 1; }, 10);
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    setTimeout(() => {
+      child.stdout.write(`${JSON.stringify({ type: "stage", stage: "services" })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.50", likely_device_type: "unknown", confidence: "low",
+        capabilities: [], evidence: [],
+      } })}\n`);
+      child.stdout.end();
+      child.emit("close", 0);
+    }, 80);
+    return child;
+  };
+  try {
+    const context = { route_role: "on_link", same_subnet: true, reachable: true,
+      default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+      interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+    await runInspectionAgent(config, { target_ip: "192.168.188.50" }, context, async () => {}, 1_000, spawnProcess);
+    assert.ok(heartbeats >= 3);
+  } finally { stop(); }
 });

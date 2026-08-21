@@ -207,25 +207,29 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_device_inspection(args: argparse.Namespace) -> None:
-    from .device_inspector import inspect_device
+    from .device_inspector import InspectionDeadlineExceeded, inspect_device
 
     emit = lambda event: print(json.dumps(event, separators=(",", ":")), flush=True)
-    fingerprint = inspect_device(
-        args.target,
-        {
-            "route_role": args.route_role,
-            "default_gateway": args.default_gateway,
-            "same_subnet": args.same_subnet == "yes",
-            "mac": args.mac,
-            "reachable": args.reachable == "yes",
-            "is_this_device": args.is_this_device == "yes",
-            "interface_index": args.interface_index,
-            "interface_alias": args.interface_alias,
-            "interface_description": args.interface_description,
-            "interface_type": args.interface_type,
-        },
-        emit,
-    )
+    try:
+        fingerprint = inspect_device(
+            args.target,
+            {
+                "route_role": args.route_role,
+                "default_gateway": args.default_gateway,
+                "same_subnet": args.same_subnet == "yes",
+                "mac": args.mac,
+                "reachable": args.reachable == "yes",
+                "is_this_device": args.is_this_device == "yes",
+                "interface_index": args.interface_index,
+                "interface_alias": args.interface_alias,
+                "interface_description": args.interface_description,
+                "interface_type": args.interface_type,
+            },
+            emit,
+        )
+    except InspectionDeadlineExceeded:
+        emit({"type": "error", "code": "INSPECTION_TIMEOUT", "message": "Device inspection exceeded its safe internal deadline"})
+        raise SystemExit(2) from None
     emit({"type": "result", "fingerprint": fingerprint})
 
 

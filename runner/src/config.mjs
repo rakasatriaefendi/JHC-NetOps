@@ -142,6 +142,8 @@ export function safeMessage(code) {
     TARGET_UNREACHABLE: "Diagnostic target is unreachable",
     UPLOAD_FAILED: "Upload measurement failed",
     WSL_DISTRO_NOT_FOUND: "Configured WSL distribution was not found",
+    WSL_INVOCATION_TIMEOUT: "WSL did not become ready before the preflight timeout",
+    WSL_RUNTIME_FAILED: "WSL could not run the required preflight command",
     WSL_START_FAILED: "WSL diagnostic agent could not be started",
     NETWORK_CONTEXT_UNAVAILABLE: "Windows network context could not be collected",
     NETWORK_CONTEXT_INVALID: "Windows network context was invalid",
