@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+import sys
+import time
 from collections.abc import Sequence
 
 from .diagnostics import (
@@ -14,12 +16,17 @@ from .diagnostics import (
     run_mtr,
 )
 from .diagnostics_delivery import DiagnosticDeliveryError
+from .inspection_trace import InspectionTrace
 from .streaming import DiagnosticRunError, run_diagnostic_suite
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    inspection_trace = InspectionTrace() if raw_argv[:1] == ["device-inspect"] else None
+    if inspection_trace:
+        inspection_trace.emit("cli_entry")
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     try:
         if args.command == "capabilities":
@@ -67,7 +74,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             print(resolve_capture_interface(args.interface))
             return
         if args.command == "device-inspect":
-            _run_device_inspection(args)
+            _run_device_inspection(args, inspection_trace)
             return
     except (DiagnosticCommandError, DiagnosticDeliveryError, ValueError) as exc:
         parser.exit(2, f"diagnostic failed: {exc}\n")
@@ -206,7 +213,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_device_inspection(args: argparse.Namespace) -> None:
+def _run_device_inspection(args: argparse.Namespace, trace: InspectionTrace | None = None) -> None:
     from .device_inspector import InspectionDeadlineExceeded, inspect_device
 
     emit = lambda event: print(json.dumps(event, separators=(",", ":")), flush=True)
@@ -226,11 +233,32 @@ def _run_device_inspection(args: argparse.Namespace) -> None:
                 "interface_type": args.interface_type,
             },
             emit,
+            trace=trace,
         )
     except InspectionDeadlineExceeded:
-        emit({"type": "error", "code": "INSPECTION_TIMEOUT", "message": "Device inspection exceeded its safe internal deadline"})
+        _emit_inspection_event(
+            {"type": "error", "code": "INSPECTION_TIMEOUT", "message": "Device inspection exceeded its safe internal deadline"},
+            trace,
+        )
+        if trace:
+            trace.emit("cli_return", status="failed")
         raise SystemExit(2) from None
-    emit({"type": "result", "fingerprint": fingerprint})
+    _emit_inspection_event({"type": "result", "fingerprint": fingerprint}, trace)
+    if trace:
+        trace.emit("cli_return", status="completed")
+
+
+def _emit_inspection_event(event: dict[str, object], trace: InspectionTrace | None) -> None:
+    started = time.monotonic()
+    if trace:
+        trace.emit("json_serialize_start")
+    encoded = json.dumps(event, separators=(",", ":"))
+    if trace:
+        trace.emit("json_serialize_end", duration_ms=(time.monotonic() - started) * 1000)
+    write_started = time.monotonic()
+    print(encoded, flush=True)
+    if trace:
+        trace.emit("stdout_write", duration_ms=(time.monotonic() - write_started) * 1000)
 
 
 def _run_traffic_live(args: argparse.Namespace) -> None:

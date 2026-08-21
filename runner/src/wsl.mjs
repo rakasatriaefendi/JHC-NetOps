@@ -3,6 +3,17 @@ import readline from "node:readline";
 import { safeError } from "./config.mjs";
 
 const CREATE_NO_WINDOW = true;
+const INSPECTION_TRACE_PREFIX = "INSPECTION_TRACE ";
+const MAX_INSPECTION_TRACE_BYTES = 512;
+const MAX_INSPECTION_TRACE_RECORDS = 128;
+const INSPECTION_TRACE_PHASES = new Set([
+  "cli_entry", "inspect_device_entry", "tcp_phase_start", "tcp_phase_end",
+  "collector_start", "collector_end", "normalization_start", "normalization_end",
+  "partial_finalize_start", "partial_finalize_end", "json_serialize_start",
+  "json_serialize_end", "stdout_write", "cli_return", "child_created",
+  "terminate_requested", "kill_requested", "child_exit_observed",
+]);
+const INSPECTION_TRACE_STATUSES = new Set(["completed", "timeout", "skipped_budget", "failed", "exited"]);
 
 export function runPreflight(config, spawnSyncProcess = spawnSync) {
   const distroList = spawnSyncProcess("wsl.exe", ["--list", "--quiet"], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
@@ -78,30 +89,80 @@ export function buildInspectionInvocation(config, session, context) {
   return args;
 }
 
-export async function runInspectionAgent(config, session, context, onEvent, timeoutMs = 30_000, spawnProcess = spawn) {
+export async function runInspectionAgent(
+  config, session, context, onEvent, timeoutMs = 30_000, spawnProcess = spawn, onTrace = () => {},
+) {
   return runStructuredProcess(buildInspectionInvocation(config, session, context), validateInspectionEvent, onEvent, timeoutMs, {
     start: "INSPECTION_WSL_UNAVAILABLE",
     timeout: "INSPECTION_TIMEOUT",
     exit: "INSPECTION_AGENT_UNAVAILABLE",
+    trace: onTrace,
   }, spawnProcess);
 }
 
 async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCodes = {}, spawnProcess = spawn) {
+  const startedAt = Date.now();
   const child = spawnProcess("wsl.exe", args, { windowsHide: CREATE_NO_WINDOW, shell: false, stdio: ["ignore", "pipe", "pipe"] });
   let safeAgentError = null;
   let protocolError = null;
   let callbackError = null;
   let timedOut = false;
   let stderrBytes = 0;
+  let firstAgentOutput = false;
+  let acceptedTraceRecords = 0;
+  let stderrTraceBuffer = "";
+  let discardStderrLine = false;
+  const emitTrace = (record) => {
+    if (typeof errorCodes.trace !== "function") return;
+    try { errorCodes.trace(record); } catch {}
+  };
+  const emitRunnerTrace = (phase, extra = {}) => emitTrace({
+    source: "runner", phase, elapsed_ms: boundedMilliseconds(Date.now() - startedAt), ...extra,
+  });
+  const noteFirstAgentOutput = () => {
+    if (firstAgentOutput) return;
+    firstAgentOutput = true;
+    emitRunnerTrace("first_agent_output");
+  };
+  emitRunnerTrace("wsl_spawn");
   const exitPromise = new Promise((resolve, reject) => {
     child.once("error", () => reject(safeError(errorCodes.start ?? "WSL_START_FAILED")));
     child.once("close", resolve);
   });
   const timeout = setTimeout(() => {
     timedOut = true;
+    emitRunnerTrace("outer_timeout");
     child.kill();
   }, timeoutMs);
-  child.stderr.on("data", (chunk) => { stderrBytes += chunk.length; });
+  const acceptStderrTraceLine = (line) => {
+    if (acceptedTraceRecords >= MAX_INSPECTION_TRACE_RECORDS) return;
+    const record = parseInspectionTraceLine(line.endsWith("\r") ? line.slice(0, -1) : line);
+    if (!record) return;
+    acceptedTraceRecords += 1;
+    noteFirstAgentOutput();
+    emitTrace(record);
+  };
+  child.stderr.on("data", (chunk) => {
+    stderrBytes += chunk.length;
+    if (typeof errorCodes.trace !== "function") return;
+    const fragments = chunk.toString("utf8").split("\n");
+    for (let index = 0; index < fragments.length; index += 1) {
+      if (!discardStderrLine) {
+        const candidate = stderrTraceBuffer + fragments[index];
+        if (Buffer.byteLength(candidate, "utf8") <= MAX_INSPECTION_TRACE_BYTES) stderrTraceBuffer = candidate;
+        else { stderrTraceBuffer = ""; discardStderrLine = true; }
+      }
+      if (index < fragments.length - 1) {
+        if (!discardStderrLine) acceptStderrTraceLine(stderrTraceBuffer);
+        stderrTraceBuffer = "";
+        discardStderrLine = false;
+      }
+    }
+  });
+  child.stderr.on("end", () => {
+    if (stderrTraceBuffer && !discardStderrLine) acceptStderrTraceLine(stderrTraceBuffer);
+    stderrTraceBuffer = "";
+  });
 
   const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   for await (const line of lines) {
@@ -114,6 +175,8 @@ async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCo
       child.kill();
       break;
     }
+    noteFirstAgentOutput();
+    if (event.type === "result") emitRunnerTrace("normalized_result_received");
     if (event.type === "error") {
       safeAgentError = safeError(event.code, event.message);
       continue;
@@ -127,12 +190,57 @@ async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCo
     }
   }
   const exit = await exitPromise.finally(() => clearTimeout(timeout));
+  emitRunnerTrace("wsl_close", { exit_code: Number.isInteger(exit) ? exit : -1 });
   if (timedOut) throw safeError(errorCodes.timeout ?? "JOB_TIMEOUT");
   if (protocolError) throw protocolError;
   if (callbackError) throw callbackError;
   if (safeAgentError) throw safeAgentError;
   if (exit !== 0) throw safeError(errorCodes.exit ?? "WSL_START_FAILED");
   return { exit, stderr_bytes: stderrBytes };
+}
+
+export function parseInspectionTraceLine(line) {
+  if (typeof line !== "string" || Buffer.byteLength(line, "utf8") > MAX_INSPECTION_TRACE_BYTES ||
+      !line.startsWith(INSPECTION_TRACE_PREFIX)) return null;
+  let value;
+  try { value = JSON.parse(line.slice(INSPECTION_TRACE_PREFIX.length)); }
+  catch { return null; }
+  if (!value || typeof value !== "object" || Array.isArray(value) || !INSPECTION_TRACE_PHASES.has(value.phase)) return null;
+  const allowed = new Set([
+    "phase", "elapsed_ms", "collector_name", "status", "remaining_budget_ms", "duration_ms",
+    "child_pid", "process_group_id", "exit_code",
+  ]);
+  if (Object.keys(value).some((key) => !allowed.has(key)) || !boundedTraceNumber(value.elapsed_ms)) return null;
+  const record = { source: "agent", phase: value.phase, elapsed_ms: value.elapsed_ms };
+  if (value.collector_name !== undefined) {
+    if (typeof value.collector_name !== "string" || !/^[a-z][a-z0-9_:-]{0,39}$/.test(value.collector_name)) return null;
+    record.collector_name = value.collector_name;
+  }
+  if (value.status !== undefined) {
+    if (!INSPECTION_TRACE_STATUSES.has(value.status)) return null;
+    record.status = value.status;
+  }
+  for (const name of ["remaining_budget_ms", "duration_ms"]) {
+    if (value[name] !== undefined) {
+      if (!boundedTraceNumber(value[name])) return null;
+      record[name] = value[name];
+    }
+  }
+  for (const name of ["child_pid", "process_group_id", "exit_code"]) {
+    if (value[name] !== undefined) {
+      if (!Number.isSafeInteger(value[name]) || value[name] < -1 || value[name] > 2_147_483_647) return null;
+      record[name] = value[name];
+    }
+  }
+  return record;
+}
+
+function boundedTraceNumber(value) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= 120_000;
+}
+
+function boundedMilliseconds(value) {
+  return Math.max(0, Math.min(120_000, Math.round(value)));
 }
 
 export function validateTrafficEvent(value) {

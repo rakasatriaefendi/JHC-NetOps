@@ -24,6 +24,8 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
+from .inspection_trace import InspectionTrace
+
 TCP_PORTS = (22, 80, 443, 445, 554, 631, 1883, 8080, 8443, 9100)
 HTTP_PORTS = (80, 8080)
 HTTPS_PORTS = (443, 8443)
@@ -121,8 +123,11 @@ def inspect_device(
     *,
     total_budget_seconds: float = INSPECTION_BUDGET_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
+    trace: InspectionTrace | None = None,
 ) -> dict[str, Any]:
     """Inspect one private IPv4 using a fixed low-impact probe plan."""
+    if trace:
+        trace.emit("inspect_device_entry")
     ip = str(ipaddress.ip_address(target))
     if not ipaddress.ip_address(ip).is_private:
         raise ValueError("Device Inspector target must be a private IPv4 address")
@@ -147,12 +152,22 @@ def inspect_device(
         TCP_COLLECTION_TIMEOUT_SECONDS,
         max(0.0, deadline.remaining() - COLLECTOR_TERMINATION_GRACE_SECONDS - COLLECTOR_START_GRACE_SECONDS),
     )
+    tcp_phase_started = time.monotonic()
+    if trace:
+        trace.emit("tcp_phase_start", remaining_budget_ms=deadline.remaining() * 1000)
     tcp_results, deadline_reached = _run_isolated_collectors(
         [("tcp", None, lambda: probe_tcp_service_states(
             ip, _InspectionDeadline(max(0.001, tcp_timeout), time.monotonic),
         ), tcp_timeout)],
         deadline,
+        trace,
     ) if tcp_timeout > 0 else ({}, True)
+    if trace:
+        trace.emit(
+            "tcp_phase_end",
+            status="timeout" if deadline_reached else "completed",
+            duration_ms=(time.monotonic() - tcp_phase_started) * 1000,
+        )
     tcp_states = tcp_results.get(("tcp", None))
     if not isinstance(tcp_states, list):
         tcp_states = []
@@ -178,7 +193,7 @@ def inspect_device(
         ))
         for kind, port, task in tasks
     ]
-    metadata_results, optional_incomplete = _run_isolated_collectors(isolated_tasks, deadline)
+    metadata_results, optional_incomplete = _run_isolated_collectors(isolated_tasks, deadline, trace)
     deadline_reached = deadline_reached or optional_incomplete
     for (kind, _port), metadata in metadata_results.items():
         if kind == "http" and metadata:
@@ -193,6 +208,9 @@ def inspect_device(
     tls.sort(key=lambda item: int(item.get("port", 0)))
     deadline_reached = deadline_reached or not deadline.has_time()
 
+    partial_started = time.monotonic()
+    if trace:
+        trace.emit("partial_finalize_start", remaining_budget_ms=deadline.remaining() * 1000)
     evidence_input = {
         "ip": ip,
         "reachable": bool(normalized_context["reachable"] or open_ports),
@@ -215,14 +233,37 @@ def inspect_device(
         "partial": deadline_reached,
     }
     if deadline_reached and not _has_usable_evidence(evidence_input):
+        if trace:
+            trace.emit(
+                "partial_finalize_end",
+                status="failed",
+                duration_ms=(time.monotonic() - partial_started) * 1000,
+            )
         raise InspectionDeadlineExceeded("Device inspection deadline reached before usable evidence")
+    if trace:
+        trace.emit(
+            "partial_finalize_end",
+            status="completed",
+            duration_ms=(time.monotonic() - partial_started) * 1000,
+        )
     notify({"type": "stage", "stage": "normalizing"})
-    return classify_device(evidence_input)
+    normalization_started = time.monotonic()
+    if trace:
+        trace.emit("normalization_start")
+    result = classify_device(evidence_input)
+    if trace:
+        trace.emit(
+            "normalization_end",
+            status="completed",
+            duration_ms=(time.monotonic() - normalization_started) * 1000,
+        )
+    return result
 
 
 def _run_isolated_collectors(
     tasks: list[tuple[str, int | None, Callable[[], Any], float]],
     deadline: _InspectionDeadline,
+    trace: InspectionTrace | None = None,
 ) -> tuple[dict[tuple[str, int | None], Any], bool]:
     """Run bounded collectors in killable process groups, never parent threads."""
     if not tasks:
@@ -243,9 +284,18 @@ def _run_isolated_collectors(
                 required = max(0.001, maximum) + COLLECTOR_TERMINATION_GRACE_SECONDS
                 if remaining < required:
                     incomplete = True
+                    if trace:
+                        for skipped_kind, skipped_port, _skipped_collector, _skipped_maximum in pending:
+                            name = _collector_name(skipped_kind, skipped_port)
+                            trace.emit("collector_start", collector_name=name, remaining_budget_ms=remaining * 1000)
+                            trace.emit("collector_end", collector_name=name, status="skipped_budget", duration_ms=0)
                     pending.clear()
                     break
                 pending.pop(0)
+                collector_name = _collector_name(kind, port)
+                started_at = time.monotonic()
+                if trace:
+                    trace.emit("collector_start", collector_name=collector_name, remaining_budget_ms=remaining * 1000)
                 receiver, sender = context.Pipe(duplex=False)
                 process = context.Process(
                     target=_isolated_collector_entry,
@@ -254,11 +304,21 @@ def _run_isolated_collectors(
                 )
                 process.start()
                 sender.close()
+                if trace:
+                    process_group_id = _safe_process_group_id(process.pid)
+                    trace.emit(
+                        "child_created",
+                        collector_name=collector_name,
+                        child_pid=process.pid,
+                        process_group_id=process_group_id,
+                    )
                 active.append({
                     "key": (kind, port),
+                    "collector_name": collector_name,
                     "process": process,
                     "receiver": receiver,
                     "expires_at": time.monotonic() + max(0.001, maximum),
+                    "started_at": started_at,
                 })
 
             if not active:
@@ -273,23 +333,52 @@ def _run_isolated_collectors(
                         status, value = "error", None
                     if status == "ok":
                         results[state["key"]] = value
-                    _stop_isolated_process(process)
+                    if trace:
+                        trace.emit(
+                            "collector_end",
+                            collector_name=state["collector_name"],
+                            status="completed" if status == "ok" else "failed",
+                            duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                        )
+                    _stop_isolated_process(process, trace, state["collector_name"])
                     receiver.close()
                     active.remove(state)
                 elif not process.is_alive():
                     process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+                    if trace:
+                        trace.emit(
+                            "collector_end",
+                            collector_name=state["collector_name"],
+                            status="failed",
+                            duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                        )
+                        _trace_child_exit(process, trace, state["collector_name"])
                     receiver.close()
                     active.remove(state)
                 elif time.monotonic() >= state["expires_at"] or deadline.remaining() <= 0:
                     incomplete = True
-                    _stop_isolated_process(process)
+                    if trace:
+                        trace.emit(
+                            "collector_end",
+                            collector_name=state["collector_name"],
+                            status="timeout",
+                            duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                        )
+                    _stop_isolated_process(process, trace, state["collector_name"])
                     receiver.close()
                     active.remove(state)
             if active:
                 time.sleep(0.005)
     finally:
         for state in active:
-            _stop_isolated_process(state["process"])
+            if trace:
+                trace.emit(
+                    "collector_end",
+                    collector_name=state["collector_name"],
+                    status="failed",
+                    duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                )
+            _stop_isolated_process(state["process"], trace, state["collector_name"])
             state["receiver"].close()
     return results, incomplete or bool(pending)
 
@@ -308,15 +397,65 @@ def _isolated_collector_entry(sender: Any, collector: Callable[[], Any]) -> None
         sender.close()
 
 
-def _stop_isolated_process(process: multiprocessing.Process) -> None:
+def _stop_isolated_process(
+    process: multiprocessing.Process,
+    trace: InspectionTrace | None = None,
+    collector_name: str = "collector",
+) -> None:
     if not process.is_alive():
         process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+        if trace:
+            _trace_child_exit(process, trace, collector_name)
         return
+    if trace:
+        trace.emit(
+            "terminate_requested",
+            collector_name=collector_name,
+            child_pid=process.pid,
+            process_group_id=_safe_process_group_id(process.pid),
+        )
     _signal_isolated_process(process, signal.SIGTERM)
     process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
     if process.is_alive():
+        if trace:
+            trace.emit(
+                "kill_requested",
+                collector_name=collector_name,
+                child_pid=process.pid,
+                process_group_id=_safe_process_group_id(process.pid),
+            )
         _signal_isolated_process(process, signal.SIGKILL)
         process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+    if trace:
+        _trace_child_exit(process, trace, collector_name)
+
+
+def _trace_child_exit(
+    process: multiprocessing.Process,
+    trace: InspectionTrace,
+    collector_name: str,
+) -> None:
+    trace.emit(
+        "child_exit_observed",
+        collector_name=collector_name,
+        status="exited",
+        child_pid=process.pid,
+        exit_code=process.exitcode,
+    )
+
+
+def _safe_process_group_id(pid: int | None) -> int | None:
+    if pid is None or not hasattr(os, "getpgid"):
+        return None
+    try:
+        process_group_id = os.getpgid(pid)
+    except (OSError, ProcessLookupError):
+        return None
+    return process_group_id if process_group_id == pid else None
+
+
+def _collector_name(kind: str, port: int | None) -> str:
+    return kind if port is None else f"{kind}_{port}"
 
 
 def _signal_isolated_process(process: multiprocessing.Process, selected: signal.Signals) -> None:

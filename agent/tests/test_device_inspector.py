@@ -4,7 +4,7 @@ import struct
 import subprocess
 import sys
 import time
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest import TestCase
 from unittest.mock import patch
@@ -325,7 +325,7 @@ class DeviceInspectorClassifierTest(TestCase):
 
     @patch("network_monitoring_agent.main._run_device_inspection")
     def test_cli_rejects_arbitrary_probe_flags(self, run_inspection) -> None:
-        with self.assertRaises(SystemExit), redirect_stdout(StringIO()):
+        with self.assertRaises(SystemExit), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             main(["device-inspect", "192.168.1.1", "--route-role", "on_link",
                   "--same-subnet", "yes", "--reachable", "yes",
                   "--is-this-device", "no", "--interface-index", "20",

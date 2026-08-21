@@ -175,7 +175,9 @@ async function executeInspection(rawSession) {
         if (event.fingerprint.ip !== session.target_ip) throw safeError("AGENT_PROTOCOL_ERROR");
         fingerprint = event.fingerprint;
       }
-    }, 30_000);
+    }, 30_000, undefined, (record) => {
+      log(`INSPECTION_TRACE ${JSON.stringify({ inspection_id: session.inspection_id, ...record })}`);
+    });
     if (!fingerprint) throw safeError("AGENT_PROTOCOL_ERROR");
     await backend.completeInspection(config.runner_id, session.inspection_id, fingerprint);
     log(`Device inspection ${session.inspection_id} completed`);
