@@ -143,6 +143,8 @@ class DeviceInspectorClassifierTest(TestCase):
             serialized = json.dumps(result)
         self.assertLess(time.monotonic() - started, 1.5)
         self.assertTrue(result["probe_summary"]["partial"])
+        self.assertFalse(result["probe_summary"]["deadline_reached"])
+        self.assertEqual(result["probe_summary"]["collector_statuses"]["upnp"], "timeout")
         self.assertIn('"partial": true', serialized)
         time.sleep(0.05)
         self.assertEqual(
@@ -151,20 +153,38 @@ class DeviceInspectorClassifierTest(TestCase):
         )
 
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_worker_exceeding_remaining_budget_finalizes_existing_evidence(self, _tcp) -> None:
+    def test_optional_timeout_does_not_masquerade_as_global_deadline(self, _tcp) -> None:
         def exceeds_budget(*_args, **_kwargs):
-            time.sleep(0.5)
+            time.sleep(0.1)
 
-        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=exceeds_budget):
+        with (
+            patch("network_monitoring_agent.device_inspector.METADATA_TIMEOUT_SECONDS", 0.03),
+            patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=exceeds_budget),
+        ):
             started = time.monotonic()
             result = inspect_device("192.168.188.20", {
                 "route_role": "on_link", "same_subnet": True, "mac": None,
                 "reachable": True, "is_this_device": False, "interface_index": 20,
                 "interface_alias": "Wi-Fi", "interface_description": "Adapter",
                 "interface_type": "physical",
-            }, total_budget_seconds=0.5)
-        self.assertLess(time.monotonic() - started, 0.9)
-        self.assertTrue(result["probe_summary"]["deadline_reached"])
+            }, total_budget_seconds=5.0)
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertTrue(result["probe_summary"]["partial"])
+        self.assertFalse(result["probe_summary"]["deadline_reached"])
+        self.assertEqual(result["probe_summary"]["collector_statuses"]["upnp"], "timeout")
+
+    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
+    def test_optional_collector_failure_is_partial_without_global_deadline(self, _tcp) -> None:
+        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=RuntimeError("fixture failure")):
+            result = inspect_device("192.168.188.20", {
+                "route_role": "on_link", "same_subnet": True, "mac": None,
+                "reachable": True, "is_this_device": False, "interface_index": 20,
+                "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+                "interface_type": "physical",
+            })
+        self.assertTrue(result["probe_summary"]["partial"])
+        self.assertFalse(result["probe_summary"]["deadline_reached"])
+        self.assertEqual(result["probe_summary"]["collector_statuses"]["upnp"], "failed")
 
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
     def test_subprocess_collector_and_descendant_are_terminated(self, _tcp) -> None:
@@ -201,39 +221,70 @@ class DeviceInspectorClassifierTest(TestCase):
             "interface_type": "physical",
         })
         self.assertFalse(result["probe_summary"]["partial"])
+        self.assertFalse(result["probe_summary"]["deadline_reached"])
+        self.assertEqual(result["probe_summary"]["collector_statuses"], {
+            "tcp": "completed", "upnp": "completed",
+        })
 
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_slow_optional_collector_returns_partial_existing_evidence(self, _tcp) -> None:
-        def slow_upnp(*_args, **_kwargs):
-            time.sleep(0.08)
-            return None
+    def test_collector_skipped_for_budget_is_partial_but_not_global_deadline(self, _tcp) -> None:
+        result = inspect_device("192.168.188.20", {
+            "route_role": "on_link", "same_subnet": True, "mac": None,
+            "reachable": True, "is_this_device": False, "interface_index": 20,
+            "interface_alias": "Wi-Fi", "interface_description": "Adapter",
+            "interface_type": "physical",
+        }, total_budget_seconds=0.03)
+        self.assertTrue(result["probe_summary"]["partial"])
+        self.assertFalse(result["probe_summary"]["deadline_reached"])
+        self.assertEqual(result["probe_summary"]["collector_statuses"], {
+            "tcp": "skipped_budget", "upnp": "skipped_budget",
+        })
+        self.assertIn("upnp", result["probe_summary"]["optional_skips"])
+        self.assertNotIn("deadline", result["probe_summary"]["optional_skips"])
 
-        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=slow_upnp):
-            started = time.monotonic()
+    def test_actual_global_deadline_is_reported_when_usable_evidence_exists(self) -> None:
+        now = [0.0]
+
+        def fake_monotonic() -> float:
+            return now[0]
+
+        def run_collectors(tasks, _deadline, _trace):
+            if tasks[0][0] == "tcp":
+                return {("tcp", None): []}, {"tcp": "completed"}
+            now[0] = 20.0
+            return {}, {"upnp": "timeout"}
+
+        with patch("network_monitoring_agent.device_inspector._run_isolated_collectors", side_effect=run_collectors):
             result = inspect_device("192.168.188.20", {
                 "route_role": "on_link", "same_subnet": True, "mac": None,
                 "reachable": True, "is_this_device": False, "interface_index": 20,
                 "interface_alias": "Wi-Fi", "interface_description": "Adapter",
                 "interface_type": "physical",
-            }, total_budget_seconds=0.03)
-        self.assertLess(time.monotonic() - started, 0.2)
+            }, monotonic=fake_monotonic)
         self.assertTrue(result["probe_summary"]["partial"])
+        self.assertTrue(result["probe_summary"]["deadline_reached"])
         self.assertIn("deadline", result["probe_summary"]["optional_skips"])
 
-    @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_deadline_before_usable_evidence_is_bounded_timeout(self, _tcp) -> None:
-        def slow_upnp(*_args, **_kwargs):
-            time.sleep(0.08)
-            return None
+    def test_deadline_before_usable_evidence_is_bounded_timeout(self) -> None:
+        now = [0.0]
 
-        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=slow_upnp):
+        def fake_monotonic() -> float:
+            return now[0]
+
+        def run_collectors(tasks, _deadline, _trace):
+            if tasks[0][0] == "tcp":
+                return {("tcp", None): []}, {"tcp": "completed"}
+            now[0] = 20.0
+            return {}, {"upnp": "timeout"}
+
+        with patch("network_monitoring_agent.device_inspector._run_isolated_collectors", side_effect=run_collectors):
             with self.assertRaises(InspectionDeadlineExceeded):
                 inspect_device("192.168.188.20", {
                     "route_role": "on_link", "same_subnet": True, "mac": None,
                     "reachable": False, "is_this_device": False, "interface_index": 20,
                     "interface_alias": "Wi-Fi", "interface_description": "Adapter",
                     "interface_type": "physical",
-                }, total_budget_seconds=0.03)
+                }, monotonic=fake_monotonic)
 
     @patch("network_monitoring_agent.device_inspector.shutil.which", return_value=None)
     def test_capabilities_do_not_require_nmap_or_optional_tools(self, _which) -> None:

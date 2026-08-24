@@ -155,17 +155,18 @@ def inspect_device(
     tcp_phase_started = time.monotonic()
     if trace:
         trace.emit("tcp_phase_start", remaining_budget_ms=deadline.remaining() * 1000)
-    tcp_results, deadline_reached = _run_isolated_collectors(
+    tcp_results, tcp_collector_statuses = _run_isolated_collectors(
         [("tcp", None, lambda: probe_tcp_service_states(
             ip, _InspectionDeadline(max(0.001, tcp_timeout), time.monotonic),
         ), tcp_timeout)],
         deadline,
         trace,
-    ) if tcp_timeout > 0 else ({}, True)
+    ) if tcp_timeout > 0 else ({}, {"tcp": "skipped_budget"})
+    tcp_status = tcp_collector_statuses.get("tcp", "failed")
     if trace:
         trace.emit(
             "tcp_phase_end",
-            status="timeout" if deadline_reached else "completed",
+            status=tcp_status,
             duration_ms=(time.monotonic() - tcp_phase_started) * 1000,
         )
     tcp_states = tcp_results.get(("tcp", None))
@@ -193,8 +194,7 @@ def inspect_device(
         ))
         for kind, port, task in tasks
     ]
-    metadata_results, optional_incomplete = _run_isolated_collectors(isolated_tasks, deadline, trace)
-    deadline_reached = deadline_reached or optional_incomplete
+    metadata_results, metadata_collector_statuses = _run_isolated_collectors(isolated_tasks, deadline, trace)
     for (kind, _port), metadata in metadata_results.items():
         if kind == "http" and metadata:
             http.append(metadata)
@@ -206,7 +206,10 @@ def inspect_device(
             netbios = metadata
     http.sort(key=lambda item: int(item.get("port", 0)))
     tls.sort(key=lambda item: int(item.get("port", 0)))
-    deadline_reached = deadline_reached or not deadline.has_time()
+    collector_statuses = {**tcp_collector_statuses, **metadata_collector_statuses}
+    collector_incomplete = any(status != "completed" for status in collector_statuses.values())
+    deadline_reached = deadline.remaining() <= 0
+    partial = collector_incomplete or deadline_reached
 
     partial_started = time.monotonic()
     if trace:
@@ -230,7 +233,9 @@ def inspect_device(
         "tls": tls,
         "upnp": upnp,
         "netbios": netbios,
-        "partial": deadline_reached,
+        "collector_statuses": collector_statuses,
+        "partial": partial,
+        "deadline_reached": deadline_reached,
     }
     if deadline_reached and not _has_usable_evidence(evidence_input):
         if trace:
@@ -264,17 +269,17 @@ def _run_isolated_collectors(
     tasks: list[tuple[str, int | None, Callable[[], Any], float]],
     deadline: _InspectionDeadline,
     trace: InspectionTrace | None = None,
-) -> tuple[dict[tuple[str, int | None], Any], bool]:
+) -> tuple[dict[tuple[str, int | None], Any], dict[str, str]]:
     """Run bounded collectors in killable process groups, never parent threads."""
     if not tasks:
-        return {}, False
+        return {}, {}
     if "fork" not in multiprocessing.get_all_start_methods():
         raise RuntimeError("Device Inspector requires a POSIX fork process context")
     context = multiprocessing.get_context("fork")
     pending = list(tasks)
     active: list[dict[str, Any]] = []
     results: dict[tuple[str, int | None], Any] = {}
-    incomplete = False
+    statuses: dict[str, str] = {}
 
     try:
         while pending or active:
@@ -283,10 +288,10 @@ def _run_isolated_collectors(
                 remaining = deadline.remaining()
                 required = max(0.001, maximum) + COLLECTOR_TERMINATION_GRACE_SECONDS
                 if remaining < required:
-                    incomplete = True
-                    if trace:
-                        for skipped_kind, skipped_port, _skipped_collector, _skipped_maximum in pending:
-                            name = _collector_name(skipped_kind, skipped_port)
+                    for skipped_kind, skipped_port, _skipped_collector, _skipped_maximum in pending:
+                        name = _collector_name(skipped_kind, skipped_port)
+                        statuses[name] = "skipped_budget"
+                        if trace:
                             trace.emit("collector_start", collector_name=name, remaining_budget_ms=remaining * 1000)
                             trace.emit("collector_end", collector_name=name, status="skipped_budget", duration_ms=0)
                     pending.clear()
@@ -333,11 +338,13 @@ def _run_isolated_collectors(
                         status, value = "error", None
                     if status == "ok":
                         results[state["key"]] = value
+                    normalized_status = "completed" if status == "ok" else "failed"
+                    statuses[state["collector_name"]] = normalized_status
                     if trace:
                         trace.emit(
                             "collector_end",
                             collector_name=state["collector_name"],
-                            status="completed" if status == "ok" else "failed",
+                            status=normalized_status,
                             duration_ms=(time.monotonic() - state["started_at"]) * 1000,
                         )
                     _stop_isolated_process(process, trace, state["collector_name"])
@@ -345,6 +352,7 @@ def _run_isolated_collectors(
                     active.remove(state)
                 elif not process.is_alive():
                     process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+                    statuses[state["collector_name"]] = "failed"
                     if trace:
                         trace.emit(
                             "collector_end",
@@ -356,7 +364,7 @@ def _run_isolated_collectors(
                     receiver.close()
                     active.remove(state)
                 elif time.monotonic() >= state["expires_at"] or deadline.remaining() <= 0:
-                    incomplete = True
+                    statuses[state["collector_name"]] = "timeout"
                     if trace:
                         trace.emit(
                             "collector_end",
@@ -371,6 +379,7 @@ def _run_isolated_collectors(
                 time.sleep(0.005)
     finally:
         for state in active:
+            statuses[state["collector_name"]] = "failed"
             if trace:
                 trace.emit(
                     "collector_end",
@@ -380,7 +389,7 @@ def _run_isolated_collectors(
                 )
             _stop_isolated_process(state["process"], trace, state["collector_name"])
             state["receiver"].close()
-    return results, incomplete or bool(pending)
+    return results, statuses
 
 
 def _isolated_collector_entry(sender: Any, collector: Callable[[], Any]) -> None:
@@ -825,6 +834,17 @@ def classify_device(observed: dict[str, Any]) -> dict[str, Any]:
         and str(item.get("port", "")).isdigit()
         and int(item["port"]) in TCP_PORTS
     ]
+    raw_collector_statuses = observed.get("collector_statuses")
+    collector_statuses = {
+        _clean_text(name, 80): status
+        for name, status in raw_collector_statuses.items()
+        if isinstance(name, str)
+        and status in {"completed", "timeout", "failed", "skipped_budget"}
+        and _clean_text(name, 80)
+    } if isinstance(raw_collector_statuses, dict) else {}
+    deadline_reached = bool(observed.get("deadline_reached"))
+    collector_incomplete = any(status != "completed" for status in collector_statuses.values())
+    partial = bool(observed.get("partial")) or collector_incomplete or deadline_reached
     route_role = observed.get("route_role") if observed.get("route_role") in {"default_gateway", "on_link", "routed"} else "routed"
     is_this_device = bool(observed.get("is_this_device"))
     interface_type = observed.get("interface_type") if observed.get("interface_type") in {"physical", "virtual", "unknown"} else "unknown"
@@ -975,11 +995,22 @@ def classify_device(observed: dict[str, Any]) -> dict[str, Any]:
             "tcp_ports_checked": [item["port"] for item in tcp_states],
             "tcp_open_count": len(ports),
             "tcp_states": tcp_states,
-            "upnp_checked": not bool(observed.get("partial")) or upnp_detected,
-            "netbios_checked": 445 in ports and (not bool(observed.get("partial")) or bool(netbios)),
-            "partial": bool(observed.get("partial")),
-            "deadline_reached": bool(observed.get("partial")),
-            "optional_skips": ["mdns", *(["deadline"] if observed.get("partial") else [])],
+            "upnp_checked": (
+                collector_statuses.get("upnp") == "completed"
+                if "upnp" in collector_statuses else not partial
+            ) or upnp_detected,
+            "netbios_checked": 445 in ports and (
+                (collector_statuses.get("netbios") == "completed" if "netbios" in collector_statuses else not partial)
+                or bool(netbios)
+            ),
+            "collector_statuses": collector_statuses,
+            "partial": partial,
+            "deadline_reached": deadline_reached,
+            "optional_skips": [
+                "mdns",
+                *(name for name, status in collector_statuses.items() if status == "skipped_budget"),
+                *(["deadline"] if deadline_reached else []),
+            ],
         },
         "limitations": limitations,
     }

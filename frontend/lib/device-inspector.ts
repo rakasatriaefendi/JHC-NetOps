@@ -3,6 +3,7 @@ export type InspectionConfidence = "high" | "medium" | "low" | "unknown";
 export type DeviceEvidence = { source: string; label: string; value: string };
 export type ObservedService = { name: string; protocol: "tcp" | "udp"; port: number };
 export type ObservedServiceState = ObservedService & { state: "open" | "closed" | "filtered" | "unknown" | "timeout" };
+export type InspectorCollectorStatus = "completed" | "timeout" | "failed" | "skipped_budget";
 
 export type DeviceFingerprint = {
   schema_version: number;
@@ -43,6 +44,7 @@ export type DeviceFingerprint = {
     tcp_states?: ObservedServiceState[];
     upnp_checked: boolean;
     netbios_checked?: boolean;
+    collector_statuses?: Record<string, InspectorCollectorStatus>;
     partial?: boolean;
     deadline_reached?: boolean;
     optional_skips: string[];
