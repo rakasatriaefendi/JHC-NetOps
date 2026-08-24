@@ -38,7 +38,7 @@ async function listTargets(db: ReturnType<typeof createClient>, runnerId: string
     const node = relation(row.network_nodes);
     const latest = relation(row.managed_device_latest);
     return {
-      id: row.id, node_id: row.node_id, runner_id: row.runner_id,
+      id: row.id, node_id: row.node_id, runner_id: row.runner_id, enabled: row.enabled,
       credential_profile_ref: row.credential_profile_ref, snmp_version: row.snmp_version,
       snmp_port: row.snmp_port, poll_interval_seconds: row.poll_interval_seconds,
       oper_error_threshold: row.oper_error_threshold, discard_threshold: row.discard_threshold,

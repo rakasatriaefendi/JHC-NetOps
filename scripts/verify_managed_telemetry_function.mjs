@@ -24,9 +24,11 @@ const runnerC = `${marker}-C`;
 const nodeAId = randomUUID();
 const nodeBId = randomUUID();
 const nodeCId = randomUUID();
+const nodeDId = randomUUID();
 const targetA = randomUUID();
 const targetB = randomUUID();
 const targetC = randomUUID();
+const targetD = randomUUID();
 const eventDownId = randomUUID();
 const eventErrId = randomUUID();
 const eventUpId = randomUUID();
@@ -68,14 +70,17 @@ try {
   const listedData = listed.body.data;
   assert(Array.isArray(listedData.targets), "list_targets data.targets missing");
   const targetIds = listedData.targets.map((t) => t.id);
-  assert(targetIds.includes(targetA) && targetIds.includes(targetB) && !targetIds.includes(targetC), "list_targets wrong target set");
+  assert(targetIds.length === 2 && targetIds.includes(targetA) && targetIds.includes(targetB) && !targetIds.includes(targetC) && !targetIds.includes(targetD), "list_targets wrong target set");
   const listedA = listedData.targets.find((t) => t.id === targetA);
-  for (const field of ["id", "node_id", "runner_id", "credential_profile_ref", "snmp_version", "snmp_port", "poll_interval_seconds", "oper_error_threshold", "discard_threshold", "util_warning_percent", "util_critical_percent", "util_sustained_seconds", "config_updated_at", "ip_address", "name", "device_type", "location", "latest"]) {
+  for (const field of ["id", "node_id", "runner_id", "enabled", "credential_profile_ref", "snmp_version", "snmp_port", "poll_interval_seconds", "oper_error_threshold", "discard_threshold", "util_warning_percent", "util_critical_percent", "util_sustained_seconds", "config_updated_at", "ip_address", "name", "device_type", "location", "latest"]) {
     assert(field in listedA, `list_targets missing field ${field}`);
   }
+  assert(listedA.enabled === true, "list_targets enabled flag wrong");
   assert(listedA.credential_profile_ref === "monitoring-readonly", "list_targets credential profile ref wrong");
   assert(listedA.latest === null, "target A latest should be null before publish");
   assert(!SECRET_RE.test(JSON.stringify(listedData)), "list_targets leaked a secret-shaped field");
+  const disabled = await get(`managed_telemetry_targets?id=eq.${targetD}&select=id,enabled`);
+  assert(disabled.length === 1 && disabled[0].enabled === false, "disabled target state was not preserved");
   const listedB = await invoke({ action: "list_targets", runner_id: runnerB }, serviceHeaders);
   assert(listedB.status === 200 && Array.isArray(listedB.body.data.targets) && listedB.body.data.targets.length === 0, "list_targets for empty runner should return empty array");
 
@@ -254,9 +259,11 @@ async function createFixtures() {
   await rest("network_nodes", "POST", { id: nodeAId, ip_address: "192.168.88.211/32", name: `${marker} Core-ASW-01`, device_type: "managed_switch", location: "Synthetic fixture", created_at: now, updated_at: now });
   await rest("network_nodes", "POST", { id: nodeBId, ip_address: "192.168.88.212/32", name: `${marker} Core-DSW-02`, device_type: "layer3_switch", location: "Synthetic fixture", created_at: now, updated_at: now });
   await rest("network_nodes", "POST", { id: nodeCId, ip_address: "192.168.88.213/32", name: `${marker} Core-ASW-03`, device_type: "managed_switch", location: "Synthetic fixture", created_at: now, updated_at: now });
+  await rest("network_nodes", "POST", { id: nodeDId, ip_address: "192.168.88.214/32", name: `${marker} Disabled-ASW-04`, device_type: "managed_switch", location: "Synthetic fixture", created_at: now, updated_at: now });
   for (const [targetId, nodeId, runnerId] of [[targetA, nodeAId, runnerA], [targetB, nodeBId, runnerA], [targetC, nodeCId, runnerC]]) {
     await rest("managed_telemetry_targets", "POST", { id: targetId, node_id: nodeId, runner_id: runnerId, enabled: true, credential_profile_ref: "monitoring-readonly", snmp_version: "3", snmp_port: 161, poll_interval_seconds: 60, oper_error_threshold: 5, discard_threshold: 10, util_warning_percent: 80, util_critical_percent: 95, util_sustained_seconds: 300, created_by: adminId, created_at: now, updated_at: now });
   }
+  await rest("managed_telemetry_targets", "POST", { id: targetD, node_id: nodeDId, runner_id: runnerA, enabled: false, credential_profile_ref: "monitoring-readonly", snmp_version: "3", snmp_port: 161, poll_interval_seconds: 60, oper_error_threshold: 5, discard_threshold: 10, util_warning_percent: 80, util_critical_percent: 95, util_sustained_seconds: 300, created_by: adminId, created_at: now, updated_at: now });
   const now2 = new Date().toISOString();
   await rest("managed_device_latest", "POST", { target_id: targetB, status: "connected", sys_name: `${marker}-DSW`, last_polled_at: now2, last_success_at: now2, consecutive_poll_failures: 0, updated_at: now2 });
   for (const idx of [100, 101, 102]) await rest("managed_interface_latest", "POST", { target_id: targetB, if_index: idx, name: `Eth${idx}`, is_physical: true, admin_status: "up", oper_status: "up", speed_bps: 1000000000, last_polled_at: now2, updated_at: now2 });
@@ -286,7 +293,7 @@ function validInterface(targetId, ifIndex) {
 
 async function cleanupFixtures() {
   for (const id of [eventUpId, openDownId, eventErrId, eventDownId]) await remove(`events?id=eq.${id}`);
-  for (const targetId of [targetA, targetB, targetC]) {
+  for (const targetId of [targetA, targetB, targetC, targetD]) {
     await remove(`managed_interface_latest?target_id=eq.${targetId}`);
     await remove(`managed_device_latest?target_id=eq.${targetId}`);
     await remove(`managed_telemetry_targets?id=eq.${targetId}`);
@@ -294,6 +301,7 @@ async function cleanupFixtures() {
   await remove(`network_nodes?id=eq.${nodeAId}`);
   await remove(`network_nodes?id=eq.${nodeBId}`);
   await remove(`network_nodes?id=eq.${nodeCId}`);
+  await remove(`network_nodes?id=eq.${nodeDId}`);
   await remove(`diagnostic_runners?id=eq.${encodeURIComponent(runnerA)}`);
   await remove(`diagnostic_runners?id=eq.${encodeURIComponent(runnerB)}`);
   await remove(`diagnostic_runners?id=eq.${encodeURIComponent(runnerC)}`);
@@ -306,9 +314,11 @@ async function cleanupFixtures() {
     node_a: await absent(`network_nodes?id=eq.${nodeAId}&select=id`),
     node_b: await absent(`network_nodes?id=eq.${nodeBId}&select=id`),
     node_c: await absent(`network_nodes?id=eq.${nodeCId}&select=id`),
+    node_d: await absent(`network_nodes?id=eq.${nodeDId}&select=id`),
     target_a: await absent(`managed_telemetry_targets?id=eq.${targetA}&select=id`),
     target_b: await absent(`managed_telemetry_targets?id=eq.${targetB}&select=id`),
     target_c: await absent(`managed_telemetry_targets?id=eq.${targetC}&select=id`),
+    target_d: await absent(`managed_telemetry_targets?id=eq.${targetD}&select=id`),
     device_a: await absent(`managed_device_latest?target_id=eq.${targetA}&select=target_id`),
     device_b: await absent(`managed_device_latest?target_id=eq.${targetB}&select=target_id`),
     device_c: await absent(`managed_device_latest?target_id=eq.${targetC}&select=target_id`),
