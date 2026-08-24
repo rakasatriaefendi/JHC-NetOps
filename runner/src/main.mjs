@@ -168,7 +168,7 @@ async function executeInspection(rawSession) {
     const context = validateInspectionScope(session, await collectInspectionContext(session.target_ip));
     log(`Device inspection ${session.inspection_id}: Windows context ready (${context.route_role}, same_subnet=${context.same_subnet})`);
     let fingerprint = null;
-    log(`Device inspection ${session.inspection_id}: starting WSL agent`);
+    log(`Device inspection ${session.inspection_id}: checking WSL readiness`);
     await runInspectionAgent(config, session, context, async (event) => {
       if (event.type === "stage") await backend.inspectionStage(config.runner_id, session.inspection_id, event.stage);
       if (event.type === "result") {

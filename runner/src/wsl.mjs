@@ -3,6 +3,7 @@ import readline from "node:readline";
 import { safeError } from "./config.mjs";
 
 const CREATE_NO_WINDOW = true;
+export const WSL_READINESS_TIMEOUT_MS = 15_000;
 const INSPECTION_TRACE_PREFIX = "INSPECTION_TRACE ";
 const MAX_INSPECTION_TRACE_BYTES = 512;
 const MAX_INSPECTION_TRACE_RECORDS = 128;
@@ -89,9 +90,63 @@ export function buildInspectionInvocation(config, session, context) {
   return args;
 }
 
+export function buildWslReadinessInvocation(config) {
+  return ["-d", config.wsl_distro, "--exec", "/usr/bin/env", "true"];
+}
+
+export async function waitForWslReadiness(
+  config, { timeoutMs = WSL_READINESS_TIMEOUT_MS, spawnProcess = spawn, onTrace = () => {} } = {},
+) {
+  const startedAt = Date.now();
+  const emitTrace = (phase) => {
+    try { onTrace({ source: "runner", phase, elapsed_ms: boundedMilliseconds(Date.now() - startedAt) }); } catch {}
+  };
+  emitTrace("wsl_readiness_start");
+
+  let child;
+  try {
+    child = spawnProcess("wsl.exe", buildWslReadinessInvocation(config), {
+      windowsHide: CREATE_NO_WINDOW,
+      shell: false,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+  } catch {
+    emitTrace("wsl_readiness_failed");
+    throw safeError("WSL_RUNTIME_FAILED");
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const finish = (error, phase) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      emitTrace(phase);
+      if (error) reject(error);
+      else resolve({ exit: 0 });
+    };
+    child.once("error", () => finish(safeError("WSL_RUNTIME_FAILED"), "wsl_readiness_failed"));
+    child.once("close", (exit) => {
+      if (exit === 0) finish(null, "wsl_readiness_ready");
+      else finish(safeError("WSL_RUNTIME_FAILED"), "wsl_readiness_failed");
+    });
+    timer = setTimeout(() => {
+      finish(safeError("WSL_READINESS_TIMEOUT"), "wsl_readiness_timeout");
+      try { child.kill(); } catch {}
+    }, timeoutMs);
+  });
+}
+
 export async function runInspectionAgent(
   config, session, context, onEvent, timeoutMs = 30_000, spawnProcess = spawn, onTrace = () => {},
+  readiness = {},
 ) {
+  await waitForWslReadiness(config, {
+    timeoutMs: readiness.timeoutMs ?? WSL_READINESS_TIMEOUT_MS,
+    spawnProcess: readiness.spawnProcess ?? spawnProcess,
+    onTrace,
+  });
   return runStructuredProcess(buildInspectionInvocation(config, session, context), validateInspectionEvent, onEvent, timeoutMs, {
     start: "INSPECTION_WSL_UNAVAILABLE",
     timeout: "INSPECTION_TIMEOUT",

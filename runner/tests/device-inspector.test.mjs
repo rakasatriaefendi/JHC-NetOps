@@ -13,10 +13,12 @@ import {
 } from "../src/device-inspector.mjs";
 import {
   buildInspectionInvocation,
+  buildWslReadinessInvocation,
   parseInspectionTraceLine,
   runInspectionAgent,
   validateInspectionEvent,
   validateInspectorCapabilities,
+  waitForWslReadiness,
 } from "../src/wsl.mjs";
 import { startHeartbeatLoop } from "../src/heartbeat.mjs";
 
@@ -26,6 +28,133 @@ const config = {
   agent_path: "/project/agent/.venv/bin/network-monitor",
 };
 const sessionId = "8b6386f1-a2ef-4c6d-87fd-682100bcdcec";
+
+function successfulReadinessSpawn() {
+  const child = new EventEmitter();
+  child.kill = () => true;
+  queueMicrotask(() => child.emit("close", 0));
+  return child;
+}
+
+test("WSL readiness uses the configured distro and a fixed non-network Linux command", async () => {
+  assert.deepEqual(buildWslReadinessInvocation(config), [
+    "-d", "Ubuntu-22.04", "--exec", "/usr/bin/env", "true",
+  ]);
+  const traces = [];
+  const result = await waitForWslReadiness(config, {
+    timeoutMs: 100,
+    spawnProcess: successfulReadinessSpawn,
+    onTrace: (record) => traces.push(record),
+  });
+  assert.equal(result.exit, 0);
+  assert.deepEqual(traces.map((record) => record.phase), ["wsl_readiness_start", "wsl_readiness_ready"]);
+});
+
+test("WSL readiness timeout is bounded and classified separately", async () => {
+  let killed = false;
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.kill = () => { killed = true; return true; };
+    return child;
+  };
+  await assert.rejects(
+    waitForWslReadiness(config, { timeoutMs: 10, spawnProcess }),
+    (error) => error.code === "WSL_READINESS_TIMEOUT",
+  );
+  assert.equal(killed, true);
+});
+
+test("WSL readiness nonzero exit is a runtime failure, not a missing venv", async () => {
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.kill = () => true;
+    queueMicrotask(() => child.emit("close", 1));
+    return child;
+  };
+  await assert.rejects(
+    waitForWslReadiness(config, { timeoutMs: 100, spawnProcess }),
+    (error) => error.code === "WSL_RUNTIME_FAILED" && error.code !== "AGENT_VENV_MISSING",
+  );
+});
+
+test("Device Inspector does not start when WSL readiness fails", async () => {
+  let inspectionStarts = 0;
+  const inspectionSpawn = () => { inspectionStarts += 1; throw new Error("must not start"); };
+  const readinessSpawn = () => {
+    const child = new EventEmitter();
+    child.kill = () => true;
+    queueMicrotask(() => child.emit("close", 1));
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  await assert.rejects(
+    runInspectionAgent(
+      config, { target_ip: "192.168.188.50" }, context, async () => {}, 30,
+      inspectionSpawn, undefined, { spawnProcess: readinessSpawn, timeoutMs: 20 },
+    ),
+    (error) => error.code === "WSL_RUNTIME_FAILED",
+  );
+  assert.equal(inspectionStarts, 0);
+});
+
+test("Device Inspector starts after readiness and keeps its existing timeout window", async () => {
+  const order = [];
+  const readinessSpawn = () => {
+    order.push("readiness");
+    const child = new EventEmitter();
+    child.kill = () => true;
+    setTimeout(() => child.emit("close", 0), 25);
+    return child;
+  };
+  const inspectionSpawn = () => {
+    order.push("inspection");
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    queueMicrotask(() => {
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.50", likely_device_type: "unknown", confidence: "low",
+        capabilities: [], evidence: [],
+      } })}\n`);
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("close", 0);
+    });
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  const startedAt = Date.now();
+  await runInspectionAgent(
+    config, { target_ip: "192.168.188.50" }, context, async () => {}, 15,
+    inspectionSpawn, undefined, { spawnProcess: readinessSpawn, timeoutMs: 100 },
+  );
+  assert.deepEqual(order, ["readiness", "inspection"]);
+  assert.ok(Date.now() - startedAt >= 20);
+});
+
+test("heartbeat continues while asynchronous WSL readiness is pending", async () => {
+  let heartbeats = 0;
+  let readinessChild = null;
+  const stop = startHeartbeatLoop(async () => {
+    heartbeats += 1;
+    if (heartbeats === 3) readinessChild?.emit("close", 0);
+  }, 5);
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.kill = () => true;
+    readinessChild = child;
+    return child;
+  };
+  try {
+    await waitForWslReadiness(config, { timeoutMs: 500, spawnProcess });
+    assert.equal(heartbeats, 3);
+  } finally { stop(); }
+});
 
 test("inspection session accepts only private structured targets", () => {
   const session = validateInspectionSession({
@@ -143,7 +272,7 @@ test("inspection trace parser accepts only bounded allowlisted lifecycle fields"
   assert.equal(parseInspectionTraceLine("arbitrary WSL stderr"), null);
 });
 
-test("runner traces startup, normalized result, and WSL close without changing events", async () => {
+test("runner traces readiness, agent startup, normalized result, and WSL close", async () => {
   const traces = [];
   const events = [];
   const spawnProcess = () => {
@@ -169,10 +298,12 @@ test("runner traces startup, normalized result, and WSL close without changing e
   await runInspectionAgent(
     config, { target_ip: "192.168.188.50" }, context,
     async (event) => events.push(event), 1_000, spawnProcess, (record) => traces.push(record),
+    { spawnProcess: successfulReadinessSpawn },
   );
   assert.equal(events.length, 1);
   assert.deepEqual(traces.map((record) => record.phase), [
-    "wsl_spawn", "first_agent_output", "cli_entry", "normalized_result_received", "wsl_close",
+    "wsl_readiness_start", "wsl_readiness_ready", "wsl_spawn", "first_agent_output",
+    "cli_entry", "normalized_result_received", "wsl_close",
   ]);
   assert.ok(traces.every((record) => !Object.hasOwn(record, "payload")));
 });
@@ -204,6 +335,7 @@ test("runner bounds accepted agent trace records", async () => {
   await runInspectionAgent(
     config, { target_ip: "192.168.188.50" }, context,
     async () => {}, 1_000, spawnProcess, (record) => traces.push(record),
+    { spawnProcess: successfulReadinessSpawn },
   );
   assert.equal(traces.filter((record) => record.source === "agent").length, 128);
 });
@@ -231,7 +363,10 @@ test("heartbeat continues during a simulated long asynchronous Inspector child",
     const context = { route_role: "on_link", same_subnet: true, reachable: true,
       default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
       interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
-    await runInspectionAgent(config, { target_ip: "192.168.188.50" }, context, async () => {}, 1_000, spawnProcess);
+    await runInspectionAgent(
+      config, { target_ip: "192.168.188.50" }, context, async () => {}, 1_000,
+      spawnProcess, undefined, { spawnProcess: successfulReadinessSpawn },
+    );
     assert.ok(heartbeats >= 3);
   } finally { stop(); }
 });
@@ -260,7 +395,7 @@ test("Inspector returns partial within outer ceiling after scaled WSL startup ov
   const started = Date.now();
   await runInspectionAgent(config, { target_ip: "192.168.188.228" }, context, async (event) => {
     if (event.type === "result") fingerprint = event.fingerprint;
-  }, 300, spawnProcess);
+  }, 300, spawnProcess, undefined, { spawnProcess: successfulReadinessSpawn });
   assert.ok(Date.now() - started < 300);
   assert.equal(fingerprint?.probe_summary?.partial, true);
 });
@@ -288,6 +423,7 @@ test("Inspector outer ceiling still kills a genuinely hung WSL child", async () 
     runInspectionAgent(
       config, { target_ip: "192.168.188.228" }, context, async () => {}, 50, spawnProcess,
       (record) => traces.push(record),
+      { spawnProcess: successfulReadinessSpawn },
     ),
     (error) => error.code === "INSPECTION_TIMEOUT",
   );
