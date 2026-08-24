@@ -15,6 +15,12 @@ test("Device Inspector errors show a friendly action and keep the code as techni
   assert.match(context.title, /Konteks jaringan Windows/);
   assert.match(context.action, /route Windows/);
   assert.doesNotMatch(`${context.title} ${context.action}`, /raw output/i);
+
+  const readiness = inspectionErrorDetails("WSL_READINESS_TIMEOUT");
+  assert.match(readiness.title, /WSL belum siap/);
+
+  const runtime = inspectionErrorDetails("WSL_RUNTIME_FAILED");
+  assert.match(runtime.title, /WSL gagal/);
 });
 
 test("unknown Device Inspector errors have a safe fallback", () => {

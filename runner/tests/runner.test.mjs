@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { publicCapabilities, validateJob, validatePreflightRequest, validateTrafficSession } from "../src/config.mjs";
-import { buildAgentInvocation, buildTrafficInvocation, validateAgentEvent, validateTrafficEvent } from "../src/wsl.mjs";
+import { assertWslInvocation, buildAgentInvocation, buildTrafficInvocation, validateAgentEvent, validateTrafficEvent } from "../src/wsl.mjs";
 import { buildNetworkContextInvocation, validateNetworkProbe } from "../src/network-context.mjs";
 import { startHeartbeatLoop } from "../src/heartbeat.mjs";
 import { backendFailureMessage } from "../src/backend.mjs";
@@ -152,4 +153,38 @@ test("backend failures expose bounded safe details without multiline log injecti
     "Backend request failed with HTTP 400: Runner operations are invalid  forged log",
   );
   assert.equal(backendFailureMessage("Backend", 503, {}), "Backend request failed with HTTP 503");
+});
+
+test("WSL preflight distinguishes genuine missing project executable", () => {
+  assert.throws(
+    () => assertWslInvocation({ status: 1, stdout: "", stderr: "wsl: Failed to translate 'D:\\VM\\bin\\'" }, "AGENT_VENV_MISSING", { pathCheck: true }),
+    (error) => error.code === "AGENT_VENV_MISSING",
+  );
+});
+
+test("WSL preflight classifies invocation timeout separately", () => {
+  assert.throws(
+    () => assertWslInvocation({ status: null, error: { code: "ETIMEDOUT" }, stdout: "", stderr: "" }, "AGENT_VENV_MISSING", { pathCheck: true }),
+    (error) => error.code === "WSL_INVOCATION_TIMEOUT",
+  );
+});
+
+test("WSL preflight classifies runtime failure separately without exposing stderr", () => {
+  assert.throws(
+    () => assertWslInvocation({ status: 1, stdout: "", stderr: "mount failed: sensitive path" }, "AGENT_VENV_MISSING", { pathCheck: true }),
+    (error) => error.code === "WSL_RUNTIME_FAILED" && !error.message.includes("sensitive"),
+  );
+});
+
+test("WSL preflight preserves existing command-specific missing-tool classifications", () => {
+  assert.throws(
+    () => assertWslInvocation({ status: 1, stdout: "", stderr: "missing executable" }, "IPERF3_MISSING"),
+    (error) => error.code === "IPERF3_MISSING",
+  );
+});
+
+test("heartbeat backend accepts the narrow WSL preflight classifications", () => {
+  const source = readFileSync(new URL("../../supabase/functions/diagnostic-jobs/index.ts", import.meta.url), "utf8");
+  assert.match(source, /"WSL_INVOCATION_TIMEOUT"/);
+  assert.match(source, /"WSL_RUNTIME_FAILED"/);
 });

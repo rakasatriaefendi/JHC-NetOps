@@ -40,7 +40,7 @@ for (let attempt = 1; attempt <= 3; attempt += 1) {
     break;
   } catch (error) {
     healthErrorCode = error.code ?? "RUNNER_INTERNAL_ERROR";
-    const retryable = ["AGENT_VENV_MISSING", "TRAFFIC_CAPTURE_FAILED", "WSL_DISTRO_NOT_FOUND"].includes(healthErrorCode);
+    const retryable = ["AGENT_VENV_MISSING", "TRAFFIC_CAPTURE_FAILED", "WSL_DISTRO_NOT_FOUND", "WSL_INVOCATION_TIMEOUT", "WSL_RUNTIME_FAILED"].includes(healthErrorCode);
     if (attempt < 3 && retryable) {
       log(`Preflight attempt ${attempt} failed: ${healthErrorCode}; retrying`);
       await delay(3000);
@@ -168,14 +168,16 @@ async function executeInspection(rawSession) {
     const context = validateInspectionScope(session, await collectInspectionContext(session.target_ip));
     log(`Device inspection ${session.inspection_id}: Windows context ready (${context.route_role}, same_subnet=${context.same_subnet})`);
     let fingerprint = null;
-    log(`Device inspection ${session.inspection_id}: starting WSL agent`);
+    log(`Device inspection ${session.inspection_id}: checking WSL readiness`);
     await runInspectionAgent(config, session, context, async (event) => {
       if (event.type === "stage") await backend.inspectionStage(config.runner_id, session.inspection_id, event.stage);
       if (event.type === "result") {
         if (event.fingerprint.ip !== session.target_ip) throw safeError("AGENT_PROTOCOL_ERROR");
         fingerprint = event.fingerprint;
       }
-    }, 30_000);
+    }, 30_000, undefined, (record) => {
+      log(`INSPECTION_TRACE ${JSON.stringify({ inspection_id: session.inspection_id, ...record })}`);
+    });
     if (!fingerprint) throw safeError("AGENT_PROTOCOL_ERROR");
     await backend.completeInspection(config.runner_id, session.inspection_id, fingerprint);
     log(`Device inspection ${session.inspection_id} completed`);

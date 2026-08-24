@@ -30,6 +30,25 @@ export type DiscoverySession = {
   updated_at: string;
 };
 
+export const DISCOVERY_RUNNER_FRESHNESS_MS = 30_000;
+
+export type DiscoveryRunner = {
+  id: string;
+  display_name: string;
+  last_seen_at: string;
+  health_status: "online" | "degraded";
+  capabilities: { operations?: string[] };
+};
+
+export function isDiscoveryRunnerOnline(
+  runner: DiscoveryRunner | null | undefined,
+  nowMs = Date.now(),
+) {
+  if (!runner || runner.health_status !== "online") return false;
+  const lastSeen = Date.parse(runner.last_seen_at);
+  return Number.isFinite(lastSeen) && nowMs - lastSeen <= DISCOVERY_RUNNER_FRESHNESS_MS;
+}
+
 export async function loadDiscoverySessions(supabase: SupabaseClient, isAdmin: boolean) {
   if (!isAdmin) return { data: [] as DiscoverySession[], error: false };
   const { data, error } = await supabase.from("network_discovery_sessions").select("*").limit(50).returns<DiscoverySession[]>();

@@ -7,17 +7,24 @@ import errno
 import html
 import importlib.metadata
 import ipaddress
+import multiprocessing
+import os
 import platform
 import re
+import signal
 import shutil
 import socket
 import ssl
 import struct
 import subprocess
+import sys
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
+
+from .inspection_trace import InspectionTrace
 
 TCP_PORTS = (22, 80, 443, 445, 554, 631, 1883, 8080, 8443, 9100)
 HTTP_PORTS = (80, 8080)
@@ -29,12 +36,42 @@ MAX_HTTP_BYTES = 16 * 1024
 MAX_UPNP_BYTES = 32 * 1024
 MAX_TLS_OUTPUT_BYTES = 16 * 1024
 MAX_NETBIOS_BYTES = 2048
+INSPECTION_BUDGET_SECONDS = 18.0
+PROCESS_EXIT_GRACE_SECONDS = 2.0
+COLLECTOR_TERMINATION_GRACE_SECONDS = 0.25
+COLLECTOR_START_GRACE_SECONDS = 0.05
+TCP_COLLECTION_TIMEOUT_SECONDS = 4.0
+MIN_OPTIONAL_BUDGET_SECONDS = 0.05
 
 SERVICE_NAMES = {
     22: "SSH", 80: "HTTP", 443: "HTTPS", 445: "SMB",
     554: "RTSP", 631: "IPP", 1883: "MQTT", 8080: "HTTP Alternate",
     8443: "HTTPS Alternate", 9100: "Printer",
 }
+
+
+class InspectionDeadlineExceeded(TimeoutError):
+    """The agent-wide Device Inspector budget was exhausted safely."""
+
+
+class _InspectionDeadline:
+    def __init__(self, budget_seconds: float, monotonic: Callable[[], float]) -> None:
+        if budget_seconds <= 0:
+            raise ValueError("Inspection budget must be positive")
+        self._monotonic = monotonic
+        self._expires_at = monotonic() + budget_seconds
+
+    def remaining(self) -> float:
+        return max(0.0, self._expires_at - self._monotonic())
+
+    def timeout(self, maximum: float) -> float:
+        remaining = self.remaining()
+        if remaining <= 0:
+            raise InspectionDeadlineExceeded("Device inspection deadline reached")
+        return max(0.001, min(maximum, remaining))
+
+    def has_time(self, minimum: float = MIN_OPTIONAL_BUDGET_SECONDS) -> bool:
+        return self.remaining() > minimum
 
 
 def inspector_capabilities() -> dict[str, Any]:
@@ -83,12 +120,21 @@ def inspect_device(
     target: str,
     context: dict[str, Any],
     emit: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    total_budget_seconds: float = INSPECTION_BUDGET_SECONDS,
+    monotonic: Callable[[], float] = time.monotonic,
+    trace: InspectionTrace | None = None,
 ) -> dict[str, Any]:
     """Inspect one private IPv4 using a fixed low-impact probe plan."""
+    if trace:
+        trace.emit("inspect_device_entry")
     ip = str(ipaddress.ip_address(target))
     if not ipaddress.ip_address(ip).is_private:
         raise ValueError("Device Inspector target must be a private IPv4 address")
     notify = emit or (lambda _event: None)
+    process_exit_grace = min(PROCESS_EXIT_GRACE_SECONDS, total_budget_seconds * 0.2)
+    collector_budget = max(0.001, total_budget_seconds - process_exit_grace)
+    deadline = _InspectionDeadline(collector_budget, monotonic)
     notify({"type": "stage", "stage": "network_role"})
     normalized_context = _normalize_context(ip, context)
 
@@ -102,7 +148,30 @@ def inspect_device(
             mac_vendor = lookup_mac_vendor(mac)
 
     notify({"type": "stage", "stage": "services"})
-    tcp_states = probe_tcp_service_states(ip)
+    tcp_timeout = min(
+        TCP_COLLECTION_TIMEOUT_SECONDS,
+        max(0.0, deadline.remaining() - COLLECTOR_TERMINATION_GRACE_SECONDS - COLLECTOR_START_GRACE_SECONDS),
+    )
+    tcp_phase_started = time.monotonic()
+    if trace:
+        trace.emit("tcp_phase_start", remaining_budget_ms=deadline.remaining() * 1000)
+    tcp_results, tcp_collector_statuses = _run_isolated_collectors(
+        [("tcp", None, lambda: probe_tcp_service_states(
+            ip, _InspectionDeadline(max(0.001, tcp_timeout), time.monotonic),
+        ), tcp_timeout)],
+        deadline,
+        trace,
+    ) if tcp_timeout > 0 else ({}, {"tcp": "skipped_budget"})
+    tcp_status = tcp_collector_statuses.get("tcp", "failed")
+    if trace:
+        trace.emit(
+            "tcp_phase_end",
+            status=tcp_status,
+            duration_ms=(time.monotonic() - tcp_phase_started) * 1000,
+        )
+    tcp_states = tcp_results.get(("tcp", None))
+    if not isinstance(tcp_states, list):
+        tcp_states = []
     open_ports = [item["port"] for item in tcp_states if item["state"] == "open"]
     http: list[dict[str, Any]] = []
     tls: list[dict[str, Any]] = []
@@ -111,32 +180,40 @@ def inspect_device(
     tasks: list[tuple[str, int | None, Callable[[], Any]]] = []
     for port in (*HTTP_PORTS, *HTTPS_PORTS):
         if port in open_ports:
-            tasks.append(("http", port, lambda port=port: http_metadata(ip, port, use_tls=port in HTTPS_PORTS)))
+            tasks.append(("http", port, lambda port=port: http_metadata(ip, port, use_tls=port in HTTPS_PORTS, deadline=deadline)))
     for port in HTTPS_PORTS:
         if port in open_ports:
-            tasks.append(("tls", port, lambda port=port: tls_metadata(ip, port)))
-    tasks.append(("upnp", None, lambda: upnp_metadata(ip)))
+            tasks.append(("tls", port, lambda port=port: tls_metadata(ip, port, deadline=deadline)))
+    tasks.append(("upnp", None, lambda: upnp_metadata(ip, deadline=deadline)))
     if 445 in open_ports:
-        tasks.append(("netbios", None, lambda: netbios_metadata(ip)))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as pool:
-        futures = {pool.submit(task): (kind, port) for kind, port, task in tasks}
-        for future in concurrent.futures.as_completed(futures):
-            kind, _port = futures[future]
-            try:
-                metadata = future.result()
-            except (OSError, ValueError, subprocess.SubprocessError):
-                metadata = None
-            if kind == "http" and metadata:
-                http.append(metadata)
-            elif kind == "tls" and metadata:
-                tls.append(metadata)
-            elif kind == "upnp":
-                upnp = metadata
-            elif kind == "netbios":
-                netbios = metadata
+        tasks.append(("netbios", None, lambda: netbios_metadata(ip, deadline=deadline)))
+    isolated_tasks = [
+        (kind, port, task, min(
+            METADATA_TIMEOUT_SECONDS,
+            max(0.0, deadline.remaining() - COLLECTOR_TERMINATION_GRACE_SECONDS - COLLECTOR_START_GRACE_SECONDS),
+        ))
+        for kind, port, task in tasks
+    ]
+    metadata_results, metadata_collector_statuses = _run_isolated_collectors(isolated_tasks, deadline, trace)
+    for (kind, _port), metadata in metadata_results.items():
+        if kind == "http" and metadata:
+            http.append(metadata)
+        elif kind == "tls" and metadata:
+            tls.append(metadata)
+        elif kind == "upnp":
+            upnp = metadata
+        elif kind == "netbios":
+            netbios = metadata
     http.sort(key=lambda item: int(item.get("port", 0)))
     tls.sort(key=lambda item: int(item.get("port", 0)))
+    collector_statuses = {**tcp_collector_statuses, **metadata_collector_statuses}
+    collector_incomplete = any(status != "completed" for status in collector_statuses.values())
+    deadline_reached = deadline.remaining() <= 0
+    partial = collector_incomplete or deadline_reached
 
+    partial_started = time.monotonic()
+    if trace:
+        trace.emit("partial_finalize_start", remaining_budget_ms=deadline.remaining() * 1000)
     evidence_input = {
         "ip": ip,
         "reachable": bool(normalized_context["reachable"] or open_ports),
@@ -156,9 +233,251 @@ def inspect_device(
         "tls": tls,
         "upnp": upnp,
         "netbios": netbios,
+        "collector_statuses": collector_statuses,
+        "partial": partial,
+        "deadline_reached": deadline_reached,
     }
+    if deadline_reached and not _has_usable_evidence(evidence_input):
+        if trace:
+            trace.emit(
+                "partial_finalize_end",
+                status="failed",
+                duration_ms=(time.monotonic() - partial_started) * 1000,
+            )
+        raise InspectionDeadlineExceeded("Device inspection deadline reached before usable evidence")
+    if trace:
+        trace.emit(
+            "partial_finalize_end",
+            status="completed",
+            duration_ms=(time.monotonic() - partial_started) * 1000,
+        )
     notify({"type": "stage", "stage": "normalizing"})
-    return classify_device(evidence_input)
+    normalization_started = time.monotonic()
+    if trace:
+        trace.emit("normalization_start")
+    result = classify_device(evidence_input)
+    if trace:
+        trace.emit(
+            "normalization_end",
+            status="completed",
+            duration_ms=(time.monotonic() - normalization_started) * 1000,
+        )
+    return result
+
+
+def _run_isolated_collectors(
+    tasks: list[tuple[str, int | None, Callable[[], Any], float]],
+    deadline: _InspectionDeadline,
+    trace: InspectionTrace | None = None,
+) -> tuple[dict[tuple[str, int | None], Any], dict[str, str]]:
+    """Run bounded collectors in killable process groups, never parent threads."""
+    if not tasks:
+        return {}, {}
+    if "fork" not in multiprocessing.get_all_start_methods():
+        raise RuntimeError("Device Inspector requires a POSIX fork process context")
+    context = multiprocessing.get_context("fork")
+    pending = list(tasks)
+    active: list[dict[str, Any]] = []
+    results: dict[tuple[str, int | None], Any] = {}
+    statuses: dict[str, str] = {}
+
+    try:
+        while pending or active:
+            while pending and len(active) < MAX_CONCURRENCY:
+                kind, port, collector, maximum = pending[0]
+                remaining = deadline.remaining()
+                required = max(0.001, maximum) + COLLECTOR_TERMINATION_GRACE_SECONDS
+                if remaining < required:
+                    for skipped_kind, skipped_port, _skipped_collector, _skipped_maximum in pending:
+                        name = _collector_name(skipped_kind, skipped_port)
+                        statuses[name] = "skipped_budget"
+                        if trace:
+                            trace.emit("collector_start", collector_name=name, remaining_budget_ms=remaining * 1000)
+                            trace.emit("collector_end", collector_name=name, status="skipped_budget", duration_ms=0)
+                    pending.clear()
+                    break
+                pending.pop(0)
+                collector_name = _collector_name(kind, port)
+                started_at = time.monotonic()
+                if trace:
+                    trace.emit("collector_start", collector_name=collector_name, remaining_budget_ms=remaining * 1000)
+                receiver, sender = context.Pipe(duplex=False)
+                process = context.Process(
+                    target=_isolated_collector_entry,
+                    args=(sender, collector),
+                    daemon=False,
+                )
+                process.start()
+                sender.close()
+                if trace:
+                    process_group_id = _safe_process_group_id(process.pid)
+                    trace.emit(
+                        "child_created",
+                        collector_name=collector_name,
+                        child_pid=process.pid,
+                        process_group_id=process_group_id,
+                    )
+                active.append({
+                    "key": (kind, port),
+                    "collector_name": collector_name,
+                    "process": process,
+                    "receiver": receiver,
+                    "expires_at": time.monotonic() + max(0.001, maximum),
+                    "started_at": started_at,
+                })
+
+            if not active:
+                break
+            for state in list(active):
+                process = state["process"]
+                receiver = state["receiver"]
+                if receiver.poll():
+                    try:
+                        status, value = receiver.recv()
+                    except (EOFError, OSError):
+                        status, value = "error", None
+                    if status == "ok":
+                        results[state["key"]] = value
+                    normalized_status = "completed" if status == "ok" else "failed"
+                    statuses[state["collector_name"]] = normalized_status
+                    if trace:
+                        trace.emit(
+                            "collector_end",
+                            collector_name=state["collector_name"],
+                            status=normalized_status,
+                            duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                        )
+                    _stop_isolated_process(process, trace, state["collector_name"])
+                    receiver.close()
+                    active.remove(state)
+                elif not process.is_alive():
+                    process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+                    statuses[state["collector_name"]] = "failed"
+                    if trace:
+                        trace.emit(
+                            "collector_end",
+                            collector_name=state["collector_name"],
+                            status="failed",
+                            duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                        )
+                        _trace_child_exit(process, trace, state["collector_name"])
+                    receiver.close()
+                    active.remove(state)
+                elif time.monotonic() >= state["expires_at"] or deadline.remaining() <= 0:
+                    statuses[state["collector_name"]] = "timeout"
+                    if trace:
+                        trace.emit(
+                            "collector_end",
+                            collector_name=state["collector_name"],
+                            status="timeout",
+                            duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                        )
+                    _stop_isolated_process(process, trace, state["collector_name"])
+                    receiver.close()
+                    active.remove(state)
+            if active:
+                time.sleep(0.005)
+    finally:
+        for state in active:
+            statuses[state["collector_name"]] = "failed"
+            if trace:
+                trace.emit(
+                    "collector_end",
+                    collector_name=state["collector_name"],
+                    status="failed",
+                    duration_ms=(time.monotonic() - state["started_at"]) * 1000,
+                )
+            _stop_isolated_process(state["process"], trace, state["collector_name"])
+            state["receiver"].close()
+    return results, statuses
+
+
+def _isolated_collector_entry(sender: Any, collector: Callable[[], Any]) -> None:
+    try:
+        if hasattr(os, "setsid"):
+            os.setsid()
+        sender.send(("ok", collector()))
+    except BaseException:
+        try:
+            sender.send(("error", None))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        sender.close()
+
+
+def _stop_isolated_process(
+    process: multiprocessing.Process,
+    trace: InspectionTrace | None = None,
+    collector_name: str = "collector",
+) -> None:
+    if not process.is_alive():
+        process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+        if trace:
+            _trace_child_exit(process, trace, collector_name)
+        return
+    if trace:
+        trace.emit(
+            "terminate_requested",
+            collector_name=collector_name,
+            child_pid=process.pid,
+            process_group_id=_safe_process_group_id(process.pid),
+        )
+    _signal_isolated_process(process, signal.SIGTERM)
+    process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+    if process.is_alive():
+        if trace:
+            trace.emit(
+                "kill_requested",
+                collector_name=collector_name,
+                child_pid=process.pid,
+                process_group_id=_safe_process_group_id(process.pid),
+            )
+        _signal_isolated_process(process, signal.SIGKILL)
+        process.join(timeout=COLLECTOR_TERMINATION_GRACE_SECONDS)
+    if trace:
+        _trace_child_exit(process, trace, collector_name)
+
+
+def _trace_child_exit(
+    process: multiprocessing.Process,
+    trace: InspectionTrace,
+    collector_name: str,
+) -> None:
+    trace.emit(
+        "child_exit_observed",
+        collector_name=collector_name,
+        status="exited",
+        child_pid=process.pid,
+        exit_code=process.exitcode,
+    )
+
+
+def _safe_process_group_id(pid: int | None) -> int | None:
+    if pid is None or not hasattr(os, "getpgid"):
+        return None
+    try:
+        process_group_id = os.getpgid(pid)
+    except (OSError, ProcessLookupError):
+        return None
+    return process_group_id if process_group_id == pid else None
+
+
+def _collector_name(kind: str, port: int | None) -> str:
+    return kind if port is None else f"{kind}_{port}"
+
+
+def _signal_isolated_process(process: multiprocessing.Process, selected: signal.Signals) -> None:
+    try:
+        if hasattr(os, "getpgid") and os.getpgid(process.pid) == process.pid:
+            os.killpg(process.pid, selected)
+            return
+    except (OSError, ProcessLookupError):
+        return
+    if selected == signal.SIGKILL and hasattr(process, "kill"):
+        process.kill()
+    else:
+        process.terminate()
 
 
 def _normalize_context(target: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -219,13 +538,16 @@ def lookup_mac_vendor(mac: str) -> str | None:
     return _clean_text(vendor, 120)
 
 
-def probe_tcp_service_states(target: str) -> list[dict[str, Any]]:
+def probe_tcp_service_states(
+    target: str,
+    deadline: _InspectionDeadline | None = None,
+) -> list[dict[str, Any]]:
     """Probe only the fixed allow-list and retain conservative connection states."""
     def check(port: int) -> dict[str, Any]:
         state = "unknown"
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                probe.settimeout(TCP_TIMEOUT_SECONDS)
+                probe.settimeout(_bounded_timeout(deadline, TCP_TIMEOUT_SECONDS))
                 result = probe.connect_ex((target, port))
             if result == 0:
                 state = "open"
@@ -239,8 +561,29 @@ def probe_tcp_service_states(target: str) -> list[dict[str, Any]]:
             state = "unknown"
         return {"name": SERVICE_NAMES[port], "protocol": "tcp", "port": port, "state": state}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as pool:
-        return list(pool.map(check, TCP_PORTS))
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY)
+    futures = {pool.submit(check, port): port for port in TCP_PORTS}
+    completed: dict[int, dict[str, Any]] = {}
+    try:
+        pending = set(futures)
+        while pending:
+            wait_timeout = deadline.remaining() if deadline else None
+            if wait_timeout is not None and wait_timeout <= 0:
+                break
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=wait_timeout,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                break
+            for future in done:
+                completed[futures[future]] = future.result()
+        for future in pending:
+            future.cancel()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return [completed[port] for port in TCP_PORTS if port in completed]
 
 
 def probe_tcp_ports(target: str) -> list[int]:
@@ -248,23 +591,30 @@ def probe_tcp_ports(target: str) -> list[int]:
     return [item["port"] for item in probe_tcp_service_states(target) if item["state"] == "open"]
 
 
-def http_metadata(target: str, port: int, *, use_tls: bool = False) -> dict[str, Any] | None:
+def http_metadata(
+    target: str,
+    port: int,
+    *,
+    use_tls: bool = False,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, Any] | None:
     request = (
         f"GET / HTTP/1.0\r\nHost: {target}\r\n"
         "User-Agent: NetOps-Quick-Inspector/1\r\nAccept: text/html\r\nConnection: close\r\n\r\n"
     ).encode("ascii")
     try:
-        with socket.create_connection((target, port), timeout=METADATA_TIMEOUT_SECONDS) as plain:
+        with socket.create_connection((target, port), timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS)) as plain:
             connection: socket.socket = plain
+            plain.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             if use_tls:
                 context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
                 connection = context.wrap_socket(plain, server_hostname=target)
-            connection.settimeout(METADATA_TIMEOUT_SECONDS)
+            connection.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             connection.sendall(request)
-            response = _receive_bounded(connection, MAX_HTTP_BYTES)
-    except (OSError, ssl.SSLError):
+            response = _receive_bounded(connection, MAX_HTTP_BYTES, deadline)
+    except (OSError, ssl.SSLError, InspectionDeadlineExceeded):
         return None
     head, _, content = response.partition(b"\r\n\r\n")
     header_lines = head.decode("latin-1", errors="replace").splitlines()
@@ -289,14 +639,19 @@ def http_metadata(target: str, port: int, *, use_tls: bool = False) -> dict[str,
     return result or None
 
 
-def tls_metadata(target: str, port: int) -> dict[str, Any] | None:
+def tls_metadata(
+    target: str,
+    port: int,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, Any] | None:
     openssl = shutil.which("openssl")
     if not openssl:
         return None
     try:
         handshake = subprocess.run(
             [openssl, "s_client", "-connect", f"{target}:{port}", "-servername", target, "-showcerts"],
-            input="", capture_output=True, text=True, timeout=METADATA_TIMEOUT_SECONDS, check=False,
+            input="", capture_output=True, text=True,
+            timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS), check=False,
         )
         match = re.search(
             r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
@@ -308,9 +663,10 @@ def tls_metadata(target: str, port: int) -> dict[str, Any] | None:
         certificate = match.group(0)[:MAX_TLS_OUTPUT_BYTES]
         decoded = subprocess.run(
             [openssl, "x509", "-noout", "-subject", "-issuer", "-dates", "-ext", "subjectAltName", "-nameopt", "RFC2253"],
-            input=certificate, capture_output=True, text=True, timeout=METADATA_TIMEOUT_SECONDS, check=False,
+            input=certificate, capture_output=True, text=True,
+            timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS), check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, InspectionDeadlineExceeded):
         return None
     fields: dict[str, str] = {}
     decoded_output = decoded.stdout[:MAX_TLS_OUTPUT_BYTES]
@@ -337,7 +693,10 @@ def tls_metadata(target: str, port: int) -> dict[str, Any] | None:
     return fields or None
 
 
-def upnp_metadata(target: str) -> dict[str, Any] | None:
+def upnp_metadata(
+    target: str,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, Any] | None:
     message = (
         "M-SEARCH * HTTP/1.1\r\n"
         f"HOST: {target}:1900\r\n"
@@ -345,7 +704,7 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
     ).encode("ascii")
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.settimeout(METADATA_TIMEOUT_SECONDS)
+            udp.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             udp.sendto(message, (target, 1900))
             response, address = udp.recvfrom(8192)
     except OSError:
@@ -362,8 +721,8 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
         return {"detected": True}
     parsed = urlsplit(location)
     try:
-        resolved = socket.gethostbyname(parsed.hostname or "")
-    except OSError:
+        resolved = _resolve_ipv4_bounded(parsed.hostname or "", deadline)
+    except (OSError, InspectionDeadlineExceeded):
         return {"detected": True, "location_rejected": True, "rejection_reason": "unresolvable_host"}
     if parsed.scheme != "http" or resolved != target or parsed.username or parsed.password:
         return {"detected": True, "location_rejected": True, "rejection_reason": "unsafe_location"}
@@ -378,10 +737,11 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
         path += "?" + parsed.query
     request = f"GET {path} HTTP/1.0\r\nHost: {target}:{port}\r\nUser-Agent: NetOps-Quick-Inspector/1\r\nConnection: close\r\n\r\n".encode("ascii", errors="ignore")
     try:
-        with socket.create_connection((target, port), timeout=METADATA_TIMEOUT_SECONDS) as connection:
+        with socket.create_connection((target, port), timeout=_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS)) as connection:
+            connection.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             connection.sendall(request)
-            response = _receive_bounded(connection, MAX_UPNP_BYTES)
-    except OSError:
+            response = _receive_bounded(connection, MAX_UPNP_BYTES, deadline)
+    except (OSError, InspectionDeadlineExceeded):
         return {"detected": True}
     head, _, xml_data = response.partition(b"\r\n\r\n")
     status = re.match(rb"HTTP/\d(?:\.\d)?\s+(\d{3})", head)
@@ -405,7 +765,10 @@ def upnp_metadata(target: str) -> dict[str, Any] | None:
     return result
 
 
-def netbios_metadata(target: str) -> dict[str, str] | None:
+def netbios_metadata(
+    target: str,
+    deadline: _InspectionDeadline | None = None,
+) -> dict[str, str] | None:
     """Request one NetBIOS node-status response; never enumerate shares or users."""
     wildcard = b"*" + (b" " * 15)
     encoded = b"".join(bytes((65 + (byte >> 4), 65 + (byte & 0x0F))) for byte in wildcard)
@@ -414,7 +777,7 @@ def netbios_metadata(target: str) -> dict[str, str] | None:
     query += bytes((len(encoded),)) + encoded + b"\x00" + struct.pack("!HH", 0x21, 1)
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.settimeout(METADATA_TIMEOUT_SECONDS)
+            udp.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
             udp.sendto(query, (target, 137))
             response, address = udp.recvfrom(MAX_NETBIOS_BYTES)
     except OSError:
@@ -471,6 +834,17 @@ def classify_device(observed: dict[str, Any]) -> dict[str, Any]:
         and str(item.get("port", "")).isdigit()
         and int(item["port"]) in TCP_PORTS
     ]
+    raw_collector_statuses = observed.get("collector_statuses")
+    collector_statuses = {
+        _clean_text(name, 80): status
+        for name, status in raw_collector_statuses.items()
+        if isinstance(name, str)
+        and status in {"completed", "timeout", "failed", "skipped_budget"}
+        and _clean_text(name, 80)
+    } if isinstance(raw_collector_statuses, dict) else {}
+    deadline_reached = bool(observed.get("deadline_reached"))
+    collector_incomplete = any(status != "completed" for status in collector_statuses.values())
+    partial = bool(observed.get("partial")) or collector_incomplete or deadline_reached
     route_role = observed.get("route_role") if observed.get("route_role") in {"default_gateway", "on_link", "routed"} else "routed"
     is_this_device = bool(observed.get("is_this_device"))
     interface_type = observed.get("interface_type") if observed.get("interface_type") in {"physical", "virtual", "unknown"} else "unknown"
@@ -618,27 +992,88 @@ def classify_device(observed: dict[str, Any]) -> dict[str, Any]:
         "observed_software": sorted(set(software)),
         "evidence": evidence[:32],
         "probe_summary": {
-            "tcp_ports_checked": list(TCP_PORTS),
+            "tcp_ports_checked": [item["port"] for item in tcp_states],
             "tcp_open_count": len(ports),
             "tcp_states": tcp_states,
-            "upnp_checked": True,
-            "netbios_checked": 445 in ports,
-            "optional_skips": ["mdns"],
+            "upnp_checked": (
+                collector_statuses.get("upnp") == "completed"
+                if "upnp" in collector_statuses else not partial
+            ) or upnp_detected,
+            "netbios_checked": 445 in ports and (
+                (collector_statuses.get("netbios") == "completed" if "netbios" in collector_statuses else not partial)
+                or bool(netbios)
+            ),
+            "collector_statuses": collector_statuses,
+            "partial": partial,
+            "deadline_reached": deadline_reached,
+            "optional_skips": [
+                "mdns",
+                *(name for name, status in collector_statuses.items() if status == "skipped_budget"),
+                *(["deadline"] if deadline_reached else []),
+            ],
         },
         "limitations": limitations,
     }
 
 
-def _receive_bounded(connection: socket.socket, maximum: int) -> bytes:
+def _receive_bounded(
+    connection: socket.socket,
+    maximum: int,
+    deadline: _InspectionDeadline | None = None,
+) -> bytes:
     chunks: list[bytes] = []
     remaining = maximum
     while remaining > 0:
+        if deadline:
+            connection.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
         chunk = connection.recv(min(4096, remaining))
         if not chunk:
             break
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def _bounded_timeout(deadline: _InspectionDeadline | None, maximum: float) -> float:
+    return deadline.timeout(maximum) if deadline else maximum
+
+
+def _resolve_ipv4_bounded(hostname: str, deadline: _InspectionDeadline | None) -> str:
+    try:
+        return str(ipaddress.ip_address(hostname))
+    except ValueError:
+        pass
+    if not deadline:
+        return socket.gethostbyname(hostname)
+    try:
+        resolution = subprocess.run(
+            [sys.executable, "-c", "import socket,sys;print(socket.gethostbyname(sys.argv[1]))", hostname],
+            capture_output=True,
+            text=True,
+            timeout=deadline.timeout(METADATA_TIMEOUT_SECONDS),
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise OSError("Hostname resolution failed") from error
+    if resolution.returncode != 0:
+        raise OSError("Hostname resolution failed")
+    value = resolution.stdout.strip()
+    if not value or ipaddress.ip_address(value).version != 4:
+        raise OSError("Hostname did not resolve to IPv4")
+    return value
+
+
+def _has_usable_evidence(observed: dict[str, Any]) -> bool:
+    return bool(
+        observed.get("reachable")
+        or observed.get("is_this_device")
+        or observed.get("mac")
+        or observed.get("open_ports")
+        or observed.get("http")
+        or observed.get("tls")
+        or observed.get("upnp")
+        or observed.get("netbios")
+    )
 
 
 def _clean_text(value: Any, maximum: int) -> str:

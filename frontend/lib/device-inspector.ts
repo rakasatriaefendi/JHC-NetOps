@@ -3,6 +3,7 @@ export type InspectionConfidence = "high" | "medium" | "low" | "unknown";
 export type DeviceEvidence = { source: string; label: string; value: string };
 export type ObservedService = { name: string; protocol: "tcp" | "udp"; port: number };
 export type ObservedServiceState = ObservedService & { state: "open" | "closed" | "filtered" | "unknown" | "timeout" };
+export type InspectorCollectorStatus = "completed" | "timeout" | "failed" | "skipped_budget";
 
 export type DeviceFingerprint = {
   schema_version: number;
@@ -43,6 +44,9 @@ export type DeviceFingerprint = {
     tcp_states?: ObservedServiceState[];
     upnp_checked: boolean;
     netbios_checked?: boolean;
+    collector_statuses?: Record<string, InspectorCollectorStatus>;
+    partial?: boolean;
+    deadline_reached?: boolean;
     optional_skips: string[];
   };
   limitations: string[];
@@ -97,6 +101,8 @@ export function inspectionErrorDetails(code: string | null | undefined) {
     INSPECTION_NETWORK_CONTEXT_UNAVAILABLE: { title: "Konteks jaringan Windows untuk target ini tidak dapat ditentukan.", action: "Periksa route Windows ke target dan coba lagi dari adapter yang aktif." },
     INSPECTION_CONTEXT_INVALID: { title: "Konteks jaringan target tidak valid.", action: "Periksa route dan alamat target, lalu restart Local Runner sebelum mencoba lagi." },
     INSPECTION_WSL_UNAVAILABLE: { title: "WSL untuk Device Inspector tidak dapat dijalankan.", action: "Periksa distro WSL yang dikonfigurasi dan jalankan preflight runner." },
+    WSL_READINESS_TIMEOUT: { title: "WSL belum siap dalam batas waktu.", action: "Periksa status distro WSL dan log Local Runner, lalu coba lagi setelah WSL siap." },
+    WSL_RUNTIME_FAILED: { title: "WSL gagal menjalankan pemeriksaan kesiapan.", action: "Periksa distro WSL yang dikonfigurasi dan jalankan preflight runner." },
     INSPECTION_AGENT_UNAVAILABLE: { title: "Device Inspector tidak tersedia di environment agent.", action: "Jalankan network-monitor capabilities dari project virtualenv lalu restart runner." },
     INSPECTION_TIMEOUT: { title: "Inspeksi melewati batas waktu aman.", action: "Pastikan target dapat dijangkau lalu coba sekali lagi." },
     AGENT_PROTOCOL_ERROR: { title: "Hasil agent tidak sesuai format aman.", action: "Periksa versi agent dan runner, lalu restart keduanya sebelum mencoba lagi." },

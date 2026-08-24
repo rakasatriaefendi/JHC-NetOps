@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { safeError } from "./config.mjs";
-import { pingTarget } from "./network-health.mjs";
+import { pingProcessWallTimeout, pingTarget } from "./network-health.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_PATH = path.join(RUNNER_ROOT, "scripts", "get-discovery-context.ps1");
@@ -12,6 +12,10 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 const DISCOVERY_CONCURRENCY = 4;
 const PING_TIMEOUT_MS = 400;
 const PROGRESS_BATCH = 32;
+
+export function discoveryWorstCaseWallMs(hostCount, concurrency = DISCOVERY_CONCURRENCY, timeoutMs = PING_TIMEOUT_MS) {
+  return Math.ceil(hostCount / concurrency) * pingProcessWallTimeout(timeoutMs);
+}
 
 export function buildDiscoveryContextInvocation(scriptPath = SCRIPT_PATH) {
   return ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath];
