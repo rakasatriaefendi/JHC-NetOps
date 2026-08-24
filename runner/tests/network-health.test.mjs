@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { buildPingInvocation, NetworkHealthWatch } from "../src/network-health.mjs";
+import { buildPingInvocation, NetworkHealthWatch, pingProcessWallTimeout, pingTarget } from "../src/network-health.mjs";
 
 function target(overrides = {}) {
   return { id: "11111111-1111-4111-8111-111111111111", ip_address: "127.0.0.1", probe_method: "icmp",
@@ -98,4 +100,43 @@ test("ping invocation is fixed, bounded, and rejects command injection", () => {
   assert.equal(invocation.options.shell, false);
   assert.throws(() => buildPingInvocation("127.0.0.1 & whoami", 1000));
   assert.throws(() => buildPingInvocation("127.0.0.1", 60_000));
+});
+
+function fakePingChild(onSpawn) {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => { child.killed = true; return true; };
+  queueMicrotask(() => onSpawn(child));
+  return child;
+}
+
+test("ping child normal reply and normal timeout are normalized", async () => {
+  const reply = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => {
+    child.stdout.write("Reply from 192.0.2.10: time=7ms");
+    child.emit("close", 0);
+  }));
+  assert.deepEqual(reply, { success: true, latency_ms: 7 });
+  const timeout = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => child.emit("close", 1)));
+  assert.deepEqual(timeout, { success: false, latency_ms: null });
+});
+
+test("runner kills a PING child that never exits at 400ms plus 250ms grace", async () => {
+  let child;
+  const started = Date.now();
+  const result = await pingTarget("192.0.2.10", 400, undefined, () => (child = fakePingChild(() => {})));
+  assert.equal(pingProcessWallTimeout(400), 650);
+  assert.ok(Date.now() - started < 1_000);
+  assert.equal(child.killed, true);
+  assert.deepEqual(result, { success: false, latency_ms: null, timed_out: true });
+});
+
+test("ping process errors are bounded and do not leak the child", async () => {
+  let child;
+  await assert.rejects(
+    pingTarget("192.0.2.10", 400, undefined, () => (child = fakePingChild((owned) => owned.emit("error", new Error("synthetic"))))),
+    /Ping process failed/,
+  );
+  assert.equal(child.listenerCount("error"), 0);
 });

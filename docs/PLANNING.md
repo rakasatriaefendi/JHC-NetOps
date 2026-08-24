@@ -209,6 +209,21 @@ satu-satunya sisa adalah validasi SNMP polling nyata ke perangkat managed.)
 
 ## Catatan tambahan
 
+- [2026-08-21] Runner stability fixes pada branch `fix/runner-stability` selesai
+  diverifikasi tanpa live network probe. Discovery drawer sekarang memperbarui
+  heartbeat runner melalui subscription temporary yang sama dan tetap menandai
+  heartbeat benar-benar stale setelah 30 detik. Child `PING.EXE` memiliki hard
+  wall-clock 650 ms untuk timeout Discovery 400 ms (grace startup 250 ms), sehingga
+  worst-case teoritis `/24` dengan concurrency 4 menjadi 41,6 detik. Device
+  Inspector memakai deadline monotonic internal 24,5 detik di bawah outer runner
+  30 detik; evidence valid yang sudah terkumpul diselesaikan sebagai partial,
+  sedangkan timeout sebelum ada evidence tetap gagal aman. Preflight membedakan
+  `AGENT_VENV_MISSING`, `WSL_INVOCATION_TIMEOUT`, dan `WSL_RUNTIME_FAILED`, termasuk
+  allow-list heartbeat backend. Startup preflight tetap synchronous sebelum loop
+  heartbeat; mengubahnya memerlukan readiness state/asynchronous lifecycle terpisah
+  dan sengaja tidak dilakukan pada fix minimal ini. Agent 52 test (1 integration
+  opt-in skip), runner 43, frontend 36, lint, typecheck, dan production build lulus.
+  Managed Telemetry/SNMP tidak ditambahkan atau diubah.
 - [2026-08-18] Fingerprint Enrichment V1 selesai tanpa migration/dependency baru dan
   tanpa Nmap. Fixed allow-list menjadi TCP 22/80/443/445/554/631/1883/8080/8443/9100,
   SSDP unicast UDP/1900, serta NetBIOS Node Status UDP/137 hanya ketika SMB terbuka.

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import { validateInspectionSession } from "../src/config.mjs";
@@ -9,7 +11,16 @@ import {
   validateInspectionContext,
   validateInspectionScope,
 } from "../src/device-inspector.mjs";
-import { buildInspectionInvocation, validateInspectionEvent, validateInspectorCapabilities } from "../src/wsl.mjs";
+import {
+  buildInspectionInvocation,
+  buildWslReadinessInvocation,
+  parseInspectionTraceLine,
+  runInspectionAgent,
+  validateInspectionEvent,
+  validateInspectorCapabilities,
+  waitForWslReadiness,
+} from "../src/wsl.mjs";
+import { startHeartbeatLoop } from "../src/heartbeat.mjs";
 
 const config = {
   runner_id: "test-runner",
@@ -17,6 +28,133 @@ const config = {
   agent_path: "/project/agent/.venv/bin/network-monitor",
 };
 const sessionId = "8b6386f1-a2ef-4c6d-87fd-682100bcdcec";
+
+function successfulReadinessSpawn() {
+  const child = new EventEmitter();
+  child.kill = () => true;
+  queueMicrotask(() => child.emit("close", 0));
+  return child;
+}
+
+test("WSL readiness uses the configured distro and a fixed non-network Linux command", async () => {
+  assert.deepEqual(buildWslReadinessInvocation(config), [
+    "-d", "Ubuntu-22.04", "--exec", "/usr/bin/env", "true",
+  ]);
+  const traces = [];
+  const result = await waitForWslReadiness(config, {
+    timeoutMs: 100,
+    spawnProcess: successfulReadinessSpawn,
+    onTrace: (record) => traces.push(record),
+  });
+  assert.equal(result.exit, 0);
+  assert.deepEqual(traces.map((record) => record.phase), ["wsl_readiness_start", "wsl_readiness_ready"]);
+});
+
+test("WSL readiness timeout is bounded and classified separately", async () => {
+  let killed = false;
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.kill = () => { killed = true; return true; };
+    return child;
+  };
+  await assert.rejects(
+    waitForWslReadiness(config, { timeoutMs: 10, spawnProcess }),
+    (error) => error.code === "WSL_READINESS_TIMEOUT",
+  );
+  assert.equal(killed, true);
+});
+
+test("WSL readiness nonzero exit is a runtime failure, not a missing venv", async () => {
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.kill = () => true;
+    queueMicrotask(() => child.emit("close", 1));
+    return child;
+  };
+  await assert.rejects(
+    waitForWslReadiness(config, { timeoutMs: 100, spawnProcess }),
+    (error) => error.code === "WSL_RUNTIME_FAILED" && error.code !== "AGENT_VENV_MISSING",
+  );
+});
+
+test("Device Inspector does not start when WSL readiness fails", async () => {
+  let inspectionStarts = 0;
+  const inspectionSpawn = () => { inspectionStarts += 1; throw new Error("must not start"); };
+  const readinessSpawn = () => {
+    const child = new EventEmitter();
+    child.kill = () => true;
+    queueMicrotask(() => child.emit("close", 1));
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  await assert.rejects(
+    runInspectionAgent(
+      config, { target_ip: "192.168.188.50" }, context, async () => {}, 30,
+      inspectionSpawn, undefined, { spawnProcess: readinessSpawn, timeoutMs: 20 },
+    ),
+    (error) => error.code === "WSL_RUNTIME_FAILED",
+  );
+  assert.equal(inspectionStarts, 0);
+});
+
+test("Device Inspector starts after readiness and keeps its existing timeout window", async () => {
+  const order = [];
+  const readinessSpawn = () => {
+    order.push("readiness");
+    const child = new EventEmitter();
+    child.kill = () => true;
+    setTimeout(() => child.emit("close", 0), 25);
+    return child;
+  };
+  const inspectionSpawn = () => {
+    order.push("inspection");
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    queueMicrotask(() => {
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.50", likely_device_type: "unknown", confidence: "low",
+        capabilities: [], evidence: [],
+      } })}\n`);
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("close", 0);
+    });
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  const startedAt = Date.now();
+  await runInspectionAgent(
+    config, { target_ip: "192.168.188.50" }, context, async () => {}, 15,
+    inspectionSpawn, undefined, { spawnProcess: readinessSpawn, timeoutMs: 100 },
+  );
+  assert.deepEqual(order, ["readiness", "inspection"]);
+  assert.ok(Date.now() - startedAt >= 20);
+});
+
+test("heartbeat continues while asynchronous WSL readiness is pending", async () => {
+  let heartbeats = 0;
+  let readinessChild = null;
+  const stop = startHeartbeatLoop(async () => {
+    heartbeats += 1;
+    if (heartbeats === 3) readinessChild?.emit("close", 0);
+  }, 5);
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.kill = () => true;
+    readinessChild = child;
+    return child;
+  };
+  try {
+    await waitForWslReadiness(config, { timeoutMs: 500, spawnProcess });
+    assert.equal(heartbeats, 3);
+  } finally { stop(); }
+});
 
 test("inspection session accepts only private structured targets", () => {
   const session = validateInspectionSession({
@@ -112,4 +250,185 @@ test("runner accepts normalized result and rejects raw output or Internet IP", (
   assert.equal(validateInspectionEvent({ type: "result", fingerprint }).fingerprint.ip, "192.168.188.50");
   assert.throws(() => validateInspectionEvent({ type: "result", fingerprint: { ...fingerprint, stdout: "raw" } }));
   assert.throws(() => validateInspectionEvent({ type: "result", fingerprint: { ...fingerprint, ip: "8.8.8.8" } }));
+  assert.equal(validateInspectionEvent({ type: "error", code: "INSPECTION_TIMEOUT", message: "Internal deadline reached" }).code, "INSPECTION_TIMEOUT");
+});
+
+test("inspection trace parser accepts only bounded allowlisted lifecycle fields", () => {
+  const valid = parseInspectionTraceLine(`INSPECTION_TRACE ${JSON.stringify({
+    phase: "collector_end", elapsed_ms: 120, collector_name: "upnp",
+    status: "timeout", duration_ms: 100,
+  })}`);
+  assert.deepEqual(valid, {
+    source: "agent", phase: "collector_end", elapsed_ms: 120,
+    collector_name: "upnp", status: "timeout", duration_ms: 100,
+  });
+  for (const unsafe of [
+    { phase: "collector_end", elapsed_ms: 1, payload: "raw body" },
+    { phase: "collector_end", elapsed_ms: 1, token: "secret" },
+    { phase: "unknown", elapsed_ms: 1 },
+    { phase: "collector_end", elapsed_ms: 120_001 },
+  ]) assert.equal(parseInspectionTraceLine(`INSPECTION_TRACE ${JSON.stringify(unsafe)}`), null);
+  assert.equal(parseInspectionTraceLine(`INSPECTION_TRACE ${"x".repeat(600)}`), null);
+  assert.equal(parseInspectionTraceLine("arbitrary WSL stderr"), null);
+});
+
+test("runner traces readiness, agent startup, normalized result, and WSL close", async () => {
+  const traces = [];
+  const events = [];
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    queueMicrotask(() => {
+      child.stderr.write(`INSPECTION_TRACE ${JSON.stringify({ phase: "cli_entry", elapsed_ms: 4 })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.50", likely_device_type: "unknown", confidence: "low",
+        capabilities: [], evidence: [],
+      } })}\n`);
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("close", 0);
+    });
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  await runInspectionAgent(
+    config, { target_ip: "192.168.188.50" }, context,
+    async (event) => events.push(event), 1_000, spawnProcess, (record) => traces.push(record),
+    { spawnProcess: successfulReadinessSpawn },
+  );
+  assert.equal(events.length, 1);
+  assert.deepEqual(traces.map((record) => record.phase), [
+    "wsl_readiness_start", "wsl_readiness_ready", "wsl_spawn", "first_agent_output",
+    "cli_entry", "normalized_result_received", "wsl_close",
+  ]);
+  assert.ok(traces.every((record) => !Object.hasOwn(record, "payload")));
+});
+
+test("runner bounds accepted agent trace records", async () => {
+  const traces = [];
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    queueMicrotask(() => {
+      for (let index = 0; index < 200; index += 1) {
+        child.stderr.write(`INSPECTION_TRACE ${JSON.stringify({ phase: "cli_entry", elapsed_ms: index })}\n`);
+      }
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.50", likely_device_type: "unknown", confidence: "low",
+        capabilities: [], evidence: [],
+      } })}\n`);
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("close", 0);
+    });
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  await runInspectionAgent(
+    config, { target_ip: "192.168.188.50" }, context,
+    async () => {}, 1_000, spawnProcess, (record) => traces.push(record),
+    { spawnProcess: successfulReadinessSpawn },
+  );
+  assert.equal(traces.filter((record) => record.source === "agent").length, 128);
+});
+
+test("heartbeat continues during a simulated long asynchronous Inspector child", async () => {
+  let heartbeats = 0;
+  const stop = startHeartbeatLoop(async () => { heartbeats += 1; }, 10);
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    setTimeout(() => {
+      child.stdout.write(`${JSON.stringify({ type: "stage", stage: "services" })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.50", likely_device_type: "unknown", confidence: "low",
+        capabilities: [], evidence: [],
+      } })}\n`);
+      child.stdout.end();
+      child.emit("close", 0);
+    }, 80);
+    return child;
+  };
+  try {
+    const context = { route_role: "on_link", same_subnet: true, reachable: true,
+      default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+      interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+    await runInspectionAgent(
+      config, { target_ip: "192.168.188.50" }, context, async () => {}, 1_000,
+      spawnProcess, undefined, { spawnProcess: successfulReadinessSpawn },
+    );
+    assert.ok(heartbeats >= 3);
+  } finally { stop(); }
+});
+
+test("Inspector returns partial within outer ceiling after scaled WSL startup overhead", async () => {
+  let fingerprint = null;
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    setTimeout(() => child.stdout.write(`${JSON.stringify({ type: "stage", stage: "services" })}\n`), 60);
+    setTimeout(() => {
+      child.stdout.write(`${JSON.stringify({ type: "result", fingerprint: {
+        ip: "192.168.188.228", likely_device_type: "unknown", confidence: "unknown",
+        capabilities: [], evidence: [], probe_summary: { partial: true, deadline_reached: true },
+      } })}\n`);
+      child.stdout.end();
+      child.emit("close", 0);
+    }, 220);
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  const started = Date.now();
+  await runInspectionAgent(config, { target_ip: "192.168.188.228" }, context, async (event) => {
+    if (event.type === "result") fingerprint = event.fingerprint;
+  }, 300, spawnProcess, undefined, { spawnProcess: successfulReadinessSpawn });
+  assert.ok(Date.now() - started < 300);
+  assert.equal(fingerprint?.probe_summary?.partial, true);
+});
+
+test("Inspector outer ceiling still kills a genuinely hung WSL child", async () => {
+  let killed = false;
+  const traces = [];
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      killed = true;
+      child.stdout.end();
+      child.stderr.end();
+      queueMicrotask(() => child.emit("close", null));
+      return true;
+    };
+    return child;
+  };
+  const context = { route_role: "on_link", same_subnet: true, reachable: true,
+    default_gateway: null, mac: null, is_this_device: false, interface_index: 20,
+    interface_alias: "Wi-Fi", interface_description: "Adapter", interface_type: "physical" };
+  await assert.rejects(
+    runInspectionAgent(
+      config, { target_ip: "192.168.188.228" }, context, async () => {}, 50, spawnProcess,
+      (record) => traces.push(record),
+      { spawnProcess: successfulReadinessSpawn },
+    ),
+    (error) => error.code === "INSPECTION_TIMEOUT",
+  );
+  assert.equal(killed, true);
+  assert.ok(traces.some((record) => record.phase === "outer_timeout"));
+  assert.ok(traces.some((record) => record.phase === "wsl_close"));
+  assert.ok(!traces.some((record) => record.phase === "normalized_result_received"));
 });

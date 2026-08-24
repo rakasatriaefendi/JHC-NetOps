@@ -9,6 +9,9 @@ const WINDOW_SIZE = 5;
 const PUBLISH_INTERVAL_MS = 60_000;
 const TARGET_REFRESH_MS = 60_000;
 const MAX_BACKOFF_MS = 60_000;
+// PING.EXE -w only bounds ICMP reply waiting. Windows neighbor resolution can
+// otherwise keep the child alive for seconds, so the runner owns this grace.
+export const PING_PROCESS_STARTUP_GRACE_MS = 250;
 
 export class NetworkHealthWatch {
   constructor({ runnerId, backend, cachePath, ping = pingTarget, log = () => {}, now = () => Date.now(), concurrency = 4 }) {
@@ -160,25 +163,46 @@ export class NetworkHealthWatch {
   persist() { saveCache(this.cachePath, { version: 1, cachedTargets: [...this.targets.values()], states: this.states, pendingTransitions: this.pendingTransitions }); }
 }
 
-export function pingTarget(ipAddress, timeoutMs, signal) {
+export function pingTarget(ipAddress, timeoutMs, signal, spawnProcess = spawn) {
   let invocation;
   try { invocation = buildPingInvocation(ipAddress, timeoutMs); }
   catch (error) { return Promise.reject(error); }
   return new Promise((resolve, reject) => {
     let output = "";
-    const child = spawn(invocation.executable, invocation.args, invocation.options);
-    const kill = () => child.kill();
-    signal?.addEventListener("abort", kill, { once: true });
+    let settled = false;
+    const child = spawnProcess(invocation.executable, invocation.args, invocation.options);
+    let wallTimer;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(wallTimer);
+      signal?.removeEventListener("abort", abort);
+      callback();
+    };
+    const abort = () => {
+      child.kill();
+      finish(() => reject(new Error("Ping cancelled")));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
     child.stdout.on("data", (chunk) => { if (output.length < 16_384) output += chunk.toString(); });
     child.stderr.on("data", (chunk) => { if (output.length < 16_384) output += chunk.toString(); });
-    child.once("error", reject);
+    child.once("error", () => finish(() => reject(new Error("Ping process failed"))));
     child.once("close", (code) => {
-      signal?.removeEventListener("abort", kill);
-      if (signal?.aborted) return reject(new Error("Ping cancelled"));
-      const match = output.match(/(?:time[=<]|Average\s*=\s*)(\d+(?:\.\d+)?)\s*ms/i);
-      resolve({ success: code === 0, latency_ms: code === 0 && match ? Number(match[1]) : null });
+      finish(() => {
+        const match = output.match(/(?:time[=<]|Average\s*=\s*)(\d+(?:\.\d+)?)\s*ms/i);
+        resolve({ success: code === 0, latency_ms: code === 0 && match ? Number(match[1]) : null });
+      });
     });
+    wallTimer = setTimeout(() => {
+      child.kill();
+      finish(() => resolve({ success: false, latency_ms: null, timed_out: true }));
+    }, pingProcessWallTimeout(timeoutMs));
+    if (signal?.aborted) abort();
   });
+}
+
+export function pingProcessWallTimeout(timeoutMs) {
+  return timeoutMs + PING_PROCESS_STARTUP_GRACE_MS;
 }
 
 export function buildPingInvocation(ipAddress, timeoutMs) {
