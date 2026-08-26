@@ -54,7 +54,10 @@ try {
       $_.IPAddress -ne "255.255.255.255" -and
       [int]($_.IPAddress.Split('.')[0]) -lt 224
     } |
-    Select-Object -ExpandProperty IPAddress -Unique)
+    Select-Object IPAddress, State |
+    ForEach-Object {
+      @{ ip = $_.IPAddress; state = [string]$_.State }
+    } | Sort-Object ip -Unique)
 
   [ordered]@{
     ok = $true
