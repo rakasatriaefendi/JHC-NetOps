@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -10,6 +11,7 @@ import {
   ifNameLabel,
   interfaceSummary,
   interfaceWarnings,
+  managedSystemIdentityFields,
   validateManagedTelemetryForm,
 } from "../lib/managed-telemetry.ts";
 
@@ -38,6 +40,62 @@ const baseInterface = {
   last_polled_at: null,
   updated_at: "2026-01-01T00:00:00Z",
 };
+
+const baseDevice = {
+  target_id: "target-1",
+  status: "connected" as const,
+  sys_name: "kali-snmp-lab",
+  sys_descr: "Linux lab host",
+  sys_object_id: "1.3.6.1.4.1.8072.3.2.10",
+  uptime_seconds: 90061,
+  manufacturer: null,
+  model: null,
+  serial_number: null,
+  last_polled_at: "2026-01-01T00:00:00Z",
+  last_success_at: "2026-01-01T00:00:00Z",
+  consecutive_poll_failures: 0,
+  error_category: null,
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+test("managed system identity renders the persisted System Object ID", () => {
+  assert.deepEqual(managedSystemIdentityFields(baseDevice), [
+    { label: "sysName", value: "kali-snmp-lab", data: true },
+    { label: "sysDescr", value: "Linux lab host", data: false },
+    {
+      label: "System Object ID",
+      value: "1.3.6.1.4.1.8072.3.2.10",
+      data: true,
+    },
+  ]);
+});
+
+test("managed system identity renders a safe unavailable value for a null System Object ID", () => {
+  const fields = managedSystemIdentityFields({
+    ...baseDevice,
+    sys_object_id: null,
+  });
+  assert.deepEqual(fields.find((field) => field.label === "System Object ID"), {
+    label: "System Object ID",
+    value: "—",
+    data: true,
+  });
+  assert.equal(fields.find((field) => field.label === "sysName")?.value, baseDevice.sys_name);
+  assert.equal(fields.find((field) => field.label === "sysDescr")?.value, baseDevice.sys_descr);
+});
+
+test("managed system identity keeps the existing responsive Device Profile layout", () => {
+  const component = readFileSync(
+    new URL(
+      "../components/device-profile/managed-telemetry-section.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(component, /<details className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta">/);
+  assert.match(component, /<dl className="mt-3 grid gap-2 sm:grid-cols-2">/);
+  assert.match(component, /managedSystemIdentityFields\(device\)\.map/);
+});
 
 test("interfaceSummary distinguishes likely physical ports from logical interfaces", () => {
   const logical = { ...baseInterface, if_index: 4096, name: "Vlan10", is_physical: false };

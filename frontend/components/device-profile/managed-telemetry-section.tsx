@@ -11,6 +11,7 @@ import {
   formatUtil,
   interfaceSummary,
   interfaceWarnings,
+  managedSystemIdentityFields,
   type ManagedDeviceLatest,
   type ManagedInterfaceLatest,
   type ManagedTelemetryEvent,
@@ -147,7 +148,7 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
       <Value label="Model" value={device?.model ?? "—"} />
       <Value label="Serial number" value={device?.serial_number ?? "—"} />
     </dl>
-    {device?.sys_name || device?.sys_descr ? <details className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta"><summary className="cursor-pointer text-text-secondary">System identity</summary><dl className="mt-3 grid gap-2"><Value label="sysName" value={device?.sys_name ?? "—"} data /><Value label="sysDescr" value={device?.sys_descr ?? "—"} /></dl></details> : null}
+    {device ? <details className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta"><summary className="cursor-pointer text-text-secondary">System identity</summary><dl className="mt-3 grid gap-2 sm:grid-cols-2">{managedSystemIdentityFields(device).map((field) => <Value key={field.label} label={field.label} value={field.value} data={field.data} />)}</dl></details> : null}
 
     <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
       <Metric label="All interfaces" value={String(summarized.total)} />

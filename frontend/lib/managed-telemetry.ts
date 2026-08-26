@@ -121,6 +121,20 @@ export type InterfaceSummary = {
   logical: number;
 };
 
+export function managedSystemIdentityFields(
+  device: ManagedDeviceLatest,
+): { label: string; value: string; data: boolean }[] {
+  return [
+    { label: "sysName", value: device.sys_name ?? "—", data: true },
+    { label: "sysDescr", value: device.sys_descr ?? "—", data: false },
+    {
+      label: "System Object ID",
+      value: device.sys_object_id ?? "—",
+      data: true,
+    },
+  ];
+}
+
 export function interfaceSummary(interfaces: ManagedInterfaceLatest[]): InterfaceSummary {
   const physical = interfaces.filter((item) => item.is_physical);
   return {
