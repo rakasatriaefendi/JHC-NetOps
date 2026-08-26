@@ -140,7 +140,7 @@ export async function runNetworkDiscovery(context, onProgress, options = {}) {
       latency_ms: latency ?? current?.latency_ms ?? null,
       is_this_device: ipAddress === context.local_ipv4,
       is_gateway: ipAddress === context.default_gateway,
-      neighbor_state: newNeighborState,
+      ...(newNeighborState ? { neighbor_state: newNeighborState } : {}),
     });
   };
   const reachability = (hasIcmp, neighborState) => {
