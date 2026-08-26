@@ -142,12 +142,14 @@ async function updateProgress(db: ReturnType<typeof createClient>, body: Record<
   if (results.length > 254 || new TextEncoder().encode(JSON.stringify(results)).length > 64 * 1024) {
     return reply({ error: "Discovery result exceeds safety bounds" }, 413);
   }
+  const now = new Date();
   const { data, error } = await db.from("network_discovery_sessions").update({
     ...context.value,
     scanned_hosts: body.scanned_hosts,
     found_count: results.length,
     results,
-    updated_at: new Date().toISOString(),
+    expires_at: new Date(now.getTime() + RESULT_TTL_MS).toISOString(),
+    updated_at: now.toISOString(),
   }).eq("runner_id", body.runner_id).eq("session_id", body.session_id).eq("status", "running").eq("phase", "scan").select().maybeSingle();
   return error ? reply({ error: "Discovery progress could not be stored" }, 500) : reply({ data }, data ? 200 : 409);
 }
