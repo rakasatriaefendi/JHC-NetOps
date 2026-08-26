@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import path from "node:path";
 
+import { managedTelemetryPublishDiagnostic } from "./backend.mjs";
 import { resolveSnmpProfile, safeError } from "./config.mjs";
 import { runTelemetryAgent } from "./wsl.mjs";
 
@@ -295,10 +296,10 @@ export class ManagedTelemetryWatch {
       this.retryAt = 0;
       this.publishDueAt = now + PUBLISH_INTERVAL_MS;
       this.persist();
-    } catch {
+    } catch (error) {
       this.retryAt = now + this.publishBackoffMs;
       this.publishBackoffMs = Math.min(MAX_BACKOFF_MS, this.publishBackoffMs * 2);
-      this.log("Managed telemetry publish failed; latest state and events retained locally");
+      this.log(`Managed telemetry publish failed ${managedTelemetryPublishDiagnostic(error)}; latest state and events retained locally`);
       this.persist();
     }
   }

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { managedTelemetryPublishError } from "../src/backend.mjs";
 import { counterDelta, ManagedTelemetryWatch, simpleDelta, validTelemetryTarget } from "../src/snmp-telemetry.mjs";
 import { buildSnmpInvocation, validateTelemetryEvent, validateTelemetryPayload } from "../src/wsl.mjs";
 
@@ -202,9 +203,14 @@ test("sustained high utilization raises an event after the hysteresis window", (
 
 test("failed publish retains latest state and events with backoff", async () => {
   let attempts = 0;
+  const logs = [];
   const service = watch({
     backend: { managedTelemetryTargets: async () => ({ targets: [] }),
-      publishManagedTelemetry: async () => { attempts += 1; throw new Error("offline"); } },
+      publishManagedTelemetry: async () => {
+        attempts += 1;
+        throw managedTelemetryPublishError(400, { code: "PAYLOAD_INVALID", error: "Managed telemetry payload is invalid", raw: "community=do-not-log" });
+      } },
+    log: (message) => logs.push(message),
   });
   const item = target();
   service.targets.set(item.id, item);
@@ -214,6 +220,9 @@ test("failed publish retains latest state and events with backoff", async () => 
   assert.equal(service.states[item.id].dirty, true);
   assert.equal(service.retryAt, 7_000);
   assert.equal(service.publishBackoffMs, 10_000);
+  assert.match(logs[0], /code=MANAGED_TELEMETRY_PUBLISH_FAILED status=400 backend_code=PAYLOAD_INVALID/);
+  assert.match(logs[0], /backend_message="Managed telemetry payload is invalid"/);
+  assert.doesNotMatch(logs[0], /community|do-not-log/i);
 });
 
 test("auth failure produces auth_failed device state and category", () => {

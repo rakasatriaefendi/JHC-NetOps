@@ -102,9 +102,72 @@ export class BackendClient {
   async #postTelemetry(body) {
     const response = await fetch(this.telemetryEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(backendFailureMessage("Managed telemetry backend", response.status, payload));
+    if (!response.ok) {
+      if (body.action === "publish") throw managedTelemetryPublishError(response.status, payload);
+      throw new Error(backendFailureMessage("Managed telemetry backend", response.status, payload));
+    }
     return payload.data;
   }
+}
+
+const MANAGED_TELEMETRY_PUBLISH_CODE = "MANAGED_TELEMETRY_PUBLISH_FAILED";
+const SAFE_BACKEND_CODE = /^[a-z][a-z0-9_-]{0,63}$/i;
+const SECRET_SHAPED = /(?:authorization|bearer|token|password|passwd|secret|community|auth_password|priv_password|service_role|apikey|sb_[a-z0-9_-]+)/i;
+const SAFE_MANAGED_TELEMETRY_MESSAGES = new Set([
+  "Managed telemetry device payload is invalid",
+  "Managed telemetry interface payload is invalid",
+  "Managed telemetry event payload is invalid",
+  "Managed telemetry interface target mismatch",
+  "Managed telemetry event target mismatch",
+  "Managed telemetry payload is invalid",
+  "Managed telemetry target authorization failed",
+  "Managed telemetry target is not authorized",
+  "Latest managed device state could not be stored",
+  "Latest managed interface state could not be stored",
+  "Stale managed interface state could not be removed",
+  "Managed telemetry event deduplication failed",
+  "Managed telemetry event could not be stored",
+]);
+
+export function managedTelemetryPublishError(status, payload) {
+  const safeStatus = Number.isSafeInteger(status) && status >= 400 && status <= 599 ? status : null;
+  const backendCode = safeBackendCode(payload);
+  const backendMessage = safeBackendMessage(payload);
+  const error = new Error(managedTelemetryPublishDiagnostic({
+    code: MANAGED_TELEMETRY_PUBLISH_CODE,
+    status: safeStatus,
+    backendCode,
+    backendMessage,
+  }));
+  error.code = MANAGED_TELEMETRY_PUBLISH_CODE;
+  error.status = safeStatus;
+  error.backendCode = backendCode;
+  error.backendMessage = backendMessage;
+  return error;
+}
+
+export function managedTelemetryPublishDiagnostic(error) {
+  const parts = [`code=${MANAGED_TELEMETRY_PUBLISH_CODE}`];
+  if (error?.code !== MANAGED_TELEMETRY_PUBLISH_CODE) return parts.join(" ");
+  if (Number.isSafeInteger(error.status) && error.status >= 400 && error.status <= 599) parts.push(`status=${error.status}`);
+  if (typeof error.backendCode === "string" && SAFE_BACKEND_CODE.test(error.backendCode) && !SECRET_SHAPED.test(error.backendCode)) {
+    parts.push(`backend_code=${error.backendCode}`);
+  }
+  if (typeof error.backendMessage === "string" && SAFE_MANAGED_TELEMETRY_MESSAGES.has(error.backendMessage)) {
+    parts.push(`backend_message=${JSON.stringify(error.backendMessage)}`);
+  }
+  return parts.join(" ");
+}
+
+function safeBackendCode(payload) {
+  for (const candidate of [payload?.code, payload?.error_code, payload?.category]) {
+    if (typeof candidate === "string" && SAFE_BACKEND_CODE.test(candidate) && !SECRET_SHAPED.test(candidate)) return candidate;
+  }
+  return null;
+}
+
+function safeBackendMessage(payload) {
+  return typeof payload?.error === "string" && SAFE_MANAGED_TELEMETRY_MESSAGES.has(payload.error) ? payload.error : null;
 }
 
 export function backendFailureMessage(label, status, payload) {
