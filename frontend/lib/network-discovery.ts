@@ -6,6 +6,8 @@ export type DiscoveryHost = {
   latency_ms: number | null;
   is_this_device: boolean;
   is_gateway: boolean;
+  reachability_evidence?: "icmp_verified" | "l2_observed" | "cached_only";
+  neighbor_state?: "Reachable" | "Stale" | "Delay" | "Probe" | "Permanent";
 };
 
 export type DiscoverySession = {

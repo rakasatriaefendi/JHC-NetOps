@@ -212,7 +212,9 @@ function validResults(value: unknown, subnet: string) {
   const [network, prefix] = subnet.split("/");
   return value.every((item) => record(item) && ipv4(item.ip_address) && isUsableHost(item.ip_address as string, network, Number(prefix)) &&
     Array.isArray(item.evidence) && item.evidence.length >= 1 && item.evidence.length <= 2 && item.evidence.every((entry) => ["icmp", "neighbor"].includes(String(entry))) &&
-    (item.latency_ms === null || number(item.latency_ms, 0, 60_000)) && typeof item.is_this_device === "boolean" && typeof item.is_gateway === "boolean");
+    (item.latency_ms === null || number(item.latency_ms, 0, 60_000)) && typeof item.is_this_device === "boolean" && typeof item.is_gateway === "boolean" &&
+    (item.reachability_evidence === undefined || ["icmp_verified", "l2_observed", "cached_only"].includes(String(item.reachability_evidence))) &&
+    (item.neighbor_state === undefined || ["Reachable", "Stale", "Delay", "Probe", "Permanent"].includes(String(item.neighbor_state))));
 }
 
 function deduplicate(results: Record<string, unknown>[]) {
