@@ -108,6 +108,7 @@ class DeviceInspectorClassifierTest(TestCase):
     @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.tls_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.http_metadata", return_value=None)
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
     def test_routed_target_never_retains_gateway_mac(self, *_mocks) -> None:
         result = inspect_device("192.168.112.1", {
@@ -126,8 +127,10 @@ class DeviceInspectorClassifierTest(TestCase):
         self.assertEqual(INSPECTION_BUDGET_SECONDS, 18.0)
         self.assertEqual(PROCESS_EXIT_GRACE_SECONDS, 2.0)
 
+    @patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=lambda *a, **k: time.sleep(60))
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_never_returning_worker_is_terminated_and_partial_serializes(self, _tcp) -> None:
+    def test_never_returning_worker_is_terminated_and_partial_serializes(self, *_mocks) -> None:
         def never_returns(*_args, **_kwargs):
             time.sleep(60)
 
@@ -153,13 +156,14 @@ class DeviceInspectorClassifierTest(TestCase):
         )
 
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_optional_timeout_does_not_masquerade_as_global_deadline(self, _tcp) -> None:
+    def test_optional_timeout_does_not_masquerade_as_global_deadline(self, *_mocks) -> None:
         def exceeds_budget(*_args, **_kwargs):
             time.sleep(0.1)
 
         with (
             patch("network_monitoring_agent.device_inspector.METADATA_TIMEOUT_SECONDS", 0.03),
             patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=exceeds_budget),
+            patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None),
         ):
             started = time.monotonic()
             result = inspect_device("192.168.188.20", {
@@ -174,8 +178,11 @@ class DeviceInspectorClassifierTest(TestCase):
         self.assertEqual(result["probe_summary"]["collector_statuses"]["upnp"], "timeout")
 
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_optional_collector_failure_is_partial_without_global_deadline(self, _tcp) -> None:
-        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=RuntimeError("fixture failure")):
+    def test_optional_collector_failure_is_partial_without_global_deadline(self, *_mocks) -> None:
+        with (
+            patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=RuntimeError("fixture failure")),
+            patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None),
+        ):
             result = inspect_device("192.168.188.20", {
                 "route_role": "on_link", "same_subnet": True, "mac": None,
                 "reachable": True, "is_this_device": False, "interface_index": 20,
@@ -187,7 +194,7 @@ class DeviceInspectorClassifierTest(TestCase):
         self.assertEqual(result["probe_summary"]["collector_statuses"]["upnp"], "failed")
 
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_subprocess_collector_and_descendant_are_terminated(self, _tcp) -> None:
+    def test_subprocess_collector_and_descendant_are_terminated(self, *_mocks) -> None:
         def stuck_subprocess(*_args, **_kwargs):
             subprocess.run(
                 [sys.executable, "-c", "import time; time.sleep(60)"],
@@ -195,7 +202,10 @@ class DeviceInspectorClassifierTest(TestCase):
             )
 
         before = {child.pid for child in multiprocessing.active_children()}
-        with patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=stuck_subprocess):
+        with (
+            patch("network_monitoring_agent.device_inspector.upnp_metadata", side_effect=stuck_subprocess),
+            patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None),
+        ):
             started = time.monotonic()
             result = inspect_device("192.168.188.20", {
                 "route_role": "on_link", "same_subnet": True, "mac": None,
@@ -212,6 +222,7 @@ class DeviceInspectorClassifierTest(TestCase):
         )
 
     @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
     def test_normal_fast_completion_is_not_marked_partial(self, *_mocks) -> None:
         result = inspect_device("192.168.188.20", {
@@ -223,11 +234,13 @@ class DeviceInspectorClassifierTest(TestCase):
         self.assertFalse(result["probe_summary"]["partial"])
         self.assertFalse(result["probe_summary"]["deadline_reached"])
         self.assertEqual(result["probe_summary"]["collector_statuses"], {
-            "tcp": "completed", "upnp": "completed",
+            "tcp": "completed", "upnp": "completed", "netbios": "completed",
         })
 
+    @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_collector_skipped_for_budget_is_partial_but_not_global_deadline(self, _tcp) -> None:
+    def test_collector_skipped_for_budget_is_partial_but_not_global_deadline(self, *_mocks) -> None:
         result = inspect_device("192.168.188.20", {
             "route_role": "on_link", "same_subnet": True, "mac": None,
             "reachable": True, "is_this_device": False, "interface_index": 20,
@@ -237,7 +250,7 @@ class DeviceInspectorClassifierTest(TestCase):
         self.assertTrue(result["probe_summary"]["partial"])
         self.assertFalse(result["probe_summary"]["deadline_reached"])
         self.assertEqual(result["probe_summary"]["collector_statuses"], {
-            "tcp": "skipped_budget", "upnp": "skipped_budget",
+            "tcp": "skipped_budget", "upnp": "skipped_budget", "netbios": "skipped_budget",
         })
         self.assertIn("upnp", result["probe_summary"]["optional_skips"])
         self.assertNotIn("deadline", result["probe_summary"]["optional_skips"])

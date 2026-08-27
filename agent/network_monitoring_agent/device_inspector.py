@@ -185,8 +185,9 @@ def inspect_device(
         if port in open_ports:
             tasks.append(("tls", port, lambda port=port: tls_metadata(ip, port, deadline=deadline)))
     tasks.append(("upnp", None, lambda: upnp_metadata(ip, deadline=deadline)))
-    if 445 in open_ports:
-        tasks.append(("netbios", None, lambda: netbios_metadata(ip, deadline=deadline)))
+    # NetBIOS Node Status query (UDP/137) is independent of SMB port 445.
+    # Run bounded query whenever an inspection is authorized.
+    tasks.append(("netbios", None, lambda: netbios_metadata(ip, deadline=deadline)))
     isolated_tasks = [
         (kind, port, task, min(
             METADATA_TIMEOUT_SECONDS,
@@ -770,9 +771,11 @@ def netbios_metadata(
     deadline: _InspectionDeadline | None = None,
 ) -> dict[str, str] | None:
     """Request one NetBIOS node-status response; never enumerate shares or users."""
-    wildcard = b"*" + (b" " * 15)
+    # NBSTAT wildcard name: '*' followed by 15 NUL bytes (not spaces)
+    wildcard = b"*" + (b"\x00" * 15)
     encoded = b"".join(bytes((65 + (byte >> 4), 65 + (byte & 0x0F))) for byte in wildcard)
     transaction_id = 0x4E4D
+    # QDCOUNT=1 for the question, we'll send one question
     query = struct.pack("!HHHHHH", transaction_id, 0, 1, 0, 0, 0)
     query += bytes((len(encoded),)) + encoded + b"\x00" + struct.pack("!HH", 0x21, 1)
     try:
@@ -782,33 +785,67 @@ def netbios_metadata(
             response, address = udp.recvfrom(MAX_NETBIOS_BYTES)
     except OSError:
         return None
-    if address[0] != target or len(response) < 20:
+    if address[0] != target or len(response) < 12:
         return None
     try:
+        # Parse 12-byte NBNS header
+        resp_tid, flags, qdcount, ancount, nscount, arcount = struct.unpack("!HHHHHH", response[:12])
+        if resp_tid != transaction_id:
+            return None
+        if ancount == 0:
+            return None
+        # Skip Question section if present (QDCOUNT may be 0)
         offset = 12
-        while offset < len(response) and response[offset]:
-            offset += response[offset] + 1
-        offset += 5
-        if response[offset] & 0xC0 == 0xC0:
-            offset += 2
-        else:
+        for _ in range(qdcount):
+            # Skip encoded name
             while offset < len(response) and response[offset]:
                 offset += response[offset] + 1
-            offset += 1
-        offset += 10
-        count = response[offset]
-        offset += 1
-        for _ in range(min(count, 64)):
-            entry = response[offset:offset + 18]
-            offset += 18
-            if len(entry) < 18:
+            offset += 1  # null terminator
+            offset += 4  # QTYPE + QCLASS
+        # Parse Answer section(s)
+        for _ in range(ancount):
+            if offset >= len(response):
                 break
-            suffix = entry[15]
-            flags = struct.unpack("!H", entry[16:18])[0]
-            if suffix == 0x00 and not flags & 0x8000:
-                hostname = _clean_text(entry[:15].decode("ascii", errors="ignore").rstrip(), 15)
-                if hostname:
-                    return {"hostname": hostname}
+            # Skip name (may be compressed)
+            if response[offset] & 0xC0 == 0xC0:
+                offset += 2
+            else:
+                while offset < len(response) and response[offset]:
+                    offset += response[offset] + 1
+                offset += 1
+            # TYPE, CLASS, TTL, RDLENGTH
+            if offset + 10 > len(response):
+                break
+            atype, aclass, ttl, rdlength = struct.unpack("!HHIH", response[offset:offset+10])
+            offset += 10
+            if atype != 0x21 or aclass != 1:  # NBSTAT, IN
+                offset += rdlength
+                continue
+            if offset + rdlength > len(response):
+                break
+            rdata = response[offset:offset + rdlength]
+            offset += rdlength
+            # Parse NBSTAT data: first byte is name count
+            if len(rdata) < 1:
+                continue
+            name_count = rdata[0]
+            if name_count == 0:
+                continue
+            # Each name entry is 18 bytes
+            entries_offset = 1
+            for _ in range(min(name_count, 64)):
+                if entries_offset + 18 > len(rdata):
+                    break
+                entry = rdata[entries_offset:entries_offset + 18]
+                entries_offset += 18
+                if len(entry) < 18:
+                    break
+                suffix = entry[15]
+                flags = struct.unpack("!H", entry[16:18])[0]
+                if suffix == 0x00 and not (flags & 0x8000):  # UNIQUE workstation name
+                    hostname = _clean_text(entry[:15].decode("ascii", errors="ignore").rstrip(), 15)
+                    if hostname:
+                        return {"hostname": hostname}
     except (IndexError, struct.error, ValueError):
         return None
     return None

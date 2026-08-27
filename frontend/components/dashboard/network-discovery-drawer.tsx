@@ -198,6 +198,7 @@ export function NetworkDiscoveryDrawer({
         {session?.status === "completed" && !expired ? <Button className="mt-5" variant="secondary" disabled={busy} onClick={() => void invoke("start_session")}>Run discovery again</Button> : null}
         {error ? <p className="mt-4 text-severity-critical">{error}</p> : null}
         <div className="mt-6 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">Scope is determined and validated by the Windows runner. The browser cannot submit a CIDR, range, command, or scan flags. Only neighbor information and bounded ICMP host discovery are used.</div>
+        <div className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta text-text-secondary">Devices observed from this Local Runner. Some clients known only to the gateway or access point may not appear.</div>
         {editingIp ? <NameEditor ipAddress={editingIp} current={findNetworkNode(nodes, editingIp) ?? null} onClose={() => setEditingIp(null)} /> : null}
       </aside>
     </div>
