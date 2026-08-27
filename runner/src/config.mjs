@@ -160,6 +160,7 @@ export function safeMessage(code) {
     NO_ROUTE_TO_TARGET: "Windows has no route to the authorized target",
     SNMP_TARGET_INVALID: "Managed telemetry target is not authorized locally",
     SNMP_PROFILE_MISSING: "Managed telemetry credential profile is missing locally",
+    SNMP_VERSION_MISMATCH: "Managed telemetry target and credential profile versions do not match",
     SNMP_CREDENTIALS_UNAVAILABLE: "Managed telemetry credentials are unavailable locally",
     SNMP_AGENT_UNAVAILABLE: "The SNMP collector agent is unavailable in the configured WSL environment",
     SNMP_TIMEOUT: "Managed telemetry poll exceeded its safe time limit",
@@ -201,7 +202,10 @@ function validateConfig(value) {
   }
   if (value.enable_snmp_telemetry !== undefined && typeof value.enable_snmp_telemetry !== "boolean") throw new Error("enable_snmp_telemetry is invalid");
   if (value.snmp_max_concurrent !== undefined && (!Number.isSafeInteger(value.snmp_max_concurrent) || value.snmp_max_concurrent < 1 || value.snmp_max_concurrent > 5)) throw new Error("snmp_max_concurrent is invalid");
-  if (value.snmp_timeout_ms !== undefined && (!Number.isSafeInteger(value.snmp_timeout_ms) || value.snmp_timeout_ms < 5000 || value.snmp_timeout_ms > 60000)) throw new Error("snmp_timeout_ms is invalid");
+  if (value.snmp_timeout_seconds !== undefined && (typeof value.snmp_timeout_seconds !== "number" ||
+      !Number.isFinite(value.snmp_timeout_seconds) || value.snmp_timeout_seconds <= 0 || value.snmp_timeout_seconds > 60)) {
+    throw new Error("snmp_timeout_seconds is invalid");
+  }
   if (value.snmp_poll_intervals_seconds !== undefined && (!Array.isArray(value.snmp_poll_intervals_seconds) || value.snmp_poll_intervals_seconds.length < 1 ||
       !value.snmp_poll_intervals_seconds.every((item) => item === 30 || item === 60))) throw new Error("snmp_poll_intervals_seconds is invalid");
   if (value.snmp_credential_profiles !== undefined && !validSnmpProfiles(value.snmp_credential_profiles)) throw new Error("snmp_credential_profiles is invalid");

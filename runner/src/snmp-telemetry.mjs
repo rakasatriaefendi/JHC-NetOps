@@ -96,6 +96,10 @@ export class ManagedTelemetryWatch {
         this.applyFailure(target, "not_configured", "SNMP_PROFILE_MISSING", this.now());
         return;
       }
+      if (profile.version !== target.snmp_version) {
+        this.applyFailure(target, "not_configured", "SNMP_VERSION_MISMATCH", this.now());
+        return;
+      }
       const creds = telemetryCredentials(target, profile);
       let result = null;
       await this.runAgent(this.config, target, creds, (event) => {

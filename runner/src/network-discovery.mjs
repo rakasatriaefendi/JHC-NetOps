@@ -80,9 +80,15 @@ export function validateDiscoveryContext(value) {
     throw safeError("DISCOVERY_CONTEXT_INVALID");
   }
   const usable = new Set(usableAddresses(`${network}/${prefix}`));
-  const neighbors = Array.isArray(context.neighbors)
-    ? [...new Set(context.neighbors.filter((item) => isIP(item) === 4 && usable.has(item)))].slice(0, 254)
-    : [];
+  const rawNeighbors = Array.isArray(context.neighbors) ? context.neighbors : [];
+  const filtered = rawNeighbors
+    .filter((n) => {
+      if (typeof n === "string") return isIP(n) === 4 && usable.has(n);
+      return n && typeof n.ip === "string" && isIP(n.ip) === 4 && usable.has(n.ip);
+    })
+    .map((n) => typeof n === "string" ? { ip: n, state: "Stale" } : { ip: n.ip, state: typeof n.state === "string" ? n.state : "Stale" });
+  const neighbors = [...new Map(filtered.map((n) => [n.ip, n])).values()].slice(0, 254);
+  const neighborIps = neighbors.map((n) => n.ip);
   const defaultGateway = context.default_gateway === null || context.default_gateway === undefined
     ? null
     : isIP(context.default_gateway) === 4 && sameSubnet(context.default_gateway, network, prefix)
@@ -115,19 +121,37 @@ export async function runNetworkDiscovery(context, onProgress, options = {}) {
   const timeoutMs = options.timeoutMs ?? PING_TIMEOUT_MS;
   const addresses = usableAddresses(context.subnet_cidr);
   const results = new Map();
-  const add = (ipAddress, evidence, latency = null) => {
+  const add = (ipAddress, evidence, latency = null, neighborState = null) => {
     const current = results.get(ipAddress);
     const mergedEvidence = [...new Set([...(current?.evidence ?? []), ...evidence])].sort();
+    const newNeighborState = current?.neighbor_state ?? neighborState;
+    // strongest: Reachable > Stale/Delay/Probe/Permanent
+    if (neighborState && newNeighborState) {
+      const order = { Reachable: 3, Stale: 2, Delay: 2, Probe: 2, Permanent: 1 };
+      if ((order[neighborState] ?? 0) > (order[newNeighborState] ?? 0)) {
+        results.set(ipAddress, { ...current, neighbor_state: neighborState });
+      }
+    } else if (neighborState && !newNeighborState) {
+      results.set(ipAddress, { ...current, neighbor_state: neighborState });
+    }
     results.set(ipAddress, {
       ip_address: ipAddress,
       evidence: mergedEvidence,
       latency_ms: latency ?? current?.latency_ms ?? null,
       is_this_device: ipAddress === context.local_ipv4,
       is_gateway: ipAddress === context.default_gateway,
+      ...(newNeighborState ? { neighbor_state: newNeighborState } : {}),
     });
   };
-  add(context.local_ipv4, ["neighbor"]);
-  for (const neighbor of context.neighbors) add(neighbor, ["neighbor"]);
+  const reachability = (hasIcmp, neighborState) => {
+    if (hasIcmp) return "icmp_verified";
+    if (neighborState === "Reachable") return "l2_observed";
+    return "cached_only";
+  };
+  // seed local device
+  add(context.local_ipv4, ["neighbor"], null, "Reachable");
+  // seed neighbors from context
+  for (const n of context.neighbors) add(n.ip, ["neighbor"], null, n.state);
 
   let scanned = 0;
   let nextIndex = 0;
@@ -144,7 +168,15 @@ export async function runNetworkDiscovery(context, onProgress, options = {}) {
       if (address !== context.local_ipv4) {
         try {
           const observation = await ping(address, timeoutMs);
-          if (observation.success) add(address, ["icmp"], observation.latency_ms);
+          if (observation.success) {
+            const current = results.get(address);
+            const hasIcmp = true;
+            const neighborState = current?.neighbor_state ?? null;
+            add(address, ["icmp"], observation.latency_ms, neighborState);
+            // update reachability after ICMP success overrides
+            const updated = results.get(address);
+            updated.reachability_evidence = "icmp_verified";
+          }
         } catch {}
       }
       scanned += 1;
@@ -152,6 +184,12 @@ export async function runNetworkDiscovery(context, onProgress, options = {}) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, addresses.length) }, () => worker()));
+  // finalize reachability for all results
+  for (const [, value] of results) {
+    if (!value.reachability_evidence) {
+      value.reachability_evidence = reachability(value.evidence.includes("icmp"), value.neighbor_state);
+    }
+  }
   await publish(true);
   return { scanned_hosts: scanned, results: sortedResults(results) };
 }

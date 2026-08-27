@@ -99,6 +99,8 @@ test("validTelemetryTarget enforces the local execution authority", () => {
   assert.equal(validTelemetryTarget({ ...good, util_sustained_seconds: 30 }, config()), false);
   assert.equal(validTelemetryTarget({ ...good, credential_profile_ref: "missing-profile" }, config()), false);
   assert.equal(validTelemetryTarget({ ...good, snmp_version: "2c", credential_profile_ref: "monitoring-readonly-v2c" }, config()), true);
+  assert.equal(validTelemetryTarget({ ...good, snmp_version: "3", credential_profile_ref: "monitoring-readonly-v2c" }, config()), true);
+  assert.equal(validTelemetryTarget({ ...good, snmp_version: "2c", credential_profile_ref: "monitoring-readonly-v3" }, config()), true);
 });
 
 test("first sample produces no rates or deltas", () => {
@@ -274,6 +276,22 @@ test("missing credential profile marks the target not_configured without invokin
   assert.equal(calls, 0);
   assert.equal(service.states[item.id].device.status, "not_configured");
   assert.equal(service.states[item.id].device.error_category, "agent_error");
+});
+
+test("credential profile version mismatch fails safely without invoking the agent", async () => {
+  for (const item of [
+    target({ snmp_version: "3", credential_profile_ref: "monitoring-readonly-v2c" }),
+    target({ snmp_version: "2c", credential_profile_ref: "monitoring-readonly-v3" }),
+  ]) {
+    let calls = 0;
+    const service = watch({ runAgent: async () => { calls += 1; throw new Error("must not run"); } });
+    service.targets.set(item.id, item);
+    await service.poll(item);
+    assert.equal(calls, 0);
+    assert.equal(service.states[item.id].device.status, "not_configured");
+    assert.equal(service.states[item.id].device.error, "Managed telemetry target and credential profile versions do not match");
+    assert.doesNotMatch(service.states[item.id].device.error, /community|username|password|secret/i);
+  }
 });
 
 test("publish payload never contains credential values", async () => {

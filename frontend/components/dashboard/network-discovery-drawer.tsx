@@ -198,6 +198,7 @@ export function NetworkDiscoveryDrawer({
         {session?.status === "completed" && !expired ? <Button className="mt-5" variant="secondary" disabled={busy} onClick={() => void invoke("start_session")}>Run discovery again</Button> : null}
         {error ? <p className="mt-4 text-severity-critical">{error}</p> : null}
         <div className="mt-6 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">Scope is determined and validated by the Windows runner. The browser cannot submit a CIDR, range, command, or scan flags. Only neighbor information and bounded ICMP host discovery are used.</div>
+        <div className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta text-text-secondary">Devices observed from this Local Runner. Some clients known only to the gateway or access point may not appear.</div>
         {editingIp ? <NameEditor ipAddress={editingIp} current={findNetworkNode(nodes, editingIp) ?? null} onClose={() => setEditingIp(null)} /> : null}
       </aside>
     </div>
@@ -221,10 +222,19 @@ function DiscoveryCard(props: RowActions) {
   return <article className="rounded-control border border-border bg-bg-base p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-data">{host.ip_address}</p><p className="mt-1 font-medium">{node?.name ?? (host.is_this_device ? "This Device" : "Unknown node")}</p></div><input aria-label={`Select ${host.ip_address}`} type="checkbox" disabled={monitored} checked={props.selected} onChange={() => toggleSelection(props.setSelected, host.ip_address)} /></div><div className="mt-3 flex flex-wrap gap-2"><DiscoveryEvidence host={host} />{node ? <Pill tone="known">KNOWN</Pill> : <Pill>DISCOVERED</Pill>}{monitored ? <Pill tone="monitored">MONITORED</Pill> : <Pill>NOT MONITORED</Pill>}{seenInTraffic ? <Pill tone="known">SEEN IN TRAFFIC</Pill> : null}</div><div className="mt-4"><Actions {...props} /></div></article>;
 }
 
+function deriveObservedStatus(host: DiscoveryHost): "online" | "degraded" | "offline" | "unknown" {
+  const reach = host.reachability_evidence;
+  if (reach === "icmp_verified") return "online";
+  if (reach === "l2_observed" || reach === "cached_only") return "unknown";
+  // backward compat for legacy results without reachability_evidence
+  if (host.evidence.includes("icmp")) return "online";
+  return "unknown";
+}
 function Actions({ host, node, monitored, busy, onName, onMonitor, runnerId }: RowActions) {
   const { openDeviceProfile } = useDeviceProfile();
+  const observedStatus = deriveObservedStatus(host);
   if (host.is_this_device) return <span className="text-meta text-text-muted">Runner device</span>;
-  return <div className="flex flex-wrap gap-2">{!node ? <><Button disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, inspect: true, observedStatus: "online" })}>Inspect</Button><Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>Beri nama</Button></> : <Button variant="secondary" disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, observedStatus: "online" })}>Detail</Button>}{node && !monitored ? <Button disabled={busy} onClick={() => void onMonitor(node)}>Add to Health Watch</Button> : null}</div>;
+  return <div className="flex flex-wrap gap-2">{!node ? <><Button disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, inspect: true, observedStatus })}>Inspect</Button><Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>Beri nama</Button></> : <Button variant="secondary" disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, observedStatus })}>Detail</Button>}{node && !monitored ? <Button disabled={busy} onClick={() => void onMonitor(node)}>Add to Health Watch</Button> : null}</div>;
 }
 
 function NameEditor({ ipAddress, current, onClose }: { ipAddress: string; current: NetworkNode | null; onClose: () => void }) {
@@ -245,7 +255,20 @@ function NameEditor({ ipAddress, current, onClose }: { ipAddress: string; curren
   return <div className="fixed inset-0 z-[60] grid place-items-center bg-bg-base/80 p-4" role="dialog" aria-modal="true" aria-label={`Identify ${ipAddress}`} onClick={onClose}><div className="w-full max-w-xl rounded-panel border border-border bg-bg-surface p-5" onClick={(event) => event.stopPropagation()}><div className="flex justify-between gap-3"><div><p className="text-meta uppercase tracking-wide text-accent">Network identity</p><h3 className="mt-2 text-section font-semibold">{current ? "Edit node" : "Beri nama"}</h3></div><Button variant="secondary" onClick={onClose}>Tutup</Button></div><div className="mt-5 grid gap-4 sm:grid-cols-2"><ReadOnly label="IP" value={ipAddress} /><Field label="Name" value={name} onChange={setName} /><label className="grid gap-2 text-meta text-text-secondary">Device type<select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={deviceType} onChange={(event) => setDeviceType(event.target.value as NetworkNodeType | "")}><option value="">Unspecified</option>{NETWORK_NODE_TYPES.map((type) => <option key={type} value={type}>{networkNodeTypeLabel(type)}</option>)}</select></label><Field label="Location" value={location} onChange={setLocation} /><label className="grid gap-2 text-meta text-text-secondary sm:col-span-2">Notes<textarea className="min-h-24 rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={notes} onChange={(event) => setNotes(event.target.value)} /></label></div>{error ? <p className="mt-3 text-severity-critical">{error}</p> : null}<Button className="mt-5" disabled={busy || !name.trim()} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</Button><p className="mt-3 text-meta text-text-muted">Saving creates reusable inventory identity only. Continuous monitoring still requires an explicit Add to Health Watch action.</p></div></div>;
 }
 
-function DiscoveryEvidence({ host }: { host: DiscoveryHost }) { return <span className="text-meta text-text-secondary">{host.evidence.includes("icmp") ? `Responded${host.latency_ms === null ? "" : ` · ${host.latency_ms.toFixed(1)} ms`}` : "Neighbor cache"}</span>; }
+function DiscoveryEvidence({ host }: { host: DiscoveryHost }) {
+  const reach = host.reachability_evidence;
+  if (reach === "icmp_verified") {
+    return <span className="text-meta text-text-secondary">Responded{host.latency_ms === null ? "" : ` · ${host.latency_ms.toFixed(1)} ms`}</span>;
+  }
+  if (reach === "l2_observed") {
+    return <span className="text-meta text-text-secondary">Observed on LAN</span>;
+  }
+  if (reach === "cached_only") {
+    return <span className="text-meta text-text-secondary">Cached · reachability unverified</span>;
+  }
+  // backward compat
+  return <span className="text-meta text-text-secondary">{host.evidence.includes("icmp") ? `Responded${host.latency_ms === null ? "" : ` · ${host.latency_ms.toFixed(1)} ms`}` : "Neighbor cache"}</span>;
+}
 function Pill({ children, tone = "normal" }: { children: React.ReactNode; tone?: "normal" | "known" | "monitored" }) { return <span className={`inline-flex rounded-full border px-2 py-1 text-meta ${tone === "monitored" ? "border-severity-low text-severity-low" : tone === "known" ? "border-accent text-accent" : "border-border text-text-secondary"}`}>{children}</span>; }
 function Value({ label, value, data = false }: { label: string; value: string; data?: boolean }) { return <div className="rounded-control border border-border bg-bg-base p-3"><dt className="text-meta text-text-secondary">{label}</dt><dd className={`mt-2 ${data ? "font-data" : ""}`}>{value}</dd></div>; }
 function ReadOnly({ label, value }: { label: string; value: string }) { return <label className="grid gap-2 text-meta text-text-secondary">{label}<input readOnly className="rounded-control border border-border bg-bg-base px-3 py-2 font-data text-text-muted" value={value} /></label>; }
