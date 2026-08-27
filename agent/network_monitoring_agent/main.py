@@ -76,6 +76,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.command == "device-inspect":
             _run_device_inspection(args, inspection_trace)
             return
+        if args.command == "managed-telemetry-poll":
+            _run_managed_telemetry_poll(args)
+            return
     except (DiagnosticCommandError, DiagnosticDeliveryError, ValueError) as exc:
         parser.exit(2, f"diagnostic failed: {exc}\n")
 
@@ -210,6 +213,25 @@ def _build_parser() -> argparse.ArgumentParser:
     inspector.add_argument("--interface-description", required=True)
     inspector.add_argument("--interface-type", required=True, choices=("physical", "virtual", "unknown"))
 
+    telemetry = subparsers.add_parser(
+        "managed-telemetry-poll",
+        help="run one SNMP read-only telemetry poll for a configured managed target",
+    )
+    telemetry.add_argument("--target-id", required=True, help="UUID of the managed_telemetry_targets row")
+    telemetry.add_argument("--runner-id", required=True, help="UUID of the diagnostic_runners row")
+    telemetry.add_argument("--node-id", required=True, help="UUID of the network_nodes row")
+    telemetry.add_argument("--ip-address", required=True, help="management IP address (runner-validated)")
+    telemetry.add_argument("--credential-profile-ref", required=True, help="local runner credential profile name (non-secret)")
+    telemetry.add_argument("--snmp-version", required=True, choices=("3", "2c"), help="SNMP version to use")
+    telemetry.add_argument("--snmp-port", type=int, default=161)
+    telemetry.add_argument("--username", help="SNMPv3 username (resolved locally on runner)")
+    telemetry.add_argument("--auth-protocol", choices=("SHA256", "SHA", "MD5"), help="SNMPv3 auth protocol")
+    telemetry.add_argument("--auth-password", help="SNMPv3 auth password (never logged)")
+    telemetry.add_argument("--priv-protocol", choices=("AES128", "AES256", "DES"), help="SNMPv3 priv protocol")
+    telemetry.add_argument("--priv-password", help="SNMPv3 priv password (never logged)")
+    telemetry.add_argument("--community", help="SNMPv2c community (resolved locally on runner, never logged)")
+    telemetry.add_argument("--timeout", type=float, default=3.0, help="per-request timeout in seconds")
+
     return parser
 
 
@@ -304,6 +326,38 @@ def _upload_hops(measurements: object) -> None:
         settings.service_role_key,
         settings.request_timeout_seconds,
     ).push_hops(measurements)
+
+
+def _run_managed_telemetry_poll(args: argparse.Namespace) -> None:
+    from .snmp_collector import snmp_telemetry_poll
+    from .snmp_transport import SnmpCredentials
+
+    credentials = SnmpCredentials(
+        version=args.snmp_version,
+        host=args.ip_address,
+        port=args.snmp_port,
+        username=args.username,
+        auth_protocol=args.auth_protocol,
+        auth_password=args.auth_password,
+        priv_protocol=args.priv_protocol,
+        priv_password=args.priv_password,
+        community=args.community,
+    )
+
+    emit = lambda event: print(json.dumps(event, separators=(",", ":")), flush=True)
+
+    poll = snmp_telemetry_poll(
+        credentials=credentials,
+        target_id=args.target_id,
+        runner_id=args.runner_id,
+        node_id=args.node_id,
+        ip_address=args.ip_address,
+        credential_profile_ref=args.credential_profile_ref,
+        timeout_seconds=args.timeout,
+        emit=emit,
+    )
+
+    emit({"type": "telemetry_result", "payload": poll.to_payload()})
 
 
 def _run_diagnostic_job(args: argparse.Namespace) -> None:

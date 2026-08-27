@@ -57,6 +57,7 @@ class InspectionTraceTest(TestCase):
         for prohibited in ("raw-secret-body", "secret-token", "payload", "authorization"):
             self.assertNotIn(prohibited, serialized)
 
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
     def test_trace_does_not_change_normalized_schema(self, *_mocks) -> None:
@@ -69,8 +70,9 @@ class InspectionTraceTest(TestCase):
         self.assertIn("partial_finalize_end", phases)
         self.assertIn("normalization_end", phases)
 
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
-    def test_hanging_collector_records_timeout_termination_and_exit(self, _tcp) -> None:
+    def test_hanging_collector_records_timeout_termination_and_exit(self, *_mocks) -> None:
         def never_returns(*_args, **_kwargs):
             time.sleep(60)
 
@@ -107,6 +109,7 @@ class InspectionTraceTest(TestCase):
         time.sleep(0.05)
         self.assertEqual({child.pid for child in multiprocessing.active_children()} - before, set())
 
+    @patch("network_monitoring_agent.device_inspector.netbios_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.upnp_metadata", return_value=None)
     @patch("network_monitoring_agent.device_inspector.probe_tcp_service_states", return_value=[])
     def test_cli_startup_finalization_serialization_and_flush_are_distinct(self, *_mocks) -> None:

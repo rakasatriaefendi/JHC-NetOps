@@ -15,3 +15,6 @@ verify_jwt = true
 
 [functions.device-inspector]
 verify_jwt = true
+
+[functions.managed-telemetry]
+verify_jwt = true

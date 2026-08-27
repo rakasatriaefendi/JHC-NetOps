@@ -89,6 +89,7 @@ export function validatePreflightRequest(request, config) {
 
 export function publicCapabilities(config, runtimeCapabilities = {}) {
   const demoEnabled = diagnosticDemoEnabled(config);
+  const snmpEnabled = config.enable_snmp_telemetry === true;
   return {
     source_locations: config.source_locations.filter((label) => demoEnabled || label !== "Local Development"),
     targets: availableTargets(config).map(({ id, label, host, iperf_port, environment }) => ({
@@ -98,6 +99,13 @@ export function publicCapabilities(config, runtimeCapabilities = {}) {
     traffic_durations_seconds: config.traffic_durations_seconds,
     operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
     ...(runtimeCapabilities.device_inspector ? { device_inspector: runtimeCapabilities.device_inspector } : {}),
+    snmp_telemetry: snmpEnabled ? {
+      enabled: true,
+      max_concurrent: config.snmp_max_concurrent,
+      poll_intervals_seconds: config.snmp_poll_intervals_seconds,
+      versions: ["3", "2c"],
+      credential_profiles: Object.keys(config.snmp_credential_profiles ?? {}),
+    } : { enabled: false },
   };
 }
 
@@ -150,6 +158,14 @@ export function safeMessage(code) {
     NETWORK_CONTEXT_INVALID: "Windows network context was invalid",
     NETWORK_INTERFACE_DOWN: "The selected Windows network interface is not up",
     NO_ROUTE_TO_TARGET: "Windows has no route to the authorized target",
+    SNMP_TARGET_INVALID: "Managed telemetry target is not authorized locally",
+    SNMP_PROFILE_MISSING: "Managed telemetry credential profile is missing locally",
+    SNMP_VERSION_MISMATCH: "Managed telemetry target and credential profile versions do not match",
+    SNMP_CREDENTIALS_UNAVAILABLE: "Managed telemetry credentials are unavailable locally",
+    SNMP_AGENT_UNAVAILABLE: "The SNMP collector agent is unavailable in the configured WSL environment",
+    SNMP_TIMEOUT: "Managed telemetry poll exceeded its safe time limit",
+    SNMP_POLL_FAILED: "Managed telemetry poll could not be completed",
+    SNMP_BACKEND_FAILED: "Managed telemetry state could not be published",
   })[code] ?? "Local diagnostic runner encountered an error";
 }
 
@@ -184,6 +200,15 @@ function validateConfig(value) {
   for (const field of ["poll_interval_ms", "heartbeat_interval_ms"]) {
     if (!Number.isSafeInteger(value[field]) || value[field] < 1000 || value[field] > 60000) throw new Error(`${field} is invalid`);
   }
+  if (value.enable_snmp_telemetry !== undefined && typeof value.enable_snmp_telemetry !== "boolean") throw new Error("enable_snmp_telemetry is invalid");
+  if (value.snmp_max_concurrent !== undefined && (!Number.isSafeInteger(value.snmp_max_concurrent) || value.snmp_max_concurrent < 1 || value.snmp_max_concurrent > 5)) throw new Error("snmp_max_concurrent is invalid");
+  if (value.snmp_timeout_seconds !== undefined && (typeof value.snmp_timeout_seconds !== "number" ||
+      !Number.isFinite(value.snmp_timeout_seconds) || value.snmp_timeout_seconds <= 0 || value.snmp_timeout_seconds > 60)) {
+    throw new Error("snmp_timeout_seconds is invalid");
+  }
+  if (value.snmp_poll_intervals_seconds !== undefined && (!Array.isArray(value.snmp_poll_intervals_seconds) || value.snmp_poll_intervals_seconds.length < 1 ||
+      !value.snmp_poll_intervals_seconds.every((item) => item === 30 || item === 60))) throw new Error("snmp_poll_intervals_seconds is invalid");
+  if (value.snmp_credential_profiles !== undefined && !validSnmpProfiles(value.snmp_credential_profiles)) throw new Error("snmp_credential_profiles is invalid");
 }
 
 function joinWslPath(root, relative) {
@@ -221,4 +246,44 @@ function privateIpv4(value) {
   if (typeof value !== "string" || value.split(".").length !== 4 || !value.split(".").every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
   const [a, b] = value.split(".").map(Number);
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+export function resolveSnmpProfile(config, ref) {
+  if (typeof ref !== "string" || !IDENTIFIER.test(ref)) return null;
+  const profile = config.snmp_credential_profiles?.[ref];
+  if (!profile || typeof profile !== "object") return null;
+  const resolved = {
+    version: profile.version,
+    username: profile.username ?? null,
+    auth_protocol: profile.auth_protocol ?? null,
+    auth_password: profile.auth_password ?? null,
+    priv_protocol: profile.priv_protocol ?? null,
+    priv_password: profile.priv_password ?? null,
+    community: profile.community ?? null,
+  };
+  if (resolved.version === "3" && (!resolved.username || !resolved.auth_password)) return null;
+  if (resolved.version === "2c" && (!resolved.community || typeof resolved.community !== "string")) return null;
+  return resolved;
+}
+
+function validSnmpProfiles(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.entries(value).every(([ref, profile]) => {
+    if (!IDENTIFIER.test(ref) || !profile || typeof profile !== "object" || Array.isArray(profile)) return false;
+    if (profile.version !== "3" && profile.version !== "2c") return false;
+    const clean = Object.fromEntries(Object.entries(profile).map(([key, val]) => [key, typeof val === "string" ? val.replace(/[\r\n]/g, "") : val]));
+    if (profile.version === "3") {
+      if (!clean.username || typeof clean.username !== "string") return false;
+      if (!clean.auth_password || typeof clean.auth_password !== "string") return false;
+      if (clean.auth_protocol !== undefined && !["SHA256", "SHA", "MD5"].includes(clean.auth_protocol)) return false;
+      if (clean.priv_protocol !== undefined && !["AES128", "AES256", "DES"].includes(clean.priv_protocol)) return false;
+      if (clean.community !== undefined) return false;
+    } else {
+      if (typeof clean.community !== "string" || !clean.community) return false;
+      for (const key of ["username", "auth_protocol", "auth_password", "priv_protocol", "priv_password"]) {
+        if (clean[key] !== undefined) return false;
+      }
+    }
+    return true;
+  });
 }

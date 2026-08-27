@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { validateSnmpTelemetryCapability, type SnmpTelemetryCapability } from "./capabilities.ts";
 
 type ConnectionType = "wifi" | "ethernet";
 type Environment = "lan" | "localhost_demo";
@@ -39,6 +40,7 @@ type RunnerCapabilities = {
     available_but_unused: Record<string, boolean>;
     optional_not_required: Record<string, boolean>;
   };
+  snmp_telemetry?: SnmpTelemetryCapability;
 };
 type NetworkContext = Record<string, unknown> & { connection_type: "wifi" | "ethernet" | "unknown" };
 type RouteContext = Record<string, unknown>;
@@ -676,6 +678,8 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
   }
   const deviceInspector = validateDeviceInspectorCapability(value.device_inspector);
   if (!deviceInspector.ok) return deviceInspector;
+  const snmpTelemetry = validateSnmpTelemetryCapability(value.snmp_telemetry);
+  if (!snmpTelemetry.ok) return snmpTelemetry;
   return {
     ok: true,
     value: {
@@ -685,6 +689,7 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
       traffic_durations_seconds: trafficDurations,
       operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
       ...(deviceInspector.value ? { device_inspector: deviceInspector.value } : {}),
+      ...(snmpTelemetry.value ? { snmp_telemetry: snmpTelemetry.value } : {}),
     },
   };
 }

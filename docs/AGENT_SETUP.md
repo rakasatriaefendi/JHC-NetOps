@@ -406,6 +406,7 @@ Admin membuka `/admin#network-health-targets`, memilih node yang sudah ada di
 `network_nodes`, memilih runner, lalu mengatur enabled/critical dan threshold.
 Tidak ada target yang dibuat atau diaktifkan otomatis; perangkat di luar inventory
 tidak diprobe. Metode MVP hanya ICMP dan tidak membutuhkan agent WSL/Scapy/SNMP.
+SNMP read-only telemetry adalah workflow terpisah (bagian 12), bukan bagian dari Health Watch.
 
 Default normal adalah interval 30 detik, timeout 1 detik, 3 failure untuk offline,
 dan 2 success untuk recovery. Target critical dapat memakai 15 detik. Runner memakai
@@ -440,7 +441,8 @@ Hasil hanya berada pada satu temporary row per runner, dioverwrite selama progre
 host/context dibersihkan setelah 10 menit oleh polling runner/Edge cleanup. `Beri nama`
 hanya menyimpan identity `network_nodes`; admin tetap harus menekan `Add to Health Watch`
 untuk membuat atau enable `network_targets`. Discovery tidak memulai Traffic capture,
-iperf3/MTR, SNMP, atau sweep berkala.
+iperf3/MTR, SNMP, atau sweep berkala. SNMP read-only hanya untuk target terkelola
+allow-listed pada bagian 12.
 
 ## 11. Quick Device Inspector
 
@@ -488,6 +490,49 @@ bukan subnet atau nama `eth0` WSL.
 
 Inspection hanya dapat dimulai admin untuk satu IP pada hasil Discovery yang belum expired atau inventory `network_nodes`. Target inventory tetap valid tanpa sesi Discovery aktif. Tidak ada input command, CIDR, URI, port, atau scanner flags di UI. Agent memakai TCP 22/80/443/445/554/631/1883/8080/8443/9100, SSDP unicast UDP/1900, dan NetBIOS Node Status UDP/137 hanya ketika SMB/445 terbuka. Concurrency seluruh probe optional maksimal 4, timeout per koneksi 1 detik, metadata HTTP maksimal 16 KiB, XML UPnP maksimal 32 KiB, dan hard timeout runner 30 detik. Nmap tidak wajib dan tidak digunakan collector saat ini.
 
-MAC/OUI hanya diambil dari Windows neighbor untuk target same-subnet. Target routed tidak mendapat MAC dari next-hop. Lookup OUI memakai database lokal Scapy; locally administered MAC dianggap tidak reliable. HTTP/HTTPS hanya mengambil status/header/title kecil tanpa mengikuti redirect. TLS menyimpan CN/SAN/issuer/masa berlaku normalized. URL UPnP harus `http`, tanpa credential, resolve kembali ke IP target, dan redirect deskripsi ditolak. NetBIOS hanya meminta satu Node Status untuk hostname—tanpa share/user/file/auth. mDNS dilewati; SNMP, LLDP, full-port/deep/vulnerability scan tetap di luar scope.
+MAC/OUI hanya diambil dari Windows neighbor untuk target same-subnet. Target routed tidak mendapat MAC dari next-hop. Lookup OUI memakai database lokal Scapy; locally administered MAC dianggap tidak reliable. HTTP/HTTPS hanya mengambil status/header/title kecil tanpa mengikuti redirect. TLS menyimpan CN/SAN/issuer/masa berlaku normalized. URL UPnP harus `http`, tanpa credential, resolve kembali ke IP target, dan redirect deskripsi ditolak. NetBIOS hanya meminta satu Node Status untuk hostname—tanpa share/user/file/auth. mDNS dilewati; SNMP, LLDP, full-port/deep/vulnerability scan tetap di luar scope
+Device Inspector. SNMP read-only telemetry adalah workflow terpisah (bagian 12).
+
+## 12. Managed Infrastructure Telemetry (SNMP read-only)
+
+Migration `202608160001_managed_infrastructure_telemetry.sql` menambahkan
+`managed_telemetry_targets`, `managed_device_latest`, dan `managed_interface_latest`
+beserta RLS, index, dan keanggotaan Realtime. **Status saat ini: migration sudah
+diterapkan manual oleh Raka ke project Supabase dan terverifikasi remote — schema
+tabel ada, RLS approved-read untuk admin/viewer fixture (HTTP 200), dan Realtime
+latest-state terverifikasi lewat browser E2E tanpa refresh.** Setelah migration
+diterapkan, restart runner agar capability `snmp_telemetry` diterbitkan:
+
+```powershell
+.\runner\task.ps1 restart
+```
+
+Edge Function `managed-telemetry` sudah diimplementasikan dan lolos contract/unit
+test, tetapi **belum di-deploy** — runtime/deployment verification ditunda dan bukan
+bagian dari setup ini.
+
+Admin membuka `/admin#managed-telemetry`, memilih node yang sudah ada di
+`network_nodes`, memilih runner, versi SNMP, dan **credential profile lokal runner**
+(`monitoring-readonly` / `core-readonly`). Form hanya menyimpan nama profile—bukan
+community string, username, atau password. Profile didefinisikan di config lokal
+runner; sekret tidak pernah dikirim ke Supabase, browser, atau log. Profile yang tidak
+tersedia ditandai `available = false` dan tidak dipoll.
+
+Runner melakukan polling read-only SNMPv2c/v3 dengan OID tetap dan terbatas (identitas
+sistem, uptime, satu set interface fisik/logis, octet counters, error/discard).
+Interval default 60 detik (boleh 30–300), concurrency kecil, timeout pendek, dan tidak
+mengganggu capture/Health Watch/Discovery/Diagnostics. Counter cache lokal dipakai
+menghitung rate/utilisasi antar-poll; hanya latest-state yang di-upsert (satu
+`managed_device_latest` + satu `managed_interface_latest` per interface) dan event
+`source = managed_telemetry` dibuat hanya saat transisi threshold
+(errors/discards/up/down/util). Tidak ada walk bebas, SNMP SET, LLDP/CDP, topology,
+atau row per poll.
+
+UI: Device Profile menampilkan bagian Managed Infrastructure Telemetry (status koneksi
+target, identitas sistem, uptime, tabel interface + peringatan) dengan satu subscription
+Realtime sehingga state berubah tanpa refresh; status credential profile ditampilkan
+tanpa pernah menampilkan nilai secret. Approved viewer read-only; admin CRUD target.
+Verifikasi sintetis memakai `scripts/verify_managed_telemetry_browser.mjs` (fixtures
+synthetic, admin/viewer, Realtime, mobile/desktop, tanpa probe SNMP nyata).
 
 Hasil sementara berada di satu `device_inspection_sessions` row per runner dan expired 10 menit. Menutup drawer unknown tanpa Save tidak membuat `network_nodes`. `Save identity` menyimpan operator name/location/type/notes secara eksplisit; `Save detected evidence` menyimpan fingerprint terstruktur. Reinspection hanya boleh memperbarui `detected_fingerprint` dan `last_inspected_at` tanpa mengubah identity atau Health Watch. Bila evidence `This Device` bertentangan dengan kategori operator, perbaiki inventory secara eksplisit melalui form—warning tidak melakukan overwrite otomatis. Jangan menulis raw tool stdout, HTML/XML/body, token, atau credential ke Supabase/log.

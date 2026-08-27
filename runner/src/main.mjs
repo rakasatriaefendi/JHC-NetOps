@@ -9,6 +9,7 @@ import { collectInspectionContext, validateInspectionScope } from "./device-insp
 import { startHeartbeatLoop } from "./heartbeat.mjs";
 import { runAgent, runInspectionAgent, runPreflight, runTrafficAgent } from "./wsl.mjs";
 import { NetworkHealthWatch } from "./network-health.mjs";
+import { ManagedTelemetryWatch } from "./snmp-telemetry.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
@@ -67,6 +68,18 @@ const healthWatch = new NetworkHealthWatch({
   log,
 });
 if (!once) healthWatch.start();
+let telemetryWatch = null;
+if (config.enable_snmp_telemetry === true) {
+  telemetryWatch = new ManagedTelemetryWatch({
+    runnerId: config.runner_id,
+    backend,
+    config,
+    cachePath: path.join(RUNNER_ROOT, "data", "snmp-telemetry-state.json"),
+    log,
+    concurrency: config.snmp_max_concurrent,
+  });
+  if (!once) telemetryWatch.start();
+}
 try {
   do {
     const rawPreflight = await backend.claimPreflight(config.runner_id).catch(() => null);
@@ -91,6 +104,7 @@ try {
   } while (!once);
 } finally {
   await healthWatch.stop();
+  if (telemetryWatch) await telemetryWatch.stop();
   stopHeartbeat();
 }
 

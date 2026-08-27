@@ -24,6 +24,7 @@ import {
   type NetworkNodeType,
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
+import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
 
 type OpenOptions = {
   ipAddress: string;
@@ -49,6 +50,10 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
   const fingerprint = session?.status === "completed" && session.result ? session.result : node?.detected_fingerprint ?? null;
   const runner = useMemo(() => runners.find((item) => item.id === opened?.runnerId)
     ?? runners.find((item) => item.capabilities.operations?.includes("device_inspect")), [opened?.runnerId, runners]);
+  const runnerProfiles = useMemo(() => runners.map((item) => ({
+    runnerId: item.id,
+    profiles: item.capabilities?.snmp_telemetry?.credential_profiles ?? [],
+  })), [runners]);
 
   useEffect(() => {
     if (!opened || !runner) return;
@@ -100,6 +105,7 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
     {opened ? <DeviceProfileDrawer key={opened.ipAddress}
       opened={opened} node={node} fingerprint={fingerprint} session={session}
       canManage={canLaunchActiveInspection(role)} runnerId={runner?.id ?? null} monitored={monitored} busy={busy} error={error}
+      runnerProfiles={runnerProfiles}
       close={() => setOpened(null)} inspect={() => void startInspection()}
       saveIdentity={async (input) => {
         setBusy(true); setError(null);
@@ -129,7 +135,7 @@ export function useDeviceProfile() {
   return value;
 }
 
-function DeviceProfileDrawer({ opened, node, fingerprint, session, canManage, runnerId, monitored, busy, error, close, inspect, saveIdentity, saveDetected, addToHealth, setError }: {
+function DeviceProfileDrawer({ opened, node, fingerprint, session, canManage, runnerId, monitored, busy, error, runnerProfiles, close, inspect, saveIdentity, saveDetected, addToHealth, setError }: {
   opened: OpenOptions;
   node: ReturnType<typeof findNetworkNode> | null;
   fingerprint: DeviceFingerprint | null;
@@ -139,6 +145,7 @@ function DeviceProfileDrawer({ opened, node, fingerprint, session, canManage, ru
   monitored: boolean | null;
   busy: boolean;
   error: string | null;
+  runnerProfiles: { runnerId: string; profiles: string[] }[];
   close: () => void;
   inspect: () => void;
   saveIdentity: (input: NetworkNodeInput) => Promise<void>;
@@ -196,6 +203,8 @@ function DeviceProfileDrawer({ opened, node, fingerprint, session, canManage, ru
         {identityConflict ? <Notice critical><p className="font-medium">Saved operator category may not match the detected network role.</p><p className="mt-2">Inspection identified this address as This Device. The saved category remains unchanged; review and edit it explicitly if needed.</p></Notice> : null}
         {canManage ? <div className="grid gap-3 sm:grid-cols-2"><Field label="Name" value={name} setValue={setName} /><Field label="Location" value={location} setValue={setLocation} /><label className="grid gap-2 text-meta text-text-secondary">Device category<select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={type} onChange={(event) => setType(event.target.value as NetworkNodeType | "")}><option value="">Unspecified</option>{NETWORK_NODE_TYPES.map((item) => <option key={item} value={item}>{networkNodeTypeLabel(item)}</option>)}</select></label><label className="grid gap-2 text-meta text-text-secondary sm:col-span-2">Notes<textarea className="min-h-24 rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={notes} onChange={(event) => setNotes(event.target.value)} /></label><Button disabled={busy || !name.trim()} onClick={() => void saveIdentity({ ip_address: opened.ipAddress, name, location, notes, device_type: type || null })}>Save identity</Button>{saveDetected ? <Button variant="secondary" disabled={busy} onClick={() => void saveDetected()}>Save detected evidence</Button> : null}</div> : <dl className="grid gap-3 sm:grid-cols-2"><Value label="Name" value={node?.name ?? "Not saved"} /><Value label="Location" value={node?.location ?? "Not saved"} /><Value label="Category" value={node?.device_type ? networkNodeTypeLabel(node.device_type) : "Not saved"} /><Value label="Notes" value={node?.notes ?? "Not saved"} /></dl>}
       </Section>
+
+      <ManagedTelemetrySection nodeId={node?.id ?? ""} runnerProfiles={runnerProfiles} />
 
       <Section title="Actions"><div className="flex flex-wrap gap-2">{canManage ? <Button disabled={busy || !runnerId || Boolean(active)} onClick={() => { setError(null); inspect(); }}>{fingerprint ? "Inspect again" : "Inspect"}</Button> : null}{canManage && addToHealth ? <Button variant="secondary" disabled={busy} onClick={() => void addToHealth()}>Add to Health Watch</Button> : null}{monitored ? <Link className="rounded-control border border-border px-4 py-2" href="/dashboard">View Health Status</Link> : null}<Link className="rounded-control border border-border px-4 py-2" href="/diagnostics">Open LAN Diagnostics</Link><Link className="rounded-control border border-border px-4 py-2" href={`/traffic?ip=${encodeURIComponent(opened.ipAddress)}`}>View Traffic</Link></div></Section>
       <div className="mt-6 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">Quick Inspect uses a fixed, bounded service allow-list. It is not a vulnerability scan. Routed targets do not expose their target MAC through local ARP; unmanaged Layer-2 switches may have no discoverable IP; MTR shows responding Layer-3 hops only.</div>

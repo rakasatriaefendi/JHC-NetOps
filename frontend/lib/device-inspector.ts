@@ -78,11 +78,18 @@ export type InspectorRunner = {
     operations?: string[];
     device_inspector?: {
       available: boolean;
-      probe_engine: string;
+      probe_engine?: string;
       collectors?: Record<string, boolean>;
       optional?: Record<string, boolean>;
       available_but_unused?: Record<string, boolean>;
       optional_not_required?: Record<string, boolean>;
+    };
+    snmp_telemetry?: {
+      enabled: boolean;
+      max_concurrent?: number;
+      poll_intervals_seconds?: number[];
+      versions?: string[];
+      credential_profiles?: string[];
     };
   };
 };

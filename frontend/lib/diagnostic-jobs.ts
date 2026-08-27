@@ -15,7 +15,15 @@ export type RunnerCapabilities = {
   targets: DiagnosticTarget[];
   durations: number[];
   traffic_durations_seconds?: number[];
-  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery")[];
+  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery" | "device_inspect")[];
+  device_inspector?: { available: boolean; probe_engine?: string };
+  snmp_telemetry?: {
+    enabled: boolean;
+    max_concurrent?: number;
+    poll_intervals_seconds?: number[];
+    versions?: string[];
+    credential_profiles?: string[];
+  };
 };
 
 export type NetworkContext = {
