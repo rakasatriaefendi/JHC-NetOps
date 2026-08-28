@@ -78,6 +78,13 @@ export function validateInspectionSession(session, config) {
   return { inspection_id: session.inspection_id, target_ip: session.target_ip, authorization_source: session.authorization_source };
 }
 
+export function validateManualPingJob(job, config) {
+  if (!job || typeof job !== "object" || !isUuid(job.id) || !isUuid(job.target_id) || job.runner_id !== config.runner_id) {
+    throw safeError("INVALID_MANUAL_PING_JOB");
+  }
+  return { id: job.id, target_id: job.target_id };
+}
+
 export function validatePreflightRequest(request, config) {
   if (!request || typeof request !== "object" || !isUuid(request.request_id) || request.runner_id !== config.runner_id) {
     throw safeError("INVALID_JOB");
@@ -90,6 +97,7 @@ export function validatePreflightRequest(request, config) {
 export function publicCapabilities(config, runtimeCapabilities = {}) {
   const demoEnabled = diagnosticDemoEnabled(config);
   const snmpEnabled = config.enable_snmp_telemetry === true;
+  const manualPingEnabled = config.enable_manual_ping === true;
   return {
     source_locations: config.source_locations.filter((label) => demoEnabled || label !== "Local Development"),
     targets: availableTargets(config).map(({ id, label, host, iperf_port, environment }) => ({
@@ -97,7 +105,13 @@ export function publicCapabilities(config, runtimeCapabilities = {}) {
     })),
     durations: config.durations.filter((duration) => duration === 5 || duration === 10),
     traffic_durations_seconds: config.traffic_durations_seconds,
-    operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
+    operations: [
+      "bandwidth_and_path",
+      "traffic_live",
+      "network_discovery",
+      "device_inspect",
+      ...(manualPingEnabled ? ["manual_ping"] : []),
+    ],
     ...(runtimeCapabilities.device_inspector ? { device_inspector: runtimeCapabilities.device_inspector } : {}),
     snmp_telemetry: snmpEnabled ? {
       enabled: true,
@@ -129,6 +143,9 @@ export function safeMessage(code) {
     INVALID_DISCOVERY_SESSION: "Network discovery session is invalid",
     INVALID_INSPECTION_SESSION: "Device inspection session is invalid",
     INVALID_INSPECTION_TARGET: "Device inspection target is not authorized locally",
+    INVALID_MANUAL_PING_JOB: "Manual ping job is invalid",
+    MANUAL_PING_TARGET_UNAVAILABLE: "Manual ping target is not authorized by current Health Watch configuration",
+    MANUAL_PING_FAILED: "Manual ping could not be completed",
     INSPECTION_CONTEXT_UNAVAILABLE: "Windows inspection context could not be collected",
     INSPECTION_NETWORK_CONTEXT_UNAVAILABLE: "Windows network context for the inspection target could not be resolved",
     INSPECTION_CONTEXT_INVALID: "Windows inspection context was invalid",
@@ -179,6 +196,7 @@ function validateConfig(value) {
     throw new Error("WSL paths are invalid");
   }
   if (value.enable_diagnostic_demo !== undefined && typeof value.enable_diagnostic_demo !== "boolean") throw new Error("enable_diagnostic_demo is invalid");
+  if (value.enable_manual_ping !== undefined && typeof value.enable_manual_ping !== "boolean") throw new Error("enable_manual_ping is invalid");
   if (!uniqueLabels(value.source_locations) || !Array.isArray(value.durations) || !value.durations.every((item) => [5, 10, 15, 30].includes(item))) {
     throw new Error("Runner source/duration allow-list is invalid");
   }

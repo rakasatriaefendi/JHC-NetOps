@@ -6,6 +6,7 @@
   "agent_executable": "agent/.venv/bin/network-monitor",
   "environment_file": ".env",
   "enable_diagnostic_demo": false,
+  "enable_manual_ping": false,
   "source_locations": ["Local Development"],
   "targets": [
     {

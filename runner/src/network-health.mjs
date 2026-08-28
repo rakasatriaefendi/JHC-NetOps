@@ -93,6 +93,28 @@ export class NetworkHealthWatch {
     } finally { this.inFlight.delete(target.id); }
   }
 
+  async manualPing(targetId) {
+    const result = await this.backend.healthTargets(this.runnerId);
+    const target = Array.isArray(result?.targets)
+      ? result.targets.filter(validTarget).find((item) => item.id === targetId)
+      : null;
+    if (!target) {
+      const error = new Error("Manual ping target is unavailable");
+      error.code = "MANUAL_PING_TARGET_UNAVAILABLE";
+      throw error;
+    }
+    const sample = await this.ping(target.ip_address, target.timeout_ms);
+    if (sample.success) {
+      if (!Number.isFinite(sample.latency_ms) || sample.latency_ms < 0) {
+        const error = new Error("Manual ping result is invalid");
+        error.code = "MANUAL_PING_FAILED";
+        throw error;
+      }
+      return { ok: true, latency_ms: sample.latency_ms };
+    }
+    return { ok: false, category: sample.timed_out ? "timeout" : "unreachable" };
+  }
+
   applySample(target, sample, now = this.now()) {
     const state = this.stateFor(target.id);
     const checkedAt = new Date(now).toISOString();

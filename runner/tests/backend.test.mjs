@@ -21,6 +21,24 @@ test("managed telemetry publish success remains unchanged", async (t) => {
   assert.deepEqual(request, { action: "publish", runner_id: "runner-test", device: DEVICE, interfaces: [], transitions: [] });
 });
 
+test("manual ping backend methods use the existing network-health transport with bounded fields", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const pingId = "11111111-1111-4111-8111-111111111111";
+  await client.claimManualPing("runner-test");
+  await client.completeManualPing("runner-test", pingId, { ok: true, latency_ms: 4 });
+  await client.failManualPing("runner-test", pingId, "MANUAL_PING_FAILED");
+  assert.deepEqual(requests, [
+    { action: "claim_manual_ping", runner_id: "runner-test" },
+    { action: "complete_manual_ping", runner_id: "runner-test", ping_id: pingId, result: { ok: true, latency_ms: 4 } },
+    { action: "fail_manual_ping", runner_id: "runner-test", ping_id: pingId, error_code: "MANUAL_PING_FAILED" },
+  ]);
+});
+
 test("managed telemetry 4xx preserves bounded safe status and backend code", async (t) => {
   t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
     code: "INTERFACE_PAYLOAD_INVALID",

@@ -1,4 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  MANUAL_PING_RESULT_TTL_MS,
+  validManualPingFailureCode,
+  validManualPingResult,
+} from "./manual-ping.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -7,20 +12,140 @@ const CORS = {
 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATUS = new Set(["online", "degraded", "offline"]);
+const RUNNER_FRESH_MS = 30_000;
+const MANUAL_PING_QUEUE_TTL_MS = 30_000;
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, {status:204, headers:CORS});
   if (request.method !== "POST") return reply({error:"Method not allowed"}, 405);
-  const service = serviceClient(request);
-  if (!service.ok) return service.response;
   let body: Record<string, unknown>;
   try { body = await request.json(); }
   catch { return reply({error:"Invalid JSON"}, 400); }
-  if (!record(body) || !identifier(body.runner_id)) return reply({error:"Structured runner action required"}, 400);
+  if (!record(body) || typeof body.action !== "string") return reply({error:"Structured action required"}, 400);
+  if (body.action === "manual_ping") return createManualPing(request, body);
+  const service = serviceClient(request);
+  if (!service.ok) return service.response;
+  if (!identifier(body.runner_id)) return reply({error:"Structured runner action required"}, 400);
   if (body.action === "list_targets") return listTargets(service.client, body.runner_id);
   if (body.action === "publish") return publish(service.client, body);
+  if (body.action === "claim_manual_ping") return claimManualPing(service.client, body.runner_id);
+  if (body.action === "complete_manual_ping" || body.action === "fail_manual_ping") {
+    if (!uuid(body.ping_id)) return reply({error:"Manual ping ID is invalid"}, 400);
+    return finishManualPing(service.client, body, body.action === "complete_manual_ping");
+  }
   return reply({error:"Unsupported action"}, 400);
 });
+
+async function createManualPing(request: Request, body: Record<string, unknown>) {
+  const auth = await userAuth(request);
+  if (!auth.ok) return auth.response;
+  if (auth.role !== "admin") return reply({error:"Only an admin may run a manual ping"}, 403);
+  if (Object.keys(body).some((key) => key !== "action" && key !== "target_id") || !uuid(body.target_id)) {
+    return reply({error:"Only an authorized target_id is accepted"}, 400);
+  }
+  await cleanupManualPings(auth.service);
+  const {data:target,error:targetError} = await auth.service.from("network_targets")
+    .select("id,runner_id,enabled,timeout_ms")
+    .eq("id", body.target_id).maybeSingle();
+  if (targetError) return reply({error:"Manual ping target could not be checked"}, 500);
+  if (!target || target.enabled !== true) return reply({error:"Manual ping target is not authorized",code:"TARGET_NOT_AUTHORIZED"}, 403);
+
+  const {data:runner,error:runnerError} = await auth.service.from("diagnostic_runners")
+    .select("id,last_seen_at,health_status,capabilities")
+    .eq("id", target.runner_id).maybeSingle();
+  if (runnerError) return reply({error:"Manual ping runner could not be checked"}, 500);
+  if (!runner || runner.health_status !== "online" || Date.now() - Date.parse(runner.last_seen_at) > RUNNER_FRESH_MS) {
+    return reply({error:"Local Runner is offline",code:"RUNNER_OFFLINE"}, 409);
+  }
+  const capabilities = record(runner.capabilities) ? runner.capabilities : {};
+  if (!Array.isArray(capabilities.operations) || !capabilities.operations.includes("manual_ping")) {
+    return reply({error:"Manual ping is not authorized by this runner",code:"PING_NOT_AUTHORIZED"}, 409);
+  }
+
+  const now = new Date();
+  const {data,error} = await auth.service.from("network_health_ping_jobs").insert({
+    target_id:target.id,
+    runner_id:target.runner_id,
+    requested_by:auth.userId,
+    status:"queued",
+    result:null,
+    error_code:null,
+    expires_at:new Date(now.getTime() + MANUAL_PING_QUEUE_TTL_MS).toISOString(),
+    updated_at:now.toISOString(),
+  }).select("id,target_id,runner_id,status,result,error_code,created_at,started_at,completed_at,expires_at,updated_at").single();
+  if (error?.code === "23505") return reply({error:"A manual ping is already active for this target",code:"PING_ALREADY_RUNNING"}, 409);
+  if (error) return reply({error:"Manual ping could not be queued"}, 500);
+  return reply({data}, 202);
+}
+
+async function claimManualPing(
+  db: ReturnType<typeof createClient>,
+  runnerId: string,
+) {
+  await cleanupManualPings(db);
+
+  const { data: queued, error: readError } = await db
+    .from("network_health_ping_jobs")
+    .select("id,target_id,runner_id,status,created_at")
+    .eq("runner_id", runnerId)
+    .eq("status", "queued")
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (readError) {
+    return reply({ error: "Manual ping queue could not be read" }, 500);
+  }
+
+  if (!queued) {
+    return reply({ data: null }, 200);
+  }
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  const { data, error } = await db
+    .from("network_health_ping_jobs")
+    .update({
+      status: "running",
+      started_at: nowIso,
+      expires_at: new Date(
+        now.getTime() + MANUAL_PING_QUEUE_TTL_MS,
+      ).toISOString(),
+      updated_at: nowIso,
+    })
+    .eq("id", queued.id)
+    .eq("runner_id", runnerId)
+    .eq("status", "queued")
+    .select("id,target_id,runner_id,status,created_at,started_at")
+    .maybeSingle();
+
+  return error
+    ? reply({ error: "Manual ping could not be claimed" }, 500)
+    : reply({ data }, 200);
+}
+
+async function finishManualPing(db: ReturnType<typeof createClient>, body: Record<string, unknown>, completed: boolean) {
+  if (completed && !validManualPingResult(body.result)) return reply({error:"Manual ping result is invalid"}, 400);
+  if (!completed && !validManualPingFailureCode(body.error_code)) return reply({error:"Manual ping error code is invalid"}, 400);
+  const now = new Date();
+  const {data,error} = await db.from("network_health_ping_jobs").update({
+    status:completed ? "completed" : "failed",
+    result:completed ? body.result : null,
+    error_code:completed ? null : body.error_code,
+    completed_at:now.toISOString(),
+    expires_at:new Date(now.getTime() + MANUAL_PING_RESULT_TTL_MS).toISOString(),
+    updated_at:now.toISOString(),
+  }).eq("id", body.ping_id).eq("runner_id", body.runner_id).eq("status", "running")
+    .select("id,target_id,runner_id,status,result,error_code,completed_at,expires_at,updated_at").maybeSingle();
+  if (error) return reply({error:"Manual ping result could not be stored"}, 500);
+  return data ? reply({data}, 200) : reply({error:"Running manual ping was not found"}, 409);
+}
+
+async function cleanupManualPings(db: ReturnType<typeof createClient>) {
+  await db.from("network_health_ping_jobs").delete().lt("expires_at", new Date().toISOString());
+}
 
 async function listTargets(db: ReturnType<typeof createClient>, runnerId: string) {
   const {data,error} = await db.from("network_targets")
@@ -71,6 +196,39 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
   if (latestRows.length) {
     const {error} = await db.from("network_health_latest").upsert(latestRows, {onConflict:"target_id"});
     if (error) return reply({error:"Latest health state could not be stored"}, 500);
+  }
+
+  // Write coalesced samples to network_health_samples (one per target per UTC minute)
+  if (states.length) {
+    // Group states by target_id and minute bucket, keep the latest state per bucket
+    const bucketMap = new Map<string, Record<string, unknown>>();
+    for (const item of states) {
+      const state = item as Record<string, unknown>;
+      const targetId = state.target_id as string;
+      const checkedAt = new Date(state.last_checked_at as string);
+      // Truncate to UTC minute: floor to minute boundary
+      const minuteBucket = new Date(Date.UTC(checkedAt.getUTCFullYear(), checkedAt.getUTCMonth(), checkedAt.getUTCDate(), checkedAt.getUTCHours(), checkedAt.getUTCMinutes(), 0, 0)).toISOString();
+      const bucketKey = `${targetId}|${minuteBucket}`;
+      const existing = bucketMap.get(bucketKey);
+      if (!existing || new Date(existing.last_checked_at as string) < checkedAt) {
+        bucketMap.set(bucketKey, {
+          target_id: targetId,
+          sampled_at: minuteBucket,
+          status: state.status,
+          latency_ms: state.latency_ms,
+          packet_loss_percent: state.packet_loss_percent,
+          sample_count: state.sample_count,
+        });
+      }
+    }
+    const sampleRows = Array.from(bucketMap.values());
+    if (sampleRows.length) {
+      const {error: sampleError} = await db.from("network_health_samples").upsert(sampleRows, {
+        onConflict: "target_id,sampled_at",
+        ignoreDuplicates: false,
+      });
+      if (sampleError) return reply({error:"Health samples could not be stored"}, 500);
+    }
   }
 
   let inserted = 0;
@@ -134,6 +292,25 @@ function validTransition(value: unknown): value is Record<string, unknown> {
   if (!record(value) || !uuid(value.event_id) || !uuid(value.target_id) || !STATUS.has(String(value.previous_status)) || !STATUS.has(String(value.new_status))) return false;
   if (value.previous_status === value.new_status || !dateString(value.occurred_at)) return false;
   return nullableNumber(value.latency_ms,0,60000) && number(value.packet_loss_percent,0,100) && integer(value.consecutive_failures,0,1000000);
+}
+async function userAuth(request: Request): Promise<
+  | {ok:true;client:ReturnType<typeof createClient>;service:ReturnType<typeof createClient>;userId:string;role:string}
+  | {ok:false;response:Response}
+> {
+  const url=Deno.env.get("SUPABASE_URL"), anon=Deno.env.get("SUPABASE_ANON_KEY"), key=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), token=bearer(request);
+  if (!url || !anon || !key || !token) return {ok:false,response:reply({error:"Unauthorized"},401)};
+  const client=createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:`Bearer ${token}`}}});
+  const {data:user}=await client.auth.getUser(token);
+  if (!user.user) return {ok:false,response:reply({error:"Unauthorized"},401)};
+  const {data:profile}=await client.from("profiles").select("status,role").eq("id",user.user.id).maybeSingle();
+  if (profile?.status !== "approved") return {ok:false,response:reply({error:"Forbidden"},403)};
+  return {
+    ok:true,
+    client,
+    service:createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}),
+    userId:user.user.id,
+    role:typeof profile.role === "string" ? profile.role : "viewer",
+  };
 }
 function serviceClient(request: Request): {ok:true;client:ReturnType<typeof createClient>} | {ok:false;response:Response} {
   const url=Deno.env.get("SUPABASE_URL"), key=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), token=bearer(request);

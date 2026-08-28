@@ -16,6 +16,7 @@ export type NetworkHealthTarget = {
   node: { id: string; ip_address: string; name: string; device_type: string | null; location: string | null; detected_fingerprint: import("@/lib/device-inspector").DeviceFingerprint | null; last_inspected_at: string | null };
   latest: { status: HealthStatus; latency_ms: number | null; packet_loss_percent: number; last_checked_at: string; last_success_at: string | null; consecutive_failures: number; sample_count: number } | null;
   diagnostic_target_id: string | null;
+  manual_ping_available: boolean;
 };
 
 export type NetworkHealthEvent = {
@@ -28,6 +29,24 @@ export type NetworkHealthEvent = {
   resolved_at: string | null;
   raw_context: Record<string, unknown>;
 };
+
+export type NetworkHealthSample = {
+  target_id: string;
+  sampled_at: string;
+  status: HealthStatus;
+  latency_ms: number | null;
+  packet_loss_percent: number;
+  sample_count: number;
+};
+
+export type HealthTrendRange = "1h" | "6h" | "24h" | "7d";
+
+export const HEALTH_TREND_RANGES: { value: HealthTrendRange; label: string; maxPoints: number }[] = [
+  { value: "1h", label: "Last hour", maxPoints: 60 },
+  { value: "6h", label: "Last 6 hours", maxPoints: 180 },
+  { value: "24h", label: "Last 24 hours", maxPoints: 240 },
+  { value: "7d", label: "Last 7 days", maxPoints: 480 },
+];
 
 export async function loadNetworkHealth(supabase: SupabaseClient) {
   const [{ data: rows, error }, { data: runners }, { data: events, error: eventError }] = await Promise.all([
@@ -42,9 +61,38 @@ export async function loadNetworkHealth(supabase: SupabaseClient) {
     const latest = relation(row.network_health_latest) as NetworkHealthTarget["latest"];
     const targets = Array.isArray(capabilityByRunner.get(row.runner_id)?.targets) ? capabilityByRunner.get(row.runner_id).targets : [];
     const diagnosticTarget = targets.find((target: { host?: string }) => target.host === node.ip_address);
-    return { ...row, node, latest, diagnostic_target_id: diagnosticTarget?.id ?? null } as NetworkHealthTarget;
+    const operations = Array.isArray(capabilityByRunner.get(row.runner_id)?.operations)
+      ? capabilityByRunner.get(row.runner_id).operations as unknown[]
+      : [];
+    return {
+      ...row,
+      node,
+      latest,
+      diagnostic_target_id: diagnosticTarget?.id ?? null,
+      manual_ping_available: operations.includes("manual_ping"),
+    } as NetworkHealthTarget;
   });
   return { data, events: (events ?? []) as NetworkHealthEvent[], error: false };
+}
+
+export async function loadHealthSamples(supabase: SupabaseClient, targetIds: string[], range: HealthTrendRange) {
+  if (!targetIds.length) return { data: [], error: false };
+  const now = new Date();
+  const rangeMs = range === "1h" ? 3600000 : range === "6h" ? 21600000 : range === "24h" ? 86400000 : 604800000;
+  const since = new Date(now.getTime() - rangeMs).toISOString();
+  const maxPoints = HEALTH_TREND_RANGES.find(r => r.value === range)?.maxPoints ?? 240;
+
+  // Calculate bucket interval in seconds to achieve roughly maxPoints across the range
+  const bucketSeconds = Math.max(60, Math.ceil(rangeMs / 1000 / maxPoints));
+
+  const { data, error } = await supabase.rpc("get_health_samples_downsampled", {
+    p_target_ids: targetIds,
+    p_since: since,
+    p_bucket_seconds: bucketSeconds,
+    p_limit: maxPoints,
+  });
+  if (error) return { data: [], error: true };
+  return { data: (data ?? []) as NetworkHealthSample[], error: false };
 }
 
 function relation(value: unknown): Record<string, unknown> | null {

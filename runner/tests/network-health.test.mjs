@@ -58,6 +58,46 @@ test("refresh ignores unsupported entries and handles multiple targets", async (
   assert.deepEqual([...service.targets.keys()], targets.slice(0, 2).map((item) => item.id));
 });
 
+test("manual ping resolves the current runner-scoped target and does not mutate scheduled state", async () => {
+  const item = target({ ip_address: "192.0.2.10", timeout_ms: 750 });
+  const calls = [];
+  const service = new NetworkHealthWatch({
+    runnerId: "runner-test",
+    backend: { healthTargets: async () => ({ targets: [item] }), publishHealth: async () => ({}) },
+    cachePath: path.join(mkdtempSync(path.join(os.tmpdir(), "health-watch-")), "state.json"),
+    ping: async (...args) => { calls.push(args); return { success: true, latency_ms: 7.5 }; },
+  });
+  assert.deepEqual(await service.manualPing(item.id), { ok: true, latency_ms: 7.5 });
+  assert.deepEqual(calls[0].slice(0, 2), ["192.0.2.10", 750]);
+  assert.deepEqual(service.states, {});
+  assert.deepEqual(service.pendingTransitions, []);
+});
+
+test("manual ping normalizes timeout and unreachable without raw process output", async () => {
+  const item = target();
+  const create = (reply) => new NetworkHealthWatch({
+    runnerId: "runner-test",
+    backend: { healthTargets: async () => ({ targets: [item] }), publishHealth: async () => ({}) },
+    cachePath: path.join(mkdtempSync(path.join(os.tmpdir(), "health-watch-")), "state.json"),
+    ping: async () => reply,
+  });
+  assert.deepEqual(await create({ success: false, latency_ms: null, timed_out: true, stderr: "private" }).manualPing(item.id), { ok: false, category: "timeout" });
+  assert.deepEqual(await create({ success: false, latency_ms: null, stderr: "private" }).manualPing(item.id), { ok: false, category: "unreachable" });
+});
+
+test("manual ping rejects unknown targets and successful replies without measured latency", async () => {
+  const item = target();
+  const unavailable = watch({ healthTargets: async () => ({ targets: [] }), publishHealth: async () => ({}) });
+  await assert.rejects(unavailable.manualPing(item.id), (error) => error.code === "MANUAL_PING_TARGET_UNAVAILABLE");
+  const invalid = new NetworkHealthWatch({
+    runnerId: "runner-test",
+    backend: { healthTargets: async () => ({ targets: [item] }), publishHealth: async () => ({}) },
+    cachePath: path.join(mkdtempSync(path.join(os.tmpdir(), "health-watch-")), "state.json"),
+    ping: async () => ({ success: true, latency_ms: null }),
+  });
+  await assert.rejects(invalid.manualPing(item.id), (error) => error.code === "MANUAL_PING_FAILED");
+});
+
 test("failed publish retains coalesced state and transition with backoff", async () => {
   let attempts = 0;
   const service = watch({ healthTargets: async () => ({ targets: [] }), publishHealth: async () => { attempts += 1; throw new Error("offline"); } });

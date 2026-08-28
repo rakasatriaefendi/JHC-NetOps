@@ -6,7 +6,7 @@ import { DeviceProfileProvider } from "@/components/device-profile/device-profil
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadDiagnostics } from "@/lib/diagnostics";
 import { loadDiscoverySessions, observedTrafficIps } from "@/lib/network-discovery";
-import { loadNetworkHealth } from "@/lib/network-health";
+import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
 import { loadNetworkNodes } from "@/lib/network-nodes";
 import { loadTrafficState } from "@/lib/traffic";
 
@@ -15,12 +15,13 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const { supabase, profile } = await requireApprovedProfile();
   const isAdmin = profile.role === "admin";
-  const [health, diagnostics, traffic, nodes, discovery] = await Promise.all([
-    loadNetworkHealth(supabase),
+  const health = await loadNetworkHealth(supabase);
+  const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
     loadDiagnostics(supabase),
     loadTrafficState(supabase, profile.role),
     loadNetworkNodes(supabase),
     loadDiscoverySessions(supabase, isAdmin),
+    loadHealthSamples(supabase, health.data.map((t) => t.id), "1h"),
   ]);
 
   return (
@@ -39,6 +40,7 @@ export default async function DashboardPage() {
         <NetworkHealthDashboard
           targets={health.data}
           events={health.events}
+          samples={samples.data ?? []}
           loadError={health.error || discovery.error}
           isAdmin={isAdmin}
           discoveryRunners={traffic.data.runners}
