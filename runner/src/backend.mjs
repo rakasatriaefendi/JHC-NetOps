@@ -38,6 +38,13 @@ export class BackendClient {
   completeTraffic(runnerId, sessionId) { return this.#postTraffic({ action: "complete_session", runner_id: runnerId, session_id: sessionId }); }
   failTraffic(runnerId, sessionId, code, message) { return this.#postTraffic({ action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: code, error_message: message }); }
   healthTargets(runnerId) { return this.#postHealth({ action: "list_targets", runner_id: runnerId }); }
+  claimManualPing(runnerId) { return this.#postHealth({ action: "claim_manual_ping", runner_id: runnerId }); }
+  completeManualPing(runnerId, pingId, result) {
+    return this.#postHealth({ action: "complete_manual_ping", runner_id: runnerId, ping_id: pingId, result });
+  }
+  failManualPing(runnerId, pingId, errorCode) {
+    return this.#postHealth({ action: "fail_manual_ping", runner_id: runnerId, ping_id: pingId, error_code: errorCode });
+  }
   publishHealth(runnerId, states, transitions) {
     return this.#postHealth({ action: "publish", runner_id: runnerId, states, transitions });
   }

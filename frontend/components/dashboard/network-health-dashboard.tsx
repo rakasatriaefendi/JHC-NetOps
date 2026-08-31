@@ -6,14 +6,16 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
+import { ReachabilityMap } from "./reachability-map";
+import { NetworkHealthTrends } from "./network-health-trends";
 import { NetworkDiscoveryDrawer } from "@/components/dashboard/network-discovery-drawer";
 import type { DiscoverySession } from "@/lib/network-discovery";
 import { createClient } from "@/lib/supabase/client";
-import type { HealthStatus, NetworkHealthEvent, NetworkHealthTarget } from "@/lib/network-health";
+import type { HealthStatus, NetworkHealthEvent, NetworkHealthTarget, NetworkHealthSample } from "@/lib/network-health";
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
 
-export function NetworkHealthDashboard({ targets, events, loadError, isAdmin, discoveryRunners, discoverySessions, trafficIps }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; loadError: boolean; isAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[] }) {
+export function NetworkHealthDashboard({ targets, events, samples, loadError, isAdmin, discoveryRunners, discoverySessions, trafficIps }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; loadError: boolean; isAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[] }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
@@ -66,13 +68,18 @@ export function NetworkHealthDashboard({ targets, events, loadError, isAdmin, di
         )}
       </section>
 
+      {selected ? <Detail target={selected} onClose={() => setSelectedId(null)} /> : null}
+
+      <NetworkHealthTrends targets={targets} samples={samples} />
+
+      <ReachabilityMap key={targets.map((target) => target.id).sort().join(":")} targets={targets} samples={samples} events={events} isAdmin={isAdmin} runnerId="raka-local-wsl" />
+
       <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
         <h2 className="text-section font-semibold">Recent health changes</h2>
         <p className="mt-2 text-text-secondary">Hanya perubahan status bermakna; bukan satu event untuk setiap ping.</p>
         {events.length ? <div className="mt-4 divide-y divide-border">{events.map((event) => <article className="py-3" key={event.id}><div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between"><div><p className="font-medium"><span className={severityColor(event.severity)}>●</span> {event.title}</p><p className="mt-1 text-meta text-text-secondary">{event.description}</p></div><time className="shrink-0 font-data text-meta text-text-muted">{formatTime(event.created_at)}</time></div></article>)}</div> : <p className="mt-4 text-text-muted">Belum ada perubahan status.</p>}
       </section>
 
-      {selected ? <Detail target={selected} onClose={() => setSelectedId(null)} /> : null}
       {isAdmin ? <NetworkDiscoveryDrawer open={discoveryOpen} onClose={() => setDiscoveryOpen(false)} runners={discoveryRunners} initialSessions={discoverySessions} targets={targets} trafficIps={trafficIps} /> : null}
     </>
   );

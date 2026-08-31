@@ -15,7 +15,7 @@ export type RunnerCapabilities = {
   targets: DiagnosticTarget[];
   durations: number[];
   traffic_durations_seconds?: number[];
-  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery" | "device_inspect")[];
+  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery" | "device_inspect" | "manual_ping")[];
   device_inspector?: { available: boolean; probe_engine?: string };
   snmp_telemetry?: {
     enabled: boolean;

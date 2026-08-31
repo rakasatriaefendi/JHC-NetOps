@@ -67,3 +67,10 @@ test("diagnostic-jobs persists only the normalized SNMP telemetry capability", (
   assert.match(source, /const snmpTelemetry = validateSnmpTelemetryCapability\(value\.snmp_telemetry\)/);
   assert.match(source, /\.\.\.\(snmpTelemetry\.value \? \{ snmp_telemetry: snmpTelemetry\.value \} : \{\}\)/);
 });
+
+test("diagnostic-jobs accepts the legacy operation set during manual-ping rollout", () => {
+  const source = readFileSync(new URL("../../supabase/functions/diagnostic-jobs/index.ts", import.meta.url), "utf8");
+  assert.match(source, /value\.operations\.length !== 4 && value\.operations\.length !== 5/);
+  assert.match(source, /allowedOperations\.has\(operation\)/);
+  assert.match(source, /value\.operations\.includes\("manual_ping"\)/);
+});

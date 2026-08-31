@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { publicCapabilities, validateJob, validatePreflightRequest, validateTrafficSession } from "../src/config.mjs";
+import { publicCapabilities, validateJob, validateManualPingJob, validatePreflightRequest, validateTrafficSession } from "../src/config.mjs";
 import { assertWslInvocation, buildAgentInvocation, buildTrafficInvocation, validateAgentEvent, validateTrafficEvent } from "../src/wsl.mjs";
 import { buildNetworkContextInvocation, validateNetworkProbe } from "../src/network-context.mjs";
 import { startHeartbeatLoop } from "../src/heartbeat.mjs";
@@ -55,7 +55,15 @@ test("human source is accepted while invalid target, duration, and connection ar
 
 test("capabilities expose only controlled fields", () => {
   assert.deepEqual(publicCapabilities(config).operations, ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"]);
+  assert.deepEqual(publicCapabilities({ ...config, enable_manual_ping: true }).operations, ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect", "manual_ping"]);
   assert.equal(publicCapabilities(config).targets[0].host, "127.0.0.1");
+});
+
+test("manual ping jobs contain only an exact runner-bound job and target ID", () => {
+  const job = validateManualPingJob({ id: rawJob.id, target_id: rawJob.id, runner_id: config.runner_id }, config);
+  assert.deepEqual(job, { id: rawJob.id, target_id: rawJob.id });
+  assert.throws(() => validateManualPingJob({ id: rawJob.id, target_id: "192.168.1.1", runner_id: config.runner_id }, config));
+  assert.throws(() => validateManualPingJob({ id: rawJob.id, target_id: rawJob.id, runner_id: "other-runner" }, config));
 });
 
 test("production capabilities hide localhost and Local Development", () => {

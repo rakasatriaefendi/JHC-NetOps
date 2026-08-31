@@ -28,7 +28,7 @@ type RunnerCapabilities = {
   targets: RunnerTarget[];
   durations: number[];
   traffic_durations_seconds: number[];
-  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery" | "device_inspect")[];
+  operations: ("bandwidth_and_path" | "traffic_live" | "network_discovery" | "device_inspect" | "manual_ping")[];
   device_inspector?: {
     schema_version: 1;
     available: true;
@@ -640,13 +640,14 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
   ) {
     return { ok: false, error: "Runner Traffic durations must be unique allow-listed values" };
   }
+  const requiredOperations = ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"] as const;
+  const allowedOperations = new Set<string>([...requiredOperations, "manual_ping"]);
   if (
     !Array.isArray(value.operations) ||
-    value.operations.length !== 4 ||
-    !value.operations.includes("bandwidth_and_path") ||
-    !value.operations.includes("traffic_live") ||
-    !value.operations.includes("network_discovery") ||
-    !value.operations.includes("device_inspect")
+    (value.operations.length !== 4 && value.operations.length !== 5) ||
+    !value.operations.every((operation) => typeof operation === "string" && allowedOperations.has(operation)) ||
+    new Set(value.operations).size !== value.operations.length ||
+    !requiredOperations.every((operation) => value.operations.includes(operation))
   ) {
     return { ok: false, error: "Runner operations are invalid" };
   }
@@ -687,7 +688,9 @@ function validateCapabilities(value: unknown): { ok: true; value: RunnerCapabili
       targets,
       durations,
       traffic_durations_seconds: trafficDurations,
-      operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
+      operations: value.operations.includes("manual_ping")
+        ? ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect", "manual_ping"]
+        : ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect"],
       ...(deviceInspector.value ? { device_inspector: deviceInspector.value } : {}),
       ...(snmpTelemetry.value ? { snmp_telemetry: snmpTelemetry.value } : {}),
     },

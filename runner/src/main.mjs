@@ -2,7 +2,7 @@ import path from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BackendClient } from "./backend.mjs";
-import { loadRunnerConfig, publicCapabilities, safeError, safeMessage, validateDiscoverySession, validateInspectionSession, validateJob, validatePreflightRequest, validateTrafficSession } from "./config.mjs";
+import { loadRunnerConfig, publicCapabilities, safeError, safeMessage, validateDiscoverySession, validateInspectionSession, validateJob, validateManualPingJob, validatePreflightRequest, validateTrafficSession } from "./config.mjs";
 import { collectNetworkContext } from "./network-context.mjs";
 import { collectDiscoveryContext, publicDiscoveryContext, runNetworkDiscovery } from "./network-discovery.mjs";
 import { collectInspectionContext, validateInspectionScope } from "./device-inspector.mjs";
@@ -82,22 +82,28 @@ if (config.enable_snmp_telemetry === true) {
 }
 try {
   do {
-    const rawPreflight = await backend.claimPreflight(config.runner_id).catch(() => null);
-    if (rawPreflight) await executePreflight(rawPreflight);
+    const rawManualPing = config.enable_manual_ping === true
+      ? await backend.claimManualPing(config.runner_id).catch(() => null)
+      : null;
+    if (rawManualPing) await executeManualPing(rawManualPing);
     else {
-      const rawJob = await backend.claim(config.runner_id).catch(() => null);
-      if (rawJob) await executeJob(rawJob);
+      const rawPreflight = await backend.claimPreflight(config.runner_id).catch(() => null);
+      if (rawPreflight) await executePreflight(rawPreflight);
       else {
-      const rawSession = await backend.claimTraffic(config.runner_id).catch(() => null);
-      if (rawSession) await executeTraffic(rawSession);
-      else {
-        const rawDiscovery = await backend.claimDiscovery(config.runner_id).catch(() => null);
-        if (rawDiscovery) await executeDiscovery(rawDiscovery);
+        const rawJob = await backend.claim(config.runner_id).catch(() => null);
+        if (rawJob) await executeJob(rawJob);
         else {
-          const rawInspection = await backend.claimInspection(config.runner_id).catch(() => null);
-          if (rawInspection) await executeInspection(rawInspection);
+          const rawSession = await backend.claimTraffic(config.runner_id).catch(() => null);
+          if (rawSession) await executeTraffic(rawSession);
+          else {
+            const rawDiscovery = await backend.claimDiscovery(config.runner_id).catch(() => null);
+            if (rawDiscovery) await executeDiscovery(rawDiscovery);
+            else {
+              const rawInspection = await backend.claimInspection(config.runner_id).catch(() => null);
+              if (rawInspection) await executeInspection(rawInspection);
+            }
+          }
         }
-      }
       }
     }
     if (!once) await delay(config.poll_interval_ms);
@@ -106,6 +112,24 @@ try {
   await healthWatch.stop();
   if (telemetryWatch) await telemetryWatch.stop();
   stopHeartbeat();
+}
+
+async function executeManualPing(rawJob) {
+  let job;
+  try { job = validateManualPingJob(rawJob, config); }
+  catch (error) {
+    if (rawJob?.id) await backend.failManualPing(config.runner_id, rawJob.id, "MANUAL_PING_FAILED").catch(() => {});
+    return;
+  }
+  try {
+    const result = await healthWatch.manualPing(job.target_id);
+    await backend.completeManualPing(config.runner_id, job.id, result);
+    log(`Manual ping ${job.id} completed for Health target ${job.target_id}`);
+  } catch (error) {
+    const code = error?.code === "MANUAL_PING_TARGET_UNAVAILABLE" ? error.code : "MANUAL_PING_FAILED";
+    await backend.failManualPing(config.runner_id, job.id, code).catch(() => {});
+    log(`Manual ping ${job.id} failed: ${code}`);
+  }
 }
 
 async function executePreflight(rawRequest) {
