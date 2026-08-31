@@ -6,6 +6,8 @@ import {
   findNetworkNode,
   networkNodeDisplayName,
   normalizeNetworkNodeIp,
+  normalizeNetworkNodeIpv4,
+  validateManualNetworkNodeInput,
   validateNetworkNodeInput,
   type NetworkNode,
 } from "../lib/network-nodes.ts";
@@ -55,6 +57,15 @@ test("node form requires a valid IP and non-empty name", () => {
   assert.equal(validateNetworkNodeInput({ ip_address: "192.168.2.3", name: "Router", device_type: "router", location: null, notes: null }), null);
   assert.match(validateNetworkNodeInput({ ip_address: "bad", name: "Router", device_type: null, location: null, notes: null }) ?? "", /IP/);
   assert.match(validateNetworkNodeInput({ ip_address: "192.168.2.3", name: " ", device_type: null, location: null, notes: null }) ?? "", /wajib/);
+});
+
+test("manual onboarding accepts one IPv4 host and rejects ranges, CIDR, IPv6, and malformed values", () => {
+  const input = { name: "Known server", device_type: "server" as const, location: null, notes: null };
+  assert.equal(normalizeNetworkNodeIpv4("192.168.001.020"), "192.168.1.20");
+  assert.equal(validateManualNetworkNodeInput({ ...input, ip_address: "192.168.1.20" }), null);
+  for (const value of ["192.168.1.0/24", "192.168.1.1-20", "2001:db8::1", "999.1.1.1", "host.local"]) {
+    assert.match(validateManualNetworkNodeInput({ ...input, ip_address: value }) ?? "", /IPv4 host/);
+  }
 });
 
 test("discovery identities support workstation and printer without a second inventory", () => {

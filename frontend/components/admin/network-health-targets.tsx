@@ -2,16 +2,35 @@
 
 import { useState } from "react";
 
-import { saveNetworkTargetAction } from "@/app/actions/admin";
+import { saveNetworkTargetAction } from "@/app/actions/devices";
 import { Button } from "@/components/ui/button";
 
 type Node = { id: string; name: string; ip_address: string; location: string | null };
 type Runner = { id: string; display_name: string };
-type Target = { id: string; node_id: string; runner_id: string; enabled: boolean; critical: boolean; probe_interval_seconds: number; timeout_ms: number; failure_threshold: number; recovery_threshold: number; latency_warning_ms: number; loss_warning_percent: number };
+type Target = {
+  id: string;
+  node_id: string;
+  runner_id: string;
+  enabled: boolean;
+  critical: boolean;
+  probe_interval_seconds: number;
+  timeout_ms: number;
+  failure_threshold: number;
+  recovery_threshold: number;
+  latency_warning_ms: number;
+  loss_warning_percent: number;
+};
 
-type Props = { nodes: Node[]; runners: Runner[]; targets: Target[]; notice?: string; error?: string };
+type Props = {
+  nodes: Node[];
+  runners: Runner[];
+  targets: Target[];
+  canManage: boolean;
+  notice?: string;
+  error?: string;
+};
 
-export function NetworkHealthTargets({ nodes, runners, targets, notice, error }: Props) {
+export function NetworkHealthTargets({ nodes, runners, targets, canManage, notice, error }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingTarget = targets.find((target) => target.id === editingId);
   const ready = nodes.length > 0 && runners.length > 0;
@@ -21,45 +40,63 @@ export function NetworkHealthTargets({ nodes, runners, targets, notice, error }:
       <p className="text-meta font-medium uppercase tracking-wide text-accent">Network Health Watch</p>
       <h2 className="mt-2 text-heading font-semibold">Known monitoring targets</h2>
       <p className="mt-2 max-w-3xl text-text-secondary">
-        Tambahkan target dari inventory resmi. Daftar di bawah hanya menjalankan ICMP dan tidak melakukan subnet scan.
+        Scheduled ICMP hanya berjalan untuk node inventory yang sudah diotorisasi. Tidak ada subnet scan dari halaman ini.
       </p>
       {notice ? <p className="mt-4 text-severity-low" role="status">Konfigurasi target tersimpan.</p> : null}
       {error ? <p className="mt-4 text-severity-critical" role="alert">Konfigurasi target gagal disimpan. Periksa nilai dan policy RLS.</p> : null}
 
-      {ready ? (
-        <div className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
-          <h3 className="text-section font-semibold">Tambah target monitoring</h3>
-          <p className="mt-1 text-meta text-text-muted">Pilih node dan runner, lalu sesuaikan threshold bila diperlukan.</p>
-          <TargetForm key={`create-${targets.length}`} nodes={nodes} runners={runners} />
-        </div>
-      ) : (
-        <div className="mt-6 rounded-panel border border-severity-medium bg-bg-surface p-4 text-text-secondary">
-          Butuh minimal satu network node dan satu diagnostic runner. Node inventory dapat dibuat dari pengelolaan label hop yang sudah ada.
-        </div>
-      )}
+      {canManage ? (
+        ready ? (
+          <div className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
+            <h3 className="text-section font-semibold">Tambah target monitoring</h3>
+            <p className="mt-1 text-meta text-text-muted">Pilih node inventory dan runner, lalu sesuaikan threshold bila diperlukan.</p>
+            <TargetForm key={`create-${targets.length}`} nodes={nodes} runners={runners} />
+          </div>
+        ) : (
+          <div className="mt-6 rounded-panel border border-severity-medium bg-bg-surface p-4 text-text-secondary">
+            Butuh minimal satu network node dan satu diagnostic runner.
+          </div>
+        )
+      ) : null}
 
       <div className="mt-8">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div><h3 className="text-section font-semibold">Daftar target</h3><p className="mt-1 text-meta text-text-muted">{targets.length} target dikonfigurasi</p></div>
-        </div>
+        <h3 className="text-section font-semibold">Daftar target</h3>
+        <p className="mt-1 text-meta text-text-muted">{targets.length} target dikonfigurasi</p>
         {targets.length === 0 ? (
           <div className="mt-4 rounded-control border border-border bg-bg-surface p-4 text-text-secondary">Belum ada target yang dikonfigurasi.</div>
         ) : (
-          <>
-            <div className="mt-4 hidden overflow-hidden rounded-control border border-border md:block">
-              <table className="w-full text-left">
-                <thead className="bg-bg-surface text-meta text-text-secondary"><tr><th className="p-3">Target</th><th className="p-3">Runner</th><th className="p-3">Monitoring</th><th className="p-3">Cadence</th><th className="p-3">Threshold</th><th className="p-3 text-right">Action</th></tr></thead>
-                <tbody>{targets.map((target) => <TargetRow key={target.id} target={target} node={nodes.find((node) => node.id === target.node_id)} runner={runners.find((runner) => runner.id === target.runner_id)} onEdit={() => setEditingId(target.id)} />)}</tbody>
-              </table>
-            </div>
-            <div className="mt-4 grid gap-3 md:hidden">{targets.map((target) => <TargetCard key={target.id} target={target} node={nodes.find((node) => node.id === target.node_id)} runner={runners.find((runner) => runner.id === target.runner_id)} onEdit={() => setEditingId(target.id)} />)}</div>
-          </>
+          <div className="mt-4 overflow-x-auto rounded-control border border-border">
+            <table className="w-full min-w-[760px] text-left">
+              <thead className="bg-bg-surface text-meta text-text-secondary">
+                <tr><th className="p-3">Target</th><th className="p-3">Runner</th><th className="p-3">Monitoring</th><th className="p-3">Cadence</th><th className="p-3">Threshold</th>{canManage ? <th className="p-3 text-right">Action</th> : null}</tr>
+              </thead>
+              <tbody>
+                {targets.map((target) => {
+                  const node = nodes.find((item) => item.id === target.node_id);
+                  const runner = runners.find((item) => item.id === target.runner_id);
+                  return (
+                    <tr className="border-t border-border bg-bg-base" key={target.id}>
+                      <td className="p-3"><p className="font-medium">{node?.name ?? "Unknown node"}</p><p className="mt-1 font-data text-meta text-text-muted">{node?.ip_address ?? "—"}{node?.location ? ` · ${node.location}` : ""}</p></td>
+                      <td className="p-3 text-text-secondary">{runner?.display_name ?? target.runner_id}</td>
+                      <td className="p-3"><MonitoringState target={target} /></td>
+                      <td className="p-3 font-data text-meta">{target.probe_interval_seconds}s · {target.timeout_ms}ms timeout</td>
+                      <td className="p-3 text-meta text-text-secondary">Offline {target.failure_threshold}x · recovery {target.recovery_threshold}x<br />Latency {target.latency_warning_ms}ms · loss {target.loss_warning_percent}%</td>
+                      {canManage ? <td className="p-3 text-right"><Button variant="secondary" onClick={() => setEditingId(target.id)}>Edit</Button></td> : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {editingTarget ? (
+      {canManage && editingTarget ? (
         <div className="mt-6 rounded-panel border border-accent bg-bg-surface p-4 md:p-6">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">Edit target</p><h3 className="mt-2 text-section font-semibold">{nodes.find((node) => node.id === editingTarget.node_id)?.name ?? "Unknown node"}</h3></div><Button variant="secondary" onClick={() => setEditingId(null)}>Batal</Button></div>
+          <div className="flex items-start justify-between gap-4">
+            <div><p className="text-meta font-medium uppercase tracking-wide text-accent">Edit target</p><h3 className="mt-2 text-section font-semibold">{nodes.find((node) => node.id === editingTarget.node_id)?.name ?? "Unknown node"}</h3></div>
+            <Button variant="secondary" onClick={() => setEditingId(null)}>Batal</Button>
+          </div>
           <TargetForm nodes={nodes} runners={runners} target={editingTarget} />
         </div>
       ) : null}
@@ -67,16 +104,8 @@ export function NetworkHealthTargets({ nodes, runners, targets, notice, error }:
   );
 }
 
-function TargetRow({ target, node, runner, onEdit }: { target: Target; node?: Node; runner?: Runner; onEdit: () => void }) {
-  return <tr className="border-t border-border bg-bg-base"><td className="p-3"><p className="font-medium">{node?.name ?? "Unknown node"}</p><p className="mt-1 font-data text-meta text-text-muted">{node?.ip_address ?? "—"}{node?.location ? ` · ${node.location}` : ""}</p></td><td className="p-3 text-text-secondary">{runner?.display_name ?? target.runner_id}</td><td className="p-3"><MonitoringState target={target} /></td><td className="p-3 font-data text-meta">{target.probe_interval_seconds}s · {target.timeout_ms}ms timeout</td><td className="p-3 text-meta text-text-secondary">Offline {target.failure_threshold}x · recovery {target.recovery_threshold}x<br />Latency {target.latency_warning_ms}ms · loss {target.loss_warning_percent}%</td><td className="p-3 text-right"><Button variant="secondary" onClick={onEdit}>Edit</Button></td></tr>;
-}
-
-function TargetCard({ target, node, runner, onEdit }: { target: Target; node?: Node; runner?: Runner; onEdit: () => void }) {
-  return <article className="rounded-control border border-border bg-bg-surface p-4"><div className="flex items-start justify-between gap-3"><div><h4 className="font-medium">{node?.name ?? "Unknown node"}</h4><p className="mt-1 font-data text-meta text-text-secondary">{node?.ip_address ?? "—"}</p></div><MonitoringState target={target} /></div><dl className="mt-4 grid grid-cols-2 gap-3 text-meta"><div><dt className="text-text-muted">Runner</dt><dd className="mt-1 text-text-secondary">{runner?.display_name ?? target.runner_id}</dd></div><div><dt className="text-text-muted">Cadence</dt><dd className="mt-1 font-data">{target.probe_interval_seconds}s</dd></div></dl><Button className="mt-4 w-full" variant="secondary" onClick={onEdit}>Edit target</Button></article>;
-}
-
 function MonitoringState({ target }: { target: Target }) {
-  return <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-meta font-medium ${target.enabled ? "bg-severity-low/10 text-severity-low" : "bg-text-muted/10 text-text-muted"}`}>● {target.enabled ? "Enabled" : "Disabled"}{target.critical ? " · Critical" : ""}</span>;
+  return <span className={`inline-flex rounded-full px-3 py-1 text-meta font-medium ${target.enabled ? "bg-severity-low/10 text-severity-low" : "bg-text-muted/10 text-text-muted"}`}>{target.enabled ? "Enabled" : "Disabled"}{target.critical ? " · Critical" : ""}</span>;
 }
 
 function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner[]; target?: Target }) {

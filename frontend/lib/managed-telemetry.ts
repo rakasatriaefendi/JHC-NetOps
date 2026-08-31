@@ -260,6 +260,26 @@ export async function loadManagedTelemetry(supabase: SupabaseClient) {
   return { data: rows, interfaces: (interfaces ?? []) as ManagedInterfaceLatest[], events: (events ?? []) as ManagedTelemetryEvent[], error: false };
 }
 
+export async function loadManagedTelemetryWorkspace(supabase: SupabaseClient) {
+  const [{ data: targets, error }, { data: interfaces, error: interfaceError }] = await Promise.all([
+    supabase.from("managed_telemetry_targets")
+      .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),managed_device_latest(status,sys_name,sys_descr,sys_object_id,uptime_seconds,manufacturer,model,serial_number,last_polled_at,last_success_at,consecutive_poll_failures,error_category,updated_at)")
+      .order("created_at", { ascending: true }),
+    supabase.from("managed_interface_latest").select("*"),
+  ]);
+  if (error || interfaceError) return { data: [], interfaces: [], error: true };
+  const rows = (targets ?? []).map((row): ManagedTelemetryTarget => {
+    const node = relation(row.network_nodes);
+    const latest = relation(row.managed_device_latest);
+    return {
+      ...row,
+      node: node as ManagedTelemetryTarget["node"],
+      latest: latest as ManagedDeviceLatest | null,
+    } as ManagedTelemetryTarget;
+  });
+  return { data: rows, interfaces: (interfaces ?? []) as ManagedInterfaceLatest[], error: false };
+}
+
 function relation(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   return Array.isArray(value) && value[0] && typeof value[0] === "object" ? value[0] as Record<string, unknown> : null;
