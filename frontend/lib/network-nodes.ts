@@ -92,6 +92,11 @@ export function normalizeNetworkNodeIp(value: string): string | null {
   }
 }
 
+export function normalizeNetworkNodeIpv4(value: string): string | null {
+  const normalized = normalizeNetworkNodeIp(value);
+  return normalized && !normalized.includes(":") ? normalized : null;
+}
+
 export function validateNetworkNodeInput(input: NetworkNodeInput): string | null {
   if (!normalizeNetworkNodeIp(input.ip_address)) return "IP address tidak valid.";
   if (!input.name.trim()) return "Nama node wajib diisi.";
@@ -102,6 +107,13 @@ export function validateNetworkNodeInput(input: NetworkNodeInput): string | null
     return "Device type tidak valid.";
   }
   return null;
+}
+
+export function validateManualNetworkNodeInput(input: NetworkNodeInput): string | null {
+  if (!normalizeNetworkNodeIpv4(input.ip_address)) {
+    return "IPv4 host wajib diisi tanpa subnet, range, atau CIDR.";
+  }
+  return validateNetworkNodeInput(input);
 }
 
 export function networkNodeTypeLabel(value: NetworkNodeType | null) {

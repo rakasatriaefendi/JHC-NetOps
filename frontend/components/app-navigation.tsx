@@ -13,6 +13,8 @@ const navigation = [
   { href: "/traffic", label: "Traffic" },
   { href: "/history", label: "History" },
   { href: "/alerts", label: "Alerts" },
+  { href: "/devices", label: "Devices" },
+  { href: "/snmp", label: "SNMP" },
   { href: "/diagnostics", label: "LAN Diagnostics" },
 ];
 
