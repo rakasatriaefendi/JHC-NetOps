@@ -30,8 +30,10 @@ test("scheduled and manual activity are transient without mutating persisted sta
   assert.match(source, /lastCheckedRef = useRef<string \| undefined>\(data\?\.lastCheckedAt\)/);
   assert.match(source, /lastCheckedAt === lastCheckedRef\.current/);
   assert.match(source, /manualPingActivityToken/);
-  assert.match(source, /dur="1\.6s" repeatCount="1"/);
-  assert.match(source, /prefersReducedMotion && isActive/);
+  assert.match(source, /requestAnimationFrame\(animate\)/);
+  assert.match(source, /motionPath\.getTotalLength\(\)/);
+  assert.match(source, /motionPath\.getPointAtLength\(distance\)/);
+  assert.match(source, /activityRun === 0 \|\|\s*prefersReducedMotion \|\|/);
   assert.doesNotMatch(source, /set.*latest|network_health_latest/);
 });
 
