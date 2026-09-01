@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { safeError } from "./config.mjs";
 import { pingProcessWallTimeout, pingTarget } from "./network-health.mjs";
+import { boundedDiscoveryRange, discoveryRangeAddresses, resolveNetworkScopes, selectPrimaryDiscoveryScope } from "./network-scope.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_PATH = path.join(RUNNER_ROOT, "scripts", "get-discovery-context.ps1");
@@ -71,15 +72,18 @@ export function validateDiscoveryContext(value) {
       isIP(context.local_ipv4) !== 4 || typeof context.subnet_cidr !== "string") {
     throw safeError("DISCOVERY_CONTEXT_INVALID");
   }
-  const [network, rawPrefix, extra] = context.subnet_cidr.split("/");
-  const prefix = Number(rawPrefix);
-  if (extra !== undefined || isIP(network) !== 4 || !Number.isInteger(prefix) || prefix < 24) {
-    throw safeError(prefix < 24 ? "DISCOVERY_SCOPE_TOO_LARGE" : "DISCOVERY_CONTEXT_INVALID");
-  }
-  if (prefix > 30 || Number(context.prefix_length) !== prefix || !sameSubnet(context.local_ipv4, network, prefix)) {
+  const resolution = resolveNetworkScopes(context.scope_inputs ?? legacyScopeInputs(context));
+  const primary = selectPrimaryDiscoveryScope(resolution, {
+    sourceIpv4: context.local_ipv4,
+    interfaceAlias: context.interface_alias,
+  });
+  if (!primary || primary.source_ipv4 !== context.local_ipv4 || primary.source_interface !== context.interface_alias ||
+      primary.cidr !== context.subnet_cidr || Number(context.prefix_length) !== primary.prefix_length) {
     throw safeError("DISCOVERY_CONTEXT_INVALID");
   }
-  const usable = new Set(usableAddresses(`${network}/${prefix}`));
+  const scanRange = boundedDiscoveryRange(primary);
+  const scanAddresses = discoveryRangeAddresses(scanRange);
+  const usable = new Set(scanAddresses);
   const rawNeighbors = Array.isArray(context.neighbors) ? context.neighbors : [];
   const filtered = rawNeighbors
     .filter((n) => {
@@ -88,21 +92,23 @@ export function validateDiscoveryContext(value) {
     })
     .map((n) => typeof n === "string" ? { ip: n, state: "Stale" } : { ip: n.ip, state: typeof n.state === "string" ? n.state : "Stale" });
   const neighbors = [...new Map(filtered.map((n) => [n.ip, n])).values()].slice(0, 254);
-  const neighborIps = neighbors.map((n) => n.ip);
   const defaultGateway = context.default_gateway === null || context.default_gateway === undefined
     ? null
-    : isIP(context.default_gateway) === 4 && sameSubnet(context.default_gateway, network, prefix)
+    : isIP(context.default_gateway) === 4 && sameSubnet(context.default_gateway, primary.cidr.split("/")[0], primary.prefix_length)
       ? context.default_gateway
       : null;
   return {
     connection_type: context.connection_type,
     interface_alias: context.interface_alias,
     local_ipv4: context.local_ipv4,
-    subnet_cidr: `${network}/${prefix}`,
-    prefix_length: prefix,
+    subnet_cidr: primary.cidr,
+    scan_start_ipv4: scanRange.start_ipv4,
+    scan_end_ipv4: scanRange.end_ipv4,
+    prefix_length: primary.prefix_length,
     default_gateway: defaultGateway,
     neighbors,
-    total_hosts: 2 ** (32 - prefix) - 2,
+    candidate_scopes: resolution.candidates,
+    total_hosts: scanRange.total_hosts,
   };
 }
 
@@ -112,6 +118,8 @@ export function publicDiscoveryContext(context) {
     interface_alias: context.interface_alias,
     local_ipv4: context.local_ipv4,
     subnet_cidr: context.subnet_cidr,
+    scan_start_ipv4: context.scan_start_ipv4,
+    scan_end_ipv4: context.scan_end_ipv4,
   };
 }
 
@@ -119,7 +127,10 @@ export async function runNetworkDiscovery(context, onProgress, options = {}) {
   const ping = options.ping ?? pingTarget;
   const concurrency = options.concurrency ?? DISCOVERY_CONCURRENCY;
   const timeoutMs = options.timeoutMs ?? PING_TIMEOUT_MS;
-  const addresses = usableAddresses(context.subnet_cidr);
+  const addresses = discoveryRangeAddresses({
+    start_ipv4: context.scan_start_ipv4,
+    end_ipv4: context.scan_end_ipv4,
+  });
   const results = new Map();
   const add = (ipAddress, evidence, latency = null, neighborState = null) => {
     const current = results.get(ipAddress);
@@ -201,6 +212,21 @@ export function usableAddresses(cidr) {
   const base = ipNumber(network);
   const count = 2 ** (32 - prefix);
   return Array.from({ length: count - 2 }, (_, index) => numberIp(base + index + 1));
+}
+
+function legacyScopeInputs(context) {
+  return {
+    default_interface_index: 1,
+    interfaces: [{
+      interface_index: 1,
+      interface_alias: context.interface_alias,
+      operational_status: "up",
+      interface_kind: "physical",
+      connection_type: context.connection_type,
+      addresses: [{ ip_address: context.local_ipv4, prefix_length: Number(context.prefix_length) }],
+    }],
+    routes: [],
+  };
 }
 
 function sortedResults(results) {
