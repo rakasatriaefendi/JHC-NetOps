@@ -12,6 +12,7 @@ import {
   interfaceSummary,
   interfaceWarnings,
   managedSystemIdentityFields,
+  observedHostInventoryName,
   validateManagedTelemetryForm,
 } from "../lib/managed-telemetry.ts";
 
@@ -56,6 +57,7 @@ const baseDevice = {
   consecutive_poll_failures: 0,
   error_category: null,
   updated_at: "2026-01-01T00:00:00Z",
+  observed_hosts_status: "available" as const,
 };
 
 test("managed system identity renders the persisted System Object ID", () => {
@@ -95,6 +97,28 @@ test("managed system identity keeps the existing responsive Device Profile layou
   assert.match(component, /<details className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta">/);
   assert.match(component, /<dl className="mt-3 grid gap-2 sm:grid-cols-2">/);
   assert.match(component, /managedSystemIdentityFields\(device\)\.map/);
+});
+
+test("observed host inventory names reuse an exact joined network node", () => {
+  const row = {
+    target_id: "target-1", node_id: "node-1", ip_address: "192.168.10.25",
+    mac_address: "00:11:22:33:44:55", netbios_name: "HOST-25",
+    observation_source: "ip_net_to_physical" as const, enrichment_status: "resolved" as const,
+    first_seen_at: "2026-01-01T00:00:00Z", last_seen_at: "2026-01-01T00:01:00Z",
+    status: "current" as const, updated_at: "2026-01-01T00:01:00Z",
+    network_nodes: { name: "Inventory host" },
+  };
+  assert.equal(observedHostInventoryName(row), "Inventory host");
+  assert.equal(observedHostInventoryName({ ...row, network_nodes: null }), null);
+});
+
+test("Observed LAN Hosts UI states NetBIOS is enrichment and not physical attachment proof", () => {
+  const component = readFileSync(new URL("../components/snmp/observed-lan-hosts.tsx", import.meta.url), "utf8");
+  assert.match(component, /Observed LAN Hosts/);
+  assert.match(component, /NetBIOS is (?:optional )?naming enrichment only/);
+  assert.match(component, /not proof of physical attachment|does not|neither signal proves a physical switch-port attachment/i);
+  assert.doesNotMatch(component, /fetch\(|scan|subnet/i);
+  assert.match(component, /overflow-x-auto/);
 });
 
 test("interfaceSummary distinguishes likely physical ports from logical interfaces", () => {

@@ -9,15 +9,20 @@ Never accepts arbitrary OIDs from the runner/backend — the OID set is fixed he
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .device_inspector import netbios_metadata
 from .snmp_transport import (
     OID_ENTITY_MIB,
     OID_IF_TABLE,
+    OID_IP_NET_TO_MEDIA,
+    OID_IP_NET_TO_PHYSICAL,
     OID_SYSTEM,
     MockSnmpTransport,
     SnmpCredentials,
@@ -31,6 +36,12 @@ from .snmp_transport import (
 LOGGER = logging.getLogger(__name__)
 
 SYS_UPTIME_TICKS_PER_SECOND = 100  # sysUpTime is in hundredths of a second
+MAX_OBSERVED_HOSTS = 256
+MAX_RAW_NEIGHBOR_ROWS = 512
+MAX_NETBIOS_ENRICHMENTS = 16
+NETBIOS_ENRICHMENT_CONCURRENCY = 4
+NETBIOS_ENRICHMENT_TIMEOUT_SECONDS = 0.5
+RFC1918_NETWORKS = tuple(ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 
 IF_COLUMN_TO_FIELD: dict[str, str] = {
     "ifDescr": "description",
@@ -43,15 +54,22 @@ IF_COLUMN_TO_FIELD: dict[str, str] = {
     "ifHCOutOctets": "out_octets",
     "ifInOctets": "in_octets",
     "ifOutOctets": "out_octets",
-    "ifHCInDiscards": "in_discards",
-    "ifHCOutDiscards": "out_discards",
     "ifInDiscards": "in_discards",
     "ifOutDiscards": "out_discards",
-    "ifHCInErrors": "in_errors",
-    "ifHCOutErrors": "out_errors",
     "ifInErrors": "in_errors",
     "ifOutErrors": "out_errors",
     "ifHighSpeed": "if_high_speed_mbps",
+}
+
+COUNTER_BITS_BY_COLUMN: dict[str, int] = {
+    "ifHCInOctets": 64,
+    "ifHCOutOctets": 64,
+    "ifInOctets": 32,
+    "ifOutOctets": 32,
+    "ifInDiscards": 32,
+    "ifOutDiscards": 32,
+    "ifInErrors": 32,
+    "ifOutErrors": 32,
 }
 
 
@@ -74,6 +92,27 @@ class InterfaceSample:
     out_discards: int | None = None
     in_errors: int | None = None
     out_errors: int | None = None
+    in_octets_bits: int | None = None
+    out_octets_bits: int | None = None
+    in_discards_bits: int | None = None
+    out_discards_bits: int | None = None
+    in_errors_bits: int | None = None
+    out_errors_bits: int | None = None
+
+
+@dataclass
+class ObservedLanHost:
+    """A host observed in a managed device neighbor table.
+
+    This is Layer-3 neighbor evidence only. It does not assert a physical port
+    attachment or inventory membership.
+    """
+
+    ip_address: str
+    mac_address: str | None = None
+    netbios_name: str | None = None
+    observation_source: str = "ip_net_to_physical"
+    enrichment_status: str = "not_attempted"
 
 
 @dataclass
@@ -94,11 +133,11 @@ class SnmpTelemetryPoll:
     sys_up_time_seconds: int | None = None
     error: str | None = None
     error_category: str | None = None
+    observed_hosts: list[ObservedLanHost] = field(default_factory=list)
+    observed_hosts_status: str = "unsupported"
 
     @property
     def status(self) -> str:
-        if self.error:
-            return self.error_category or "poll_failed"
         return self.result.status
 
     def to_payload(self) -> dict[str, Any]:
@@ -123,8 +162,10 @@ class SnmpTelemetryPoll:
                 "last_polled_at": _utc_now_iso(),
                 "error": self.error,
                 "error_category": self.error_category,
+                "observed_hosts_status": self.observed_hosts_status,
             },
             "interfaces": [asdict(i) for i in self.interfaces],
+            "observed_hosts": [asdict(host) for host in self.observed_hosts],
         }
 
 
@@ -137,6 +178,8 @@ def collect_telemetry(
     transport: SnmpTransport | MockSnmpTransport | None = None,
     emit: Callable[[dict[str, object]], None] | None = None,
     timeout_seconds: float = 3.0,
+    netbios_lookup: Callable[..., dict[str, str] | None] = netbios_metadata,
+    netbios_offset: int = 0,
 ) -> SnmpResult:
     """Collect SNMP telemetry from one device using a FIXED OID set.
 
@@ -165,12 +208,188 @@ def collect_telemetry(
     # --- Entity-MIB (optional) ---
     _collect_entity_mib(transport, result)
 
+    # --- Neighbor evidence + optional naming enrichment ---
+    # Membership comes only from fixed SNMP neighbor tables. NetBIOS is never
+    # allowed to create a host observation by itself.
+    result.observed_hosts, result.observed_hosts_status = _collect_observed_hosts(
+        transport, netbios_lookup, netbios_offset
+    )
+
     # Normalize manufacturer/model from sysDescr if Entity-MIB didn't provide
     if result.manufacturer is None or result.model is None:
         _infer_from_sys_descr(result)
 
     emit_event({"type": "poll_complete", "interface_count": len(result.interfaces), "status": result.status})
     return result
+
+
+def _collect_observed_hosts(
+    transport: SnmpTransport | MockSnmpTransport,
+    netbios_lookup: Callable[..., dict[str, str] | None],
+    netbios_offset: int = 0,
+) -> tuple[list[ObservedLanHost], str]:
+    # ipNetToPhysicalNetAddress is a not-accessible index object. Walk the
+    # readable physical-address column and decode IPv4 from its OID index.
+    primary_rows = transport.walk(
+        OID_IP_NET_TO_PHYSICAL["physAddress"], max_rows=MAX_RAW_NEIGHBOR_ROWS
+    )
+    if _walk_unsupported(primary_rows):
+        legacy_addresses = transport.walk(
+            OID_IP_NET_TO_MEDIA["netAddress"], max_rows=MAX_RAW_NEIGHBOR_ROWS
+        )
+        if _walk_unsupported(legacy_addresses):
+            return [], "unsupported"
+        hosts = _normalize_neighbor_table(
+            legacy_addresses,
+            transport.walk(OID_IP_NET_TO_MEDIA["physAddress"], max_rows=MAX_RAW_NEIGHBOR_ROWS),
+            OID_IP_NET_TO_MEDIA["netAddress"],
+            "ip_net_to_media",
+        )
+    else:
+        hosts = _normalize_neighbor_table(
+            primary_rows,
+            primary_rows,
+            OID_IP_NET_TO_PHYSICAL["physAddress"],
+            "ip_net_to_physical",
+        )
+    if not hosts:
+        return [], "empty"
+
+    attempted = _select_netbios_candidates(hosts, netbios_offset)
+    with ThreadPoolExecutor(max_workers=NETBIOS_ENRICHMENT_CONCURRENCY) as pool:
+        futures = {
+            pool.submit(
+                netbios_lookup,
+                host.ip_address,
+                timeout_seconds=NETBIOS_ENRICHMENT_TIMEOUT_SECONDS,
+            ): host
+            for host in attempted
+        }
+        for future in as_completed(futures):
+            host = futures[future]
+            try:
+                metadata = future.result()
+            except Exception:
+                metadata = None
+            hostname = metadata.get("hostname") if isinstance(metadata, dict) else None
+            if isinstance(hostname, str) and hostname.strip():
+                host.netbios_name = hostname.strip()[:15]
+                host.enrichment_status = "resolved"
+            else:
+                host.enrichment_status = "unavailable"
+    status = "available" if all(host.enrichment_status == "resolved" for host in hosts) else "partial"
+    return hosts, status
+
+
+def _select_netbios_candidates(
+    hosts: list[ObservedLanHost],
+    offset: int,
+) -> list[ObservedLanHost]:
+    """Select one bounded rotating batch from SNMP-observed hosts only."""
+    eligible = [host for host in hosts if _netbios_unicast_candidate(host.ip_address)]
+    if not eligible:
+        return []
+    safe_offset = offset if isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0 else 0
+    start = safe_offset % len(eligible)
+    count = min(MAX_NETBIOS_ENRICHMENTS, len(eligible))
+    return [eligible[(start + index) % len(eligible)] for index in range(count)]
+
+
+def _netbios_unicast_candidate(ip_address: str) -> bool:
+    """Avoid common IPv4 subnet/network broadcast endings for UDP enrichment."""
+    final_octet = int(ip_address.rsplit(".", 1)[1])
+    return final_octet not in (0, 255)
+
+
+def _walk_unsupported(walked: Any) -> bool:
+    if not isinstance(walked, dict) or "error" in walked:
+        return True
+    return bool(walked) and all(value is None for value in walked.values())
+
+
+def _normalize_neighbor_table(
+    addresses: dict[str, Any],
+    physical_addresses: dict[str, Any],
+    address_oid: str,
+    source: str,
+) -> list[ObservedLanHost]:
+    mac_by_suffix: dict[str, str | None] = {}
+    if isinstance(physical_addresses, dict) and "error" not in physical_addresses:
+        for oid, value in physical_addresses.items():
+            suffix = _oid_suffix(oid, OID_IP_NET_TO_PHYSICAL["physAddress"] if source == "ip_net_to_physical" else OID_IP_NET_TO_MEDIA["physAddress"])
+            if suffix is not None:
+                mac_by_suffix[suffix] = _normalize_mac(value)
+
+    by_ip: dict[str, ObservedLanHost] = {}
+    for oid, value in addresses.items():
+        suffix = _oid_suffix(oid, address_oid)
+        if suffix is None:
+            continue
+        ip = _normalize_neighbor_ip(value, suffix, source)
+        if ip is None:
+            continue
+        mac = mac_by_suffix.get(suffix)
+        current = by_ip.get(ip)
+        if current is None:
+            by_ip[ip] = ObservedLanHost(ip_address=ip, mac_address=mac, observation_source=source)
+        elif current.mac_address is None and mac is not None:
+            current.mac_address = mac
+    sorted_private_ips = sorted(
+        by_ip,
+        key=lambda item: tuple(int(part) for part in item.split(".")),
+    )
+    return [by_ip[ip] for ip in sorted_private_ips[:MAX_OBSERVED_HOSTS]]
+
+
+def _oid_suffix(oid: str, base: str) -> str | None:
+    prefix = f"{base}."
+    return oid[len(prefix):] if isinstance(oid, str) and oid.startswith(prefix) else None
+
+
+def _normalize_neighbor_ip(value: Any, suffix: str, source: str) -> str | None:
+    candidates: list[Any] = [value]
+    parts = suffix.split(".")
+    if source == "ip_net_to_physical" and len(parts) >= 7:
+        try:
+            if int(parts[-6]) == 1 and int(parts[-5]) == 4:
+                candidates.append(".".join(parts[-4:]))
+        except ValueError:
+            pass
+    elif source == "ip_net_to_media" and len(parts) >= 5:
+        candidates.append(".".join(parts[-4:]))
+    for candidate in candidates:
+        try:
+            text = str(candidate).strip()
+            if text.lower().startswith("0x") and len(text) == 10:
+                text = ".".join(str(byte) for byte in bytes.fromhex(text[2:]))
+            address = ipaddress.ip_address(text)
+            if (
+                address.version == 4
+                and any(address in network for network in RFC1918_NETWORKS)
+                and not address.is_loopback
+                and not address.is_link_local
+                and not address.is_multicast
+                and not address.is_unspecified
+            ):
+                return str(address)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _normalize_mac(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        raw = value.hex()
+    else:
+        raw = str(value).strip().lower()
+        if raw.startswith("0x"):
+            raw = raw[2:]
+        raw = "".join(char for char in raw if char in "0123456789abcdef")
+    if len(raw) != 12 or raw == "000000000000":
+        return None
+    return ":".join(raw[index:index + 2] for index in range(0, 12, 2))
 
 
 def _collect_system_group(
@@ -223,6 +442,15 @@ def _collect_interfaces(
                 continue
             if if_index not in interface_data:
                 interface_data[if_index] = {"if_index": if_index}
+            counter_bits = COUNTER_BITS_BY_COLUMN.get(col_name)
+            if counter_bits is not None:
+                if _to_int(value) is None:
+                    continue
+                bits_field = f"{target_field}_bits"
+                existing_bits = interface_data[if_index].get(bits_field)
+                if existing_bits is not None and existing_bits >= counter_bits:
+                    continue
+                interface_data[if_index][bits_field] = counter_bits
             interface_data[if_index][target_field] = value
 
     samples: list[InterfaceSample] = []
@@ -230,6 +458,15 @@ def _collect_interfaces(
         raw = interface_data[if_index]
         samples.append(_build_interface_sample(raw))
 
+    optional_fields = (
+        "speed_bps", "in_octets", "out_octets", "in_discards",
+        "out_discards", "in_errors", "out_errors",
+    )
+    result.partial_interface_telemetry = any(
+        getattr(sample, field_name) is None
+        for sample in samples
+        for field_name in optional_fields
+    )
     return samples
 
 
@@ -277,7 +514,20 @@ def _build_interface_sample(raw: dict[str, Any]) -> InterfaceSample:
         out_discards=_to_int(raw.get("out_discards")),
         in_errors=_to_int(raw.get("in_errors")),
         out_errors=_to_int(raw.get("out_errors")),
+        in_octets_bits=_counter_bits(raw, "in_octets"),
+        out_octets_bits=_counter_bits(raw, "out_octets"),
+        in_discards_bits=_counter_bits(raw, "in_discards"),
+        out_discards_bits=_counter_bits(raw, "out_discards"),
+        in_errors_bits=_counter_bits(raw, "in_errors"),
+        out_errors_bits=_counter_bits(raw, "out_errors"),
     )
+
+
+def _counter_bits(raw: dict[str, Any], field_name: str) -> int | None:
+    if _to_int(raw.get(field_name)) is None:
+        return None
+    bits = raw.get(f"{field_name}_bits")
+    return bits if bits in (32, 64) else None
 
 
 def _collect_entity_mib(
@@ -352,9 +602,13 @@ def snmp_telemetry_poll(
     transport: SnmpTransport | MockSnmpTransport | None = None,
     emit: Callable[[dict[str, object]], None] | None = None,
     timeout_seconds: float = 3.0,
+    netbios_lookup: Callable[..., dict[str, str] | None] = netbios_metadata,
+    netbios_offset: int = 0,
 ) -> SnmpTelemetryPoll:
     """High-level entry point: run a full telemetry poll and wrap in SnmpTelemetryPoll."""
-    result = collect_telemetry(credentials, transport, emit, timeout_seconds)
+    result = collect_telemetry(
+        credentials, transport, emit, timeout_seconds, netbios_lookup, netbios_offset
+    )
     return SnmpTelemetryPoll(
         target_id=target_id,
         runner_id=runner_id,
@@ -370,6 +624,8 @@ def snmp_telemetry_poll(
         sys_up_time_seconds=_ticks_to_seconds(result.sys_up_time_ticks),
         error=result.error,
         error_category=result.error_category,
+        observed_hosts=result.observed_hosts,
+        observed_hosts_status=result.observed_hosts_status,
     )
 
 

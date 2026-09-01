@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { normalizeObservedHosts, prepareObservedHostRows } from "./observed-hosts.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,7 @@ const OPER_STATUS = new Set(["up", "down", "testing", "unknown"]);
 const SEVERITY = new Set(["low", "medium", "high", "critical"]);
 const EVENT_KINDS = new Set(["interface_down", "interface_up", "speed_changed", "errors_threshold", "discards_threshold", "utilization_high", "utilization_recovered"]);
 const RECOVERY_KINDS = new Set(["interface_up", "utilization_recovered"]);
+const OBSERVED_HOSTS_STATUS = new Set(["available", "empty", "partial", "unsupported"]);
 const SECRET_KEY = /"(?:password|passwd|secret|community|auth_password|priv_password|snmp2c_community_encrypted|credential)\s*"/i;
 
 Deno.serve(async (request) => {
@@ -55,15 +57,19 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
   const device = record(body.device) ? body.device : null;
   const interfaces = Array.isArray(body.interfaces) ? body.interfaces : [];
   const transitions = Array.isArray(body.transitions) ? body.transitions : [];
+  const observedHosts = body.observed_hosts === undefined
+    ? normalizeObservedHosts([], String(device?.target_id ?? ""))
+    : normalizeObservedHosts(body.observed_hosts, String(device?.target_id ?? ""));
   if (!device || !validDevice(device)) return reply({ error: "Managed telemetry device payload is invalid" }, 400);
   if (interfaces.length > 200 || !interfaces.every(validInterface)) return reply({ error: "Managed telemetry interface payload is invalid" }, 400);
   if (transitions.length > 100 || !transitions.every(validTransition)) return reply({ error: "Managed telemetry event payload is invalid" }, 400);
+  if (!observedHosts) return reply({ error: "Managed telemetry observed host payload is invalid" }, 400);
   const targetId = device.target_id as string;
   if (!uuid(targetId)) return reply({ error: "Managed telemetry device payload is invalid" }, 400);
   if (!interfaces.every((item) => (item as Record<string, unknown>).target_id === targetId)) return reply({ error: "Managed telemetry interface target mismatch" }, 400);
   if (!transitions.every((item) => (item as Record<string, unknown>).target_id === targetId)) return reply({ error: "Managed telemetry event target mismatch" }, 400);
-  const encoded = JSON.stringify({ device, interfaces, transitions });
-  if (new TextEncoder().encode(encoded).byteLength > 64 * 1024 || SECRET_KEY.test(encoded)) return reply({ error: "Managed telemetry payload is invalid" }, 400);
+  const encoded = JSON.stringify({ device, interfaces, transitions, observed_hosts: observedHosts });
+  if (new TextEncoder().encode(encoded).byteLength > 128 * 1024 || SECRET_KEY.test(encoded)) return reply({ error: "Managed telemetry payload is invalid" }, 400);
 
   const { data: allowed, error: targetError } = await db.from("managed_telemetry_targets")
     .select("id").eq("runner_id", body.runner_id).eq("enabled", true).eq("id", targetId);
@@ -79,6 +85,7 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
     last_polled_at: device.last_polled_at ?? now, last_success_at: device.last_success_at ?? null,
     consecutive_poll_failures: device.consecutive_poll_failures ?? 0,
     error_category: device.error_category ?? null, updated_at: now,
+    observed_hosts_status: device.observed_hosts_status ?? "unsupported",
   };
   const { error: deviceError } = await db.from("managed_device_latest").upsert(deviceRow, { onConflict: "target_id" });
   if (deviceError) return reply({ error: "Latest managed device state could not be stored" }, 500);
@@ -107,6 +114,29 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
   const { error: staleError } = await staleQuery;
   if (staleError) return reply({ error: "Stale managed interface state could not be removed" }, 500);
 
+  const observedIps = observedHosts.map((host) => host.ip_address);
+  const [{ data: existingHosts, error: existingHostsError }, inventoryResult] = await Promise.all([
+    db.from("managed_observed_hosts_latest").select("ip_address,first_seen_at,netbios_name,enrichment_status").eq("target_id", targetId),
+    observedIps.length
+      ? db.from("network_nodes").select("id,ip_address").in("ip_address", observedIps)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (existingHostsError || inventoryResult.error) return reply({ error: "Managed observed host state could not be prepared" }, 500);
+  const observedRows = prepareObservedHostRows(
+    observedHosts, targetId, now,
+    (existingHosts ?? []) as { ip_address: string; first_seen_at: string; netbios_name: string | null; enrichment_status: "resolved" | "unavailable" | "not_attempted" }[],
+    (inventoryResult.data ?? []) as { id: string; ip_address: string }[],
+  );
+  if (observedRows.current.length) {
+    const { error } = await db.from("managed_observed_hosts_latest").upsert(observedRows.current, { onConflict: "target_id,ip_address" });
+    if (error) return reply({ error: "Latest managed observed host state could not be stored" }, 500);
+  }
+  for (const row of observedRows.stale) {
+    const { error } = await db.from("managed_observed_hosts_latest").update({ status: row.status, updated_at: row.updated_at })
+      .eq("target_id", row.target_id).eq("ip_address", row.ip_address);
+    if (error) return reply({ error: "Stale managed observed host state could not be stored" }, 500);
+  }
+
   let inserted = 0;
   const transitionIds = transitions.map((item) => (item as Record<string, unknown>).event_id as string);
   const { data: existing, error: existingError } = transitionIds.length
@@ -123,7 +153,7 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
     if (eventError && eventError.code !== "23505") return reply({ error: "Managed telemetry event could not be stored" }, 500);
     if (!eventError) inserted += 1;
   }
-  return reply({ data: { devices: 1, interfaces: interfaceRows.length, events: inserted } }, 200);
+  return reply({ data: { devices: 1, interfaces: interfaceRows.length, observed_hosts: observedRows.current.length, events: inserted } }, 200);
 }
 
 async function resolveOpenEvents(db: ReturnType<typeof createClient>, targetId: string, kind: string, context: unknown, occurredAt: string) {
@@ -149,6 +179,7 @@ function managedEvent(item: Record<string, unknown>, targetId: string) {
 
 function validDevice(value: unknown): value is Record<string, unknown> {
   if (!record(value) || !uuid(value.target_id) || !DEVICE_STATUS.has(String(value.status))) return false;
+  if (!OBSERVED_HOSTS_STATUS.has(String(value.observed_hosts_status ?? "unsupported"))) return false;
   if (!nullableDate(value.last_polled_at) || !nullableDate(value.last_success_at) || !nullableInteger(value.consecutive_poll_failures, 0, 1000000)) return false;
   if (value.error_category !== null && value.error_category !== undefined && !ERROR_CATEGORY.has(String(value.error_category))) return false;
   if (value.uptime_seconds !== null && value.uptime_seconds !== undefined && !integer(value.uptime_seconds, 0, 2 ** 53)) return false;

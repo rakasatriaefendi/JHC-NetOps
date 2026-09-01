@@ -12,7 +12,15 @@ const TARGET_REFRESH_MS = 60_000;
 const MAX_BACKOFF_MS = 60_000;
 const MAX_PENDING_EVENTS = 100;
 const MAX_IF_INDEX = 2147483647;
+const MAX_INTERFACE_DELTA = 2 ** 31;
 const MAX_POLL_TIMEOUT_MS = 60_000;
+const MAX_OBSERVED_HOSTS = 256;
+const MAX_NETBIOS_ENRICHMENTS = 16;
+const COUNTER32_MAX = 0xFFFFFFFF;
+const COUNTER32_WRAP_HIGH_WATER = 0xF0000000;
+const COUNTER32_WRAP_LOW_WATER = 0x0FFFFFFF;
+const MAX_BASELINE_INTERVALS = 3;
+const MAX_RATE_TO_SPEED_RATIO = 2;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class ManagedTelemetryWatch {
@@ -29,7 +37,7 @@ export class ManagedTelemetryWatch {
     const cachedTargets = Array.isArray(cache.cachedTargets) ? cache.cachedTargets.filter((target) => validTelemetryTarget(target, config)) : [];
     this.targets = new Map(cachedTargets.map((target) => [target.id, target]));
     this.states = cache.states && typeof cache.states === "object" ? cache.states : {};
-    this.pendingEvents = Array.isArray(cache.pendingEvents) ? cache.pendingEvents : [];
+    this.pendingEvents = Array.isArray(cache.pendingEvents) ? cache.pendingEvents.slice(-MAX_PENDING_EVENTS) : [];
     this.inFlight = new Map();
     this.timer = null;
     this.running = false;
@@ -91,6 +99,7 @@ export class ManagedTelemetryWatch {
     const controller = new AbortController();
     this.inFlight.set(target.id, controller);
     try {
+      const netbiosOffset = this.stateFor(target.id).netbiosCursor;
       const profile = resolveSnmpProfile(this.config, target.credential_profile_ref);
       if (!profile) {
         this.applyFailure(target, "not_configured", "SNMP_PROFILE_MISSING", this.now());
@@ -107,9 +116,9 @@ export class ManagedTelemetryWatch {
           if (event.payload.target_id !== target.id || event.payload.ip_address !== target.ip_address) throw safeError("AGENT_PROTOCOL_ERROR");
           result = event.payload;
         }
-      }, Math.min(MAX_POLL_TIMEOUT_MS, target.poll_interval_seconds * 1000) + 5_000);
+      }, Math.min(MAX_POLL_TIMEOUT_MS, target.poll_interval_seconds * 1000) + 5_000, netbiosOffset);
       if (!result) throw safeError("AGENT_PROTOCOL_ERROR");
-      this.applyResult(target, result, this.now());
+      this.applyResult(target, result, this.now(), netbiosOffset);
     } catch (error) {
       if (!controller.signal.aborted) {
         const code = error?.code === "SNMP_TIMEOUT" ? "timeout" : "poll_failed";
@@ -118,27 +127,37 @@ export class ManagedTelemetryWatch {
     } finally { this.inFlight.delete(target.id); }
   }
 
-  applyResult(target, payload, now = this.now()) {
+  applyResult(target, payload, now = this.now(), netbiosOffset = null) {
     const state = this.stateFor(target.id);
     const device = payload.device;
     const previous = state.lastPoll;
     const rebooted = Boolean(previous?.uptime_seconds != null && device.uptime_seconds != null && device.uptime_seconds < previous.uptime_seconds);
     const interfaces = [];
+    const evaluations = [];
     for (const item of payload.interfaces) {
-      const row = this.interfaceRow(target, item, state.counters?.[item.if_index] ?? null, now, rebooted);
+      const previousCounter = state.counters?.[item.if_index] ?? null;
+      const compatible = !rebooted && compatibleCounterBaseline(previousCounter, item, now, target.poll_interval_seconds);
+      if (previousCounter && !compatibleInterfaceIdentity(previousCounter, item)) delete state.alertConditions[item.if_index];
+      const row = this.interfaceRow(target, item, compatible ? previousCounter : null, now, rebooted);
       interfaces.push(row);
+      evaluations.push({ row, previousCounter, compatible, rebooted });
       state.counters[item.if_index] = { in_octets: item.in_octets, out_octets: item.out_octets,
         in_errors: item.in_errors, out_errors: item.out_errors,
         in_discards: item.in_discards, out_discards: item.out_discards,
+        in_octets_bits: item.in_octets_bits, out_octets_bits: item.out_octets_bits,
+        in_errors_bits: item.in_errors_bits, out_errors_bits: item.out_errors_bits,
+        in_discards_bits: item.in_discards_bits, out_discards_bits: item.out_discards_bits,
+        name: item.name ?? null, description: item.description ?? null,
+        if_type: item.if_type ?? null, is_physical: item.is_physical === true,
         speed_bps: item.speed_bps, ts: now };
     }
-    for (const id of Object.keys(state.counters)) if (!payload.interfaces.some((item) => item.if_index === Number(id))) delete state.counters[id];
-    if (previous?.interfaces) {
-      for (const row of interfaces) {
-        const prev = previous.interfaces.find((item) => item.if_index === row.if_index);
-        if (prev) this.detectTransitions(target, prev, row, now);
+    for (const id of Object.keys(state.counters)) {
+      if (!payload.interfaces.some((item) => item.if_index === Number(id))) {
+        delete state.counters[id];
+        delete state.alertConditions[id];
       }
     }
+    for (const evaluation of evaluations) this.detectTransitions(target, evaluation, now);
     const failed = device.status !== "connected" && device.status !== "partial";
     state.lastPoll = { uptime_seconds: device.uptime_seconds, interfaces: interfaces.map((row) => ({
       if_index: row.if_index, admin_status: row.admin_status, oper_status: row.oper_status, speed_bps: row.speed_bps,
@@ -157,8 +176,14 @@ export class ManagedTelemetryWatch {
       last_success_at: failed ? null : new Date(now).toISOString(),
       consecutive_poll_failures: failed ? (state.device?.consecutive_poll_failures ?? 0) + 1 : 0,
       error_category: device.error_category ?? null,
+      observed_hosts_status: device.observed_hosts_status,
     };
     state.interfaces = interfaces;
+    state.observedHosts = payload.observed_hosts.map((host) => ({ ...host, target_id: target.id }));
+    state.netbiosCursor = nextNetbiosCursor(
+      netbiosOffset ?? state.netbiosCursor,
+      payload.observed_hosts,
+    );
     state.dirty = true;
     state.nextPollAt = now + target.poll_interval_seconds * 1000;
     if (!state.sawFirst) { state.sawFirst = true; this.publishDueAt = 0; }
@@ -184,8 +209,10 @@ export class ManagedTelemetryWatch {
       consecutive_poll_failures: (previous?.consecutive_poll_failures ?? 0) + 1,
       error_category: errorCategory(status),
       error: safeError(code).message,
+      observed_hosts_status: previous?.observed_hosts_status ?? "unsupported",
     };
     state.interfaces = [];
+    state.observedHosts = [];
     state.dirty = true;
     state.nextPollAt = now + target.poll_interval_seconds * 1000;
     if (!state.sawFirst) { state.sawFirst = true; this.publishDueAt = 0; }
@@ -194,13 +221,13 @@ export class ManagedTelemetryWatch {
 
   interfaceRow(target, item, prev, now, rebooted) {
     const elapsed = prev ? (now - prev.ts) / 1000 : null;
-    const inDelta = !rebooted && prev ? counterDelta(prev.in_octets, item.in_octets) : null;
-    const outDelta = !rebooted && prev ? counterDelta(prev.out_octets, item.out_octets) : null;
-    const rxRate = inDelta === null || elapsed == null || elapsed <= 0 ? null : inDelta * 8 / elapsed;
-    const txRate = outDelta === null || elapsed == null || elapsed <= 0 ? null : outDelta * 8 / elapsed;
+    const inDelta = !rebooted && prev ? counterDelta(prev.in_octets, item.in_octets, item.in_octets_bits) : null;
+    const outDelta = !rebooted && prev ? counterDelta(prev.out_octets, item.out_octets, item.out_octets_bits) : null;
     const speed = item.speed_bps && item.speed_bps > 0 ? item.speed_bps : null;
-    const rxUtil = rxRate === null || speed === null ? null : Math.min(100, rxRate / speed * 100);
-    const txUtil = txRate === null || speed === null ? null : Math.min(100, txRate / speed * 100);
+    const rxRate = plausibleRate(inDelta, elapsed, speed);
+    const txRate = plausibleRate(outDelta, elapsed, speed);
+    const rxUtil = rxRate === null || speed === null || rxRate > speed ? null : rxRate / speed * 100;
+    const txUtil = txRate === null || speed === null || txRate > speed ? null : txRate / speed * 100;
     return {
       target_id: target.id,
       if_index: item.if_index,
@@ -219,68 +246,112 @@ export class ManagedTelemetryWatch {
       tx_errors_cumulative: item.out_errors ?? null,
       in_discards_cumulative: item.in_discards ?? null,
       out_discards_cumulative: item.out_discards ?? null,
-      rx_errors_delta: prev && !rebooted ? simpleDelta(prev.in_errors, item.in_errors) : null,
-      tx_errors_delta: prev && !rebooted ? simpleDelta(prev.out_errors, item.out_errors) : null,
-      in_discards_delta: prev && !rebooted ? simpleDelta(prev.in_discards, item.in_discards) : null,
-      out_discards_delta: prev && !rebooted ? simpleDelta(prev.out_discards, item.out_discards) : null,
+      rx_errors_delta: prev && !rebooted ? interfaceDelta(prev.in_errors, item.in_errors, item.in_errors_bits) : null,
+      tx_errors_delta: prev && !rebooted ? interfaceDelta(prev.out_errors, item.out_errors, item.out_errors_bits) : null,
+      in_discards_delta: prev && !rebooted ? interfaceDelta(prev.in_discards, item.in_discards, item.in_discards_bits) : null,
+      out_discards_delta: prev && !rebooted ? interfaceDelta(prev.out_discards, item.out_discards, item.out_discards_bits) : null,
       last_polled_at: new Date(now).toISOString(),
     };
   }
 
-  detectTransitions(target, prev, row, now) {
+  detectTransitions(target, evaluation, now) {
+    const { row, previousCounter, compatible, rebooted } = evaluation;
+    const state = this.stateFor(target.id);
+    const condition = alertConditionFor(state, row.if_index);
     const occurredAt = new Date(now).toISOString();
-    if (prev.oper_status === "up" && row.oper_status === "down") {
-      this.pushEvent(target, "interface_down", "high", `Interface ${row.name ?? `#${row.if_index}`} is down`,
-        `Operational status changed from up to down on interface ${row.name ?? `ifIndex ${row.if_index}`}.`,
-        { target_id: target.id, if_index: row.if_index, name: row.name ?? null }, occurredAt);
-    } else if (prev.oper_status === "down" && row.oper_status === "up") {
-      this.pushEvent(target, "interface_up", "low", `Interface ${row.name ?? `#${row.if_index}`} recovered`,
-        `Operational status changed from down to up on interface ${row.name ?? `ifIndex ${row.if_index}`}.`,
-        { target_id: target.id, if_index: row.if_index, name: row.name ?? null }, occurredAt);
+    if (rebooted) {
+      condition.interfaceDown.consecutive = 0;
+      if (!condition.utilization.active) condition.utilization.highSince = null;
+      return;
     }
-    if (prev.speed_bps && row.speed_bps && prev.speed_bps !== row.speed_bps) {
-      this.pushEvent(target, "speed_changed", "low", `Interface ${row.name ?? `#${row.if_index}`} speed changed`,
-        `Link speed changed from ${prev.speed_bps / 1_000_000} Mbps to ${row.speed_bps / 1_000_000} Mbps on interface ${row.name ?? `ifIndex ${row.if_index}`}.`,
-        { target_id: target.id, if_index: row.if_index, name: row.name ?? null, previous_speed_bps: prev.speed_bps, speed_bps: row.speed_bps }, occurredAt);
+
+    const label = interfaceLabel(row);
+    const device = managedDeviceLabel(target);
+    const baseContext = { target_id: target.id, if_index: row.if_index, name: label, device_name: device };
+    const down = row.admin_status === "up" && row.oper_status === "down";
+    const recovered = row.admin_status === "up" && row.oper_status === "up";
+    if (down) {
+      if (!condition.interfaceDown.active) {
+        condition.interfaceDown.consecutive = Math.min(2, condition.interfaceDown.consecutive + 1);
+        if (condition.interfaceDown.consecutive >= 2) {
+          condition.interfaceDown.active = true;
+          this.pushEvent(target, "interface_down", "high", `${device}: ${label} is down`,
+            `Managed interface ${label} remained operationally down while administratively enabled for two consecutive polls.`,
+            { ...baseContext, admin_status: "up", oper_status: "down", consecutive_polls: 2 }, occurredAt);
+        }
+      }
+    } else {
+      condition.interfaceDown.consecutive = 0;
+      if (condition.interfaceDown.active && recovered) {
+        condition.interfaceDown.active = false;
+        this.pushEvent(target, "interface_up", "low", `${device}: ${label} recovered`,
+          `Managed interface ${label} is operationally up again after an active down condition.`,
+          { ...baseContext, admin_status: "up", oper_status: "up" }, occurredAt);
+      }
     }
-    const errorDelta = sumDelta(row.rx_errors_delta, row.tx_errors_delta);
-    if (errorDelta !== null && errorDelta >= target.oper_error_threshold) {
-      this.pushEvent(target, "errors_threshold", "medium", `Interface ${row.name ?? `#${row.if_index}`} error spike`,
-        `${errorDelta} new interface errors observed since the previous poll on interface ${row.name ?? `ifIndex ${row.if_index}`}.`,
-        { target_id: target.id, if_index: row.if_index, name: row.name ?? null, error_delta: errorDelta }, occurredAt);
+
+    if (!compatible) {
+      if (!condition.utilization.active) condition.utilization.highSince = null;
+      return;
     }
-    const discardDelta = sumDelta(row.in_discards_delta, row.out_discards_delta);
-    if (discardDelta !== null && discardDelta >= target.discard_threshold) {
-      this.pushEvent(target, "discards_threshold", "medium", `Interface ${row.name ?? `#${row.if_index}`} discard spike`,
-        `${discardDelta} new packet discards observed since the previous poll on interface ${row.name ?? `ifIndex ${row.if_index}`}.`,
-        { target_id: target.id, if_index: row.if_index, name: row.name ?? null, discard_delta: discardDelta }, occurredAt);
+
+    if (previousCounter?.speed_bps && row.speed_bps && previousCounter.speed_bps !== row.speed_bps) {
+      this.pushEvent(target, "speed_changed", "low", `${device}: ${label} speed changed`,
+        `Managed interface ${label} link speed changed from ${previousCounter.speed_bps / 1_000_000} Mbps to ${row.speed_bps / 1_000_000} Mbps.`,
+        { ...baseContext, previous_speed_bps: previousCounter.speed_bps, speed_bps: row.speed_bps }, occurredAt);
     }
-    const util = Math.max(row.rx_util_percent ?? 0, row.tx_util_percent ?? 0);
+
+    if (!row.is_physical) return;
+    const errorDelta = sumAvailableDelta(row.rx_errors_delta, row.tx_errors_delta);
+    this.evaluateThreshold(target, condition.errors, "errors_threshold", errorDelta, target.oper_error_threshold,
+      `${device}: ${label} error threshold crossed`, "new interface errors", "error_delta", baseContext, occurredAt);
+    const discardDelta = sumAvailableDelta(row.in_discards_delta, row.out_discards_delta);
+    this.evaluateThreshold(target, condition.discards, "discards_threshold", discardDelta, target.discard_threshold,
+      `${device}: ${label} discard threshold crossed`, "new packet discards", "discard_delta", baseContext, occurredAt);
+
+    const utilValues = [row.rx_util_percent, row.tx_util_percent].filter((value) => Number.isFinite(value));
+    const util = utilValues.length ? Math.max(...utilValues) : null;
     const critical = Number(target.util_critical_percent ?? 0);
     const warning = Number(target.util_warning_percent ?? 0);
     const sustainedMs = (target.util_sustained_seconds ?? 300) * 1000;
-    const high = this.stateFor(target.id).highUtil[row.if_index] ??= { highSince: null, flagged: false };
-    if (util >= critical && (row.rx_util_percent !== null || row.tx_util_percent !== null)) {
+    const high = condition.utilization;
+    if (util === null) {
+      if (!high.active) high.highSince = null;
+    } else if (util >= critical) {
       high.highSince ??= now;
-      if (now - high.highSince >= sustainedMs && !high.flagged) {
-        high.flagged = true;
-        this.pushEvent(target, "utilization_high", "high", `Interface ${row.name ?? `#${row.if_index}`} at sustained high utilization`,
-          `Utilization reached ${round(util, 1)}% for over ${target.util_sustained_seconds} seconds on interface ${row.name ?? `ifIndex ${row.if_index}`}.`,
-          { target_id: target.id, if_index: row.if_index, name: row.name ?? null, utilization_percent: round(util, 1) }, occurredAt);
+      if (now - high.highSince >= sustainedMs && !high.active) {
+        high.active = true;
+        this.pushEvent(target, "utilization_high", "high", `${device}: ${label} at sustained high utilization`,
+          `Managed interface ${label} utilization reached ${round(util, 1)}% for at least ${target.util_sustained_seconds} seconds (critical threshold ${critical}%).`,
+          { ...baseContext, utilization_percent: round(util, 1), threshold_percent: critical, sustained_seconds: target.util_sustained_seconds }, occurredAt);
+      }
+    } else if (high.active && util < warning) {
+      high.active = false;
+      high.highSince = null;
+      this.pushEvent(target, "utilization_recovered", "low", `${device}: ${label} utilization recovered`,
+        `Managed interface ${label} utilization dropped below the ${warning}% recovery threshold.`,
+        { ...baseContext, utilization_percent: round(util, 1), threshold_percent: warning }, occurredAt);
+    } else if (!high.active) {
+      high.highSince = null;
+    }
+  }
+
+  evaluateThreshold(target, condition, kind, delta, threshold, title, measurement, contextKey, baseContext, occurredAt) {
+    if (delta === null || !Number.isFinite(threshold) || threshold < 1) return;
+    if (delta >= threshold) {
+      if (!condition.active) {
+        condition.active = true;
+        this.pushEvent(target, kind, "medium", title,
+          `${delta} ${measurement} were observed in the latest valid interval (threshold ${threshold}).`,
+          { ...baseContext, [contextKey]: delta, threshold }, occurredAt);
       }
     } else {
-      if (high.flagged && util < warning) {
-        high.flagged = false;
-        this.pushEvent(target, "utilization_recovered", "low", `Interface ${row.name ?? `#${row.if_index}`} utilization recovered`,
-          `Utilization on interface ${row.name ?? `ifIndex ${row.if_index}`} dropped below ${warning}%.`,
-          { target_id: target.id, if_index: row.if_index, name: row.name ?? null }, occurredAt);
-      }
-      high.highSince = util >= warning ? high.highSince : null;
+      condition.active = false;
     }
   }
 
   pushEvent(target, kind, severity, title, description, context, occurredAt) {
-    this.pendingEvents.push({ event_id: randomUUID(), source: "managed_telemetry", source_ref: target.id,
+    this.pendingEvents.push({ event_id: randomUUID(), target_id: target.id,
       kind, severity, title, description, raw_context: context, occurred_at: occurredAt });
     this.pendingEvents = this.pendingEvents.slice(-MAX_PENDING_EVENTS);
     this.publishDueAt = 0;
@@ -292,7 +363,13 @@ export class ManagedTelemetryWatch {
     const events = this.pendingEvents.slice(0, MAX_PENDING_EVENTS);
     try {
       for (const state of dirty) {
-        await this.backend.publishManagedTelemetry(this.runnerId, state.device, state.interfaces, eventsForTarget(events, state.device.target_id));
+        await this.backend.publishManagedTelemetry(
+          this.runnerId,
+          state.device,
+          state.interfaces,
+          eventsForTarget(events, state.device.target_id),
+          state.observedHosts,
+        );
         state.dirty = false;
       }
       this.pendingEvents = this.pendingEvents.slice(events.length);
@@ -309,8 +386,14 @@ export class ManagedTelemetryWatch {
   }
 
   stateFor(id) {
-    const state = this.states[id] ??= { device: null, interfaces: [], counters: {}, highUtil: {},
-      dirty: false, nextPollAt: 0, sawFirst: false, lastPoll: null };
+    const state = this.states[id] ??= { device: null, interfaces: [], observedHosts: [], counters: {}, alertConditions: {},
+      dirty: false, nextPollAt: 0, sawFirst: false, lastPoll: null, netbiosCursor: 0 };
+    if (!Array.isArray(state.observedHosts)) state.observedHosts = [];
+    if (!state.counters || typeof state.counters !== "object" || Array.isArray(state.counters)) state.counters = {};
+    if (!state.alertConditions || typeof state.alertConditions !== "object" || Array.isArray(state.alertConditions)) state.alertConditions = {};
+    state.alertConditions = sanitizeAlertConditionMap(state.alertConditions);
+    migrateLegacyHighUtil(state);
+    if (!Number.isSafeInteger(state.netbiosCursor) || state.netbiosCursor < 0 || state.netbiosCursor >= MAX_OBSERVED_HOSTS) state.netbiosCursor = 0;
     state.targetId = id;
     return state;
   }
@@ -351,10 +434,12 @@ export function telemetryCredentials(target, profile) {
   };
 }
 
-export function counterDelta(prev, cur) {
+export function counterDelta(prev, cur, bits) {
   if (prev === null || prev === undefined || cur === null || cur === undefined) return null;
   if (!Number.isSafeInteger(prev) || !Number.isSafeInteger(cur) || prev < 0 || cur < 0) return null;
   if (cur >= prev) return cur - prev;
+  if (bits !== 32 || prev > COUNTER32_MAX || cur > COUNTER32_MAX) return null;
+  if (prev < COUNTER32_WRAP_HIGH_WATER || cur > COUNTER32_WRAP_LOW_WATER) return null;
   const wrapped = (0x100000000 - prev) + cur;
   if (wrapped >= 0 && wrapped < 0x80000000) return wrapped;
   return null;
@@ -367,9 +452,111 @@ export function simpleDelta(prev, cur) {
   return cur - prev;
 }
 
-function sumDelta(a, b) {
-  if (a === null || b === null) return null;
-  return a + b;
+export function nextNetbiosCursor(offset, observedHosts) {
+  if (!Array.isArray(observedHosts)) return 0;
+  const eligibleCount = observedHosts.filter((host) => netbiosCandidate(host?.ip_address)).length;
+  if (!eligibleCount) return 0;
+  const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+  return (safeOffset + Math.min(MAX_NETBIOS_ENRICHMENTS, eligibleCount)) % eligibleCount;
+}
+
+function interfaceDelta(prev, cur, bits) {
+  const delta = counterDelta(prev, cur, bits);
+  return delta !== null && delta <= MAX_INTERFACE_DELTA ? delta : null;
+}
+
+function compatibleCounterBaseline(previous, item, now, pollIntervalSeconds) {
+  if (!previous || !Number.isFinite(previous.ts) || now <= previous.ts) return false;
+  const maxAge = pollIntervalSeconds * 1000 * MAX_BASELINE_INTERVALS;
+  if (now - previous.ts > maxAge) return false;
+  return compatibleInterfaceIdentity(previous, item);
+}
+
+function compatibleInterfaceIdentity(previous, item) {
+  if (!previous) return false;
+  for (const field of ["name", "description", "if_type", "is_physical"]) {
+    if (!Object.prototype.hasOwnProperty.call(previous, field)) return false;
+    if (normalizedIdentity(previous[field]) !== normalizedIdentity(item[field] ?? (field === "is_physical" ? false : null))) return false;
+  }
+  return true;
+}
+
+function normalizedIdentity(value) {
+  return typeof value === "string" ? value.trim().toLocaleLowerCase() : value;
+}
+
+function plausibleRate(delta, elapsedSeconds, speedBps) {
+  if (delta === null || elapsedSeconds == null || elapsedSeconds <= 0) return null;
+  const rate = delta * 8 / elapsedSeconds;
+  if (!Number.isFinite(rate) || rate < 0) return null;
+  if (speedBps !== null && rate > speedBps * MAX_RATE_TO_SPEED_RATIO) return null;
+  return rate;
+}
+
+function sumAvailableDelta(...values) {
+  const available = values.filter((value) => Number.isFinite(value) && value >= 0);
+  return available.length ? available.reduce((total, value) => total + value, 0) : null;
+}
+
+function alertConditionFor(state, ifIndex) {
+  const condition = normalizeAlertCondition(state.alertConditions[ifIndex]);
+  state.alertConditions[ifIndex] = condition;
+  return condition;
+}
+
+function normalizeAlertCondition(source) {
+  return {
+    interfaceDown: {
+      consecutive: Number.isSafeInteger(source?.interfaceDown?.consecutive)
+        ? Math.max(0, Math.min(2, source.interfaceDown.consecutive)) : 0,
+      active: source?.interfaceDown?.active === true,
+    },
+    errors: { active: source?.errors?.active === true },
+    discards: { active: source?.discards?.active === true },
+    utilization: {
+      highSince: Number.isFinite(source?.utilization?.highSince) && source.utilization.highSince >= 0
+        ? source.utilization.highSince : null,
+      active: source?.utilization?.active === true,
+    },
+  };
+}
+
+function sanitizeAlertConditionMap(value) {
+  const safe = {};
+  for (const [ifIndex, source] of Object.entries(value).slice(0, 200)) {
+    const parsed = Number(ifIndex);
+    if (!/^\d{1,10}$/.test(ifIndex) || !Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_IF_INDEX) continue;
+    safe[ifIndex] = normalizeAlertCondition(source);
+  }
+  return safe;
+}
+
+function migrateLegacyHighUtil(state) {
+  if (!state.highUtil || typeof state.highUtil !== "object" || Array.isArray(state.highUtil)) return;
+  for (const [ifIndex, legacy] of Object.entries(state.highUtil).slice(0, 200)) {
+    if (Object.keys(state.alertConditions).length >= 200) break;
+    if (!/^\d{1,10}$/.test(ifIndex) || state.alertConditions[ifIndex]) continue;
+    const condition = alertConditionFor(state, ifIndex);
+    condition.utilization.active = legacy?.flagged === true;
+    condition.utilization.highSince = Number.isFinite(legacy?.highSince) && legacy.highSince >= 0 ? legacy.highSince : null;
+  }
+  delete state.highUtil;
+}
+
+function managedDeviceLabel(target) {
+  if (typeof target.name === "string") {
+    const name = target.name.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 80);
+    if (name) return name;
+  }
+  return typeof target.ip_address === "string" ? target.ip_address.slice(0, 64) : "Managed device";
+}
+
+function interfaceLabel(row) {
+  if (typeof row.name === "string") {
+    const name = row.name.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 80);
+    if (name) return name;
+  }
+  return `ifIndex ${row.if_index}`;
 }
 
 function errorCategory(status) {
@@ -388,7 +575,13 @@ function round(value, digits) {
   return Math.round(value * factor) / factor;
 }
 
-function eventsForTarget(events, targetId) { return events.filter((event) => event.source_ref === targetId); }
+function eventsForTarget(events, targetId) { return events.filter((event) => event.target_id === targetId); }
+
+function netbiosCandidate(ipAddress) {
+  if (typeof ipAddress !== "string" || isIP(ipAddress) !== 4) return false;
+  const finalOctet = Number(ipAddress.slice(ipAddress.lastIndexOf(".") + 1));
+  return finalOctet !== 0 && finalOctet !== 255;
+}
 
 function loadCache(file) {
   try { const value = JSON.parse(readFileSync(file, "utf8")); return value && typeof value === "object" ? value : {}; }

@@ -155,7 +155,9 @@ export async function runInspectionAgent(
   }, spawnProcess);
 }
 
-export function buildSnmpInvocation(config, target, creds) {
+export function buildSnmpInvocation(config, target, creds, netbiosOffset = 0) {
+  const safeNetbiosOffset = Number.isSafeInteger(netbiosOffset) && netbiosOffset >= 0 && netbiosOffset < 256
+    ? netbiosOffset : 0;
   const args = ["-d", config.wsl_distro, "--exec", config.agent_path, "managed-telemetry-poll",
     "--target-id", target.id,
     "--runner-id", config.runner_id,
@@ -164,7 +166,8 @@ export function buildSnmpInvocation(config, target, creds) {
     "--credential-profile-ref", target.credential_profile_ref,
     "--snmp-version", target.snmp_version,
     "--snmp-port", String(target.snmp_port ?? 161),
-    "--timeout", String(config.snmp_timeout_seconds ?? 3)];
+    "--timeout", String(config.snmp_timeout_seconds ?? 3),
+    "--netbios-offset", String(safeNetbiosOffset)];
   if (creds.version === "3") {
     if (creds.username) args.push("--username", creds.username);
     if (creds.auth_protocol) args.push("--auth-protocol", creds.auth_protocol);
@@ -177,8 +180,8 @@ export function buildSnmpInvocation(config, target, creds) {
   return args;
 }
 
-export async function runTelemetryAgent(config, target, creds, onEvent, timeoutMs = 15_000) {
-  return runStructuredProcess(buildSnmpInvocation(config, target, creds), validateTelemetryEvent, onEvent, timeoutMs, {
+export async function runTelemetryAgent(config, target, creds, onEvent, timeoutMs = 30_000, netbiosOffset = 0) {
+  return runStructuredProcess(buildSnmpInvocation(config, target, creds, netbiosOffset), validateTelemetryEvent, onEvent, timeoutMs, {
     start: "SNMP_AGENT_UNAVAILABLE",
     timeout: "SNMP_TIMEOUT",
     exit: "SNMP_AGENT_UNAVAILABLE",
@@ -208,6 +211,7 @@ export function validateTelemetryPayload(payload) {
   const device = payload.device;
   if (!device || typeof device !== "object" || Array.isArray(device)) throw safeError("AGENT_PROTOCOL_ERROR");
   if (!["connected", "partial", "auth_failed", "timeout", "unreachable", "unsupported", "poll_failed"].includes(device.status)) throw safeError("AGENT_PROTOCOL_ERROR");
+  if (!["available", "empty", "partial", "unsupported"].includes(device.observed_hosts_status)) throw safeError("AGENT_PROTOCOL_ERROR");
   for (const field of ["sys_name", "sys_descr", "sys_object_id", "manufacturer", "model", "serial_number", "error", "error_category"]) {
     if (device[field] !== undefined && device[field] !== null && (typeof device[field] !== "string" || device[field].length > 512)) throw safeError("AGENT_PROTOCOL_ERROR");
   }
@@ -216,10 +220,24 @@ export function validateTelemetryPayload(payload) {
   for (const item of payload.interfaces) {
     interfaces.push(validateTelemetryInterface(item));
   }
-  const encoded = JSON.stringify({ device, interfaces });
+  if (!Array.isArray(payload.observed_hosts) || payload.observed_hosts.length > 256) throw safeError("AGENT_PROTOCOL_ERROR");
+  const observedHosts = payload.observed_hosts.map(validateObservedHost);
+  const encoded = JSON.stringify({ device, interfaces, observed_hosts: observedHosts });
   if (Buffer.byteLength(encoded, "utf8") > 64 * 1024) throw safeError("AGENT_PROTOCOL_ERROR");
   return { target_id: payload.target_id, runner_id: payload.runner_id, node_id: payload.node_id, ip_address: payload.ip_address,
-    credential_profile_ref: payload.credential_profile_ref, snmp_version: payload.snmp_version, device, interfaces };
+    credential_profile_ref: payload.credential_profile_ref, snmp_version: payload.snmp_version, device, interfaces, observed_hosts: observedHosts };
+}
+
+function validateObservedHost(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item) || !privateIpv4(item.ip_address)) throw safeError("AGENT_PROTOCOL_ERROR");
+  const mac = item.mac_address ?? null;
+  if (mac !== null && (typeof mac !== "string" || !/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac) || mac === "00:00:00:00:00:00")) throw safeError("AGENT_PROTOCOL_ERROR");
+  const name = item.netbios_name ?? null;
+  if (name !== null && (typeof name !== "string" || name.length < 1 || name.length > 15 || /[\x00-\x1f\x7f]/.test(name))) throw safeError("AGENT_PROTOCOL_ERROR");
+  if (!["ip_net_to_physical", "ip_net_to_media"].includes(item.observation_source)) throw safeError("AGENT_PROTOCOL_ERROR");
+  if (!["resolved", "unavailable", "not_attempted"].includes(item.enrichment_status)) throw safeError("AGENT_PROTOCOL_ERROR");
+  return { ip_address: item.ip_address, mac_address: mac, netbios_name: name,
+    observation_source: item.observation_source, enrichment_status: item.enrichment_status };
 }
 
 function validateTelemetryInterface(item) {
@@ -235,6 +253,10 @@ function validateTelemetryInterface(item) {
   out.is_physical = item.is_physical === true;
   for (const field of ["speed_bps", "if_high_speed_mbps", "in_octets", "out_octets", "in_discards", "out_discards", "in_errors", "out_errors"]) {
     if (item[field] !== undefined && item[field] !== null && (!Number.isSafeInteger(item[field]) || item[field] < 0)) throw safeError("AGENT_PROTOCOL_ERROR");
+    out[field] = item[field] ?? null;
+  }
+  for (const field of ["in_octets_bits", "out_octets_bits", "in_discards_bits", "out_discards_bits", "in_errors_bits", "out_errors_bits"]) {
+    if (item[field] !== undefined && item[field] !== null && ![32, 64].includes(item[field])) throw safeError("AGENT_PROTOCOL_ERROR");
     out[field] = item[field] ?? null;
   }
   return out;

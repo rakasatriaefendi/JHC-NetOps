@@ -18,7 +18,7 @@ test("managed telemetry publish success remains unchanged", async (t) => {
   const client = new BackendClient("https://example.invalid", "test-service-key");
   const result = await client.publishManagedTelemetry("runner-test", DEVICE, [], []);
   assert.deepEqual(result, { devices: 1, interfaces: 0, events: 0 });
-  assert.deepEqual(request, { action: "publish", runner_id: "runner-test", device: DEVICE, interfaces: [], transitions: [] });
+  assert.deepEqual(request, { action: "publish", runner_id: "runner-test", device: DEVICE, interfaces: [], transitions: [], observed_hosts: [] });
 });
 
 test("manual ping backend methods use the existing network-health transport with bounded fields", async (t) => {
