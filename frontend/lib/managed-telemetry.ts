@@ -38,7 +38,25 @@ export type ManagedDeviceLatest = {
   consecutive_poll_failures: number;
   error_category: string | null;
   updated_at: string;
+  observed_hosts_status: "available" | "empty" | "partial" | "unsupported";
 };
+
+export type ManagedObservedHostLatest = {
+  target_id: string;
+  node_id: string | null;
+  ip_address: string;
+  mac_address: string | null;
+  netbios_name: string | null;
+  observation_source: "ip_net_to_physical" | "ip_net_to_media";
+  enrichment_status: "resolved" | "unavailable" | "not_attempted";
+  first_seen_at: string;
+  last_seen_at: string;
+  status: "current" | "stale";
+  updated_at: string;
+  network_nodes?: { name: string } | { name: string }[] | null;
+};
+
+export type ObservedHostFilter = "all" | "named" | "unnamed" | "fresh" | "stale";
 
 export type ManagedInterfaceLatest = {
   target_id: string;
@@ -241,13 +259,14 @@ function trim(value: number): string {
 }
 
 export async function loadManagedTelemetry(supabase: SupabaseClient) {
-  const [{ data: targets, error }, { data: interfaces, error: interfaceError }, { data: events, error: eventError }] = await Promise.all([
+  const [{ data: targets, error }, { data: interfaces, error: interfaceError }, { data: observedHosts, error: observedHostError }, { data: events, error: eventError }] = await Promise.all([
     supabase.from("managed_telemetry_targets")
-      .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),managed_device_latest(status,sys_name,sys_descr,sys_object_id,uptime_seconds,manufacturer,model,serial_number,last_polled_at,last_success_at,consecutive_poll_failures,error_category,updated_at)").eq("enabled", true),
+      .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),managed_device_latest(status,sys_name,sys_descr,sys_object_id,uptime_seconds,manufacturer,model,serial_number,last_polled_at,last_success_at,consecutive_poll_failures,error_category,observed_hosts_status,updated_at)").eq("enabled", true),
     supabase.from("managed_interface_latest").select("*"),
+    supabase.from("managed_observed_hosts_latest").select("*,network_nodes(name)"),
     supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "managed_telemetry").order("created_at", { ascending: false }).limit(30),
   ]);
-  if (error || interfaceError || eventError) return { data: [], interfaces: [], events: [], error: true };
+  if (error || interfaceError || observedHostError || eventError) return { data: [], interfaces: [], observedHosts: [], events: [], error: true };
   const rows = (targets ?? []).map((row): ManagedTelemetryTarget => {
     const node = relation(row.network_nodes);
     const latest = relation(row.managed_device_latest);
@@ -257,17 +276,18 @@ export async function loadManagedTelemetry(supabase: SupabaseClient) {
       latest: latest as ManagedDeviceLatest | null,
     } as ManagedTelemetryTarget;
   });
-  return { data: rows, interfaces: (interfaces ?? []) as ManagedInterfaceLatest[], events: (events ?? []) as ManagedTelemetryEvent[], error: false };
+  return { data: rows, interfaces: (interfaces ?? []) as ManagedInterfaceLatest[], observedHosts: (observedHosts ?? []) as ManagedObservedHostLatest[], events: (events ?? []) as ManagedTelemetryEvent[], error: false };
 }
 
 export async function loadManagedTelemetryWorkspace(supabase: SupabaseClient) {
-  const [{ data: targets, error }, { data: interfaces, error: interfaceError }] = await Promise.all([
+  const [{ data: targets, error }, { data: interfaces, error: interfaceError }, { data: observedHosts, error: observedHostError }] = await Promise.all([
     supabase.from("managed_telemetry_targets")
-      .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),managed_device_latest(status,sys_name,sys_descr,sys_object_id,uptime_seconds,manufacturer,model,serial_number,last_polled_at,last_success_at,consecutive_poll_failures,error_category,updated_at)")
+      .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),managed_device_latest(status,sys_name,sys_descr,sys_object_id,uptime_seconds,manufacturer,model,serial_number,last_polled_at,last_success_at,consecutive_poll_failures,error_category,observed_hosts_status,updated_at)")
       .order("created_at", { ascending: true }),
     supabase.from("managed_interface_latest").select("*"),
+    supabase.from("managed_observed_hosts_latest").select("*,network_nodes(name)"),
   ]);
-  if (error || interfaceError) return { data: [], interfaces: [], error: true };
+  if (error || interfaceError || observedHostError) return { data: [], interfaces: [], observedHosts: [], error: true };
   const rows = (targets ?? []).map((row): ManagedTelemetryTarget => {
     const node = relation(row.network_nodes);
     const latest = relation(row.managed_device_latest);
@@ -277,7 +297,92 @@ export async function loadManagedTelemetryWorkspace(supabase: SupabaseClient) {
       latest: latest as ManagedDeviceLatest | null,
     } as ManagedTelemetryTarget;
   });
-  return { data: rows, interfaces: (interfaces ?? []) as ManagedInterfaceLatest[], error: false };
+  return { data: rows, interfaces: (interfaces ?? []) as ManagedInterfaceLatest[], observedHosts: (observedHosts ?? []) as ManagedObservedHostLatest[], error: false };
+}
+
+export async function loadManagedObservedHostsPage(supabase: SupabaseClient, targetId: string) {
+  const [{ data: target, error }, { data: observedHosts, error: observedHostError }] = await Promise.all([
+    supabase.from("managed_telemetry_targets")
+      .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),managed_device_latest(status,sys_name,sys_descr,sys_object_id,uptime_seconds,manufacturer,model,serial_number,last_polled_at,last_success_at,consecutive_poll_failures,error_category,observed_hosts_status,updated_at)")
+      .eq("id", targetId)
+      .maybeSingle(),
+    supabase.from("managed_observed_hosts_latest")
+      .select("*,network_nodes(name)")
+      .eq("target_id", targetId),
+  ]);
+  if (error || observedHostError) return { target: null, observedHosts: [], error: true };
+  if (!target) return { target: null, observedHosts: [], error: false };
+  const node = relation(target.network_nodes);
+  const latest = relation(target.managed_device_latest);
+  return {
+    target: {
+      ...target,
+      node: node as ManagedTelemetryTarget["node"],
+      latest: latest as ManagedDeviceLatest | null,
+    } as ManagedTelemetryTarget,
+    observedHosts: (observedHosts ?? []) as ManagedObservedHostLatest[],
+    error: false,
+  };
+}
+
+export function observedHostInventoryName(row: ManagedObservedHostLatest): string | null {
+  const relation = row.network_nodes;
+  if (Array.isArray(relation)) return relation[0]?.name ?? null;
+  return relation?.name ?? null;
+}
+
+export function observedHostDisplayName(row: ManagedObservedHostLatest): string {
+  return observedHostInventoryName(row) || row.netbios_name || row.ip_address;
+}
+
+export function observedHostMacLabel(row: Pick<ManagedObservedHostLatest, "mac_address">): string {
+  const value = row.mac_address?.trim() ?? "";
+  if (!/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(value)) return "—";
+  return value.toLowerCase() === "00:00:00:00:00:00" ? "—" : value;
+}
+
+export function filterObservedHosts(
+  hosts: ManagedObservedHostLatest[],
+  query: string,
+  filter: ObservedHostFilter,
+): ManagedObservedHostLatest[] {
+  const needle = query.trim().toLocaleLowerCase();
+  return hosts.filter((host) => {
+    const named = Boolean(observedHostInventoryName(host) || host.netbios_name);
+    if (filter === "named" && !named) return false;
+    if (filter === "unnamed" && named) return false;
+    if (filter === "fresh" && host.status !== "current") return false;
+    if (filter === "stale" && host.status !== "stale") return false;
+    if (!needle) return true;
+    return [
+      observedHostInventoryName(host),
+      host.netbios_name,
+      host.ip_address,
+      host.mac_address,
+    ].some((value) => value?.toLocaleLowerCase().includes(needle));
+  });
+}
+
+export function observedHostFilterCounts(hosts: ManagedObservedHostLatest[]): Record<ObservedHostFilter, number> {
+  let named = 0;
+  let fresh = 0;
+  for (const host of hosts) {
+    if (observedHostInventoryName(host) || host.netbios_name) named += 1;
+    if (host.status === "current") fresh += 1;
+  }
+  return {
+    all: hosts.length,
+    named,
+    unnamed: hosts.length - named,
+    fresh,
+    stale: hosts.length - fresh,
+  };
+}
+
+export function latestObservedAt(hosts: ManagedObservedHostLatest[], fallback: string | null): string | null {
+  const values = hosts.map((host) => host.last_seen_at).filter((value) => !Number.isNaN(Date.parse(value)));
+  if (!values.length) return fallback;
+  return values.reduce((latest, value) => Date.parse(value) > Date.parse(latest) ? value : latest);
 }
 
 function relation(value: unknown): Record<string, unknown> | null {

@@ -40,16 +40,24 @@ OID_IF_TABLE = {
     "ifHighSpeed": "1.3.6.1.2.1.31.1.1.1.2",
     "ifHCInOctets": "1.3.6.1.2.1.31.1.1.1.6",
     "ifHCOutOctets": "1.3.6.1.2.1.31.1.1.1.10",
-    "ifHCInDiscards": "1.3.6.1.2.1.31.1.1.1.7",
-    "ifHCOutDiscards": "1.3.6.1.2.1.31.1.1.1.11",
-    "ifHCInErrors": "1.3.6.1.2.1.31.1.1.1.5",
-    "ifHCOutErrors": "1.3.6.1.2.1.31.1.1.1.9",
 }
 
 OID_ENTITY_MIB = {
     "entPhysicalMfgName": "1.3.6.1.2.1.47.1.1.1.1.12",
     "entPhysicalModelName": "1.3.6.1.2.1.47.1.1.1.1.13",
     "entPhysicalSerialNum": "1.3.6.1.2.1.47.1.1.1.1.14",
+}
+
+# Fixed, read-only neighbor tables. These are intentionally not configurable by
+# the runner or browser.
+OID_IP_NET_TO_PHYSICAL = {
+    "netAddress": "1.3.6.1.2.1.4.35.1.3",
+    "physAddress": "1.3.6.1.2.1.4.35.1.4",
+}
+
+OID_IP_NET_TO_MEDIA = {
+    "physAddress": "1.3.6.1.2.1.4.22.1.2",
+    "netAddress": "1.3.6.1.2.1.4.22.1.3",
 }
 
 SNMP_ERROR_CATEGORIES = {
@@ -136,6 +144,9 @@ class SnmpResult:
     model: str | None = None
     serial_number: str | None = None
     interfaces: list[dict[str, Any]] = field(default_factory=list)
+    observed_hosts: list[Any] = field(default_factory=list)
+    observed_hosts_status: str = "unsupported"
+    partial_interface_telemetry: bool = False
     error: str | None = None
     error_category: str | None = None
 
@@ -149,17 +160,17 @@ class SnmpResult:
                 "unreachable": "unreachable",
                 "unsupported": "unsupported",
             }.get(category, "poll_failed")
-        if not self.interfaces:
+        if not self.interfaces or self.partial_interface_telemetry:
             return "partial"
         return "connected"
 
     @property
     def is_complete(self) -> bool:
-        return self.error is None and len(self.interfaces) > 0
+        return self.error is None and len(self.interfaces) > 0 and not self.partial_interface_telemetry
 
     @property
     def is_partial(self) -> bool:
-        return self.error is None and len(self.interfaces) == 0
+        return self.error is None and (len(self.interfaces) == 0 or self.partial_interface_telemetry)
 
 
 def _value_to_python(value: Any) -> Any:
@@ -173,10 +184,16 @@ def _value_to_python(value: Any) -> Any:
         return None
     if isinstance(value, OctetString):
         try:
-            text = value.asOctets().decode("utf-8", errors="replace").strip()
-            return text
+            octets = value.asOctets()
+            text = octets.decode("utf-8", errors="strict").strip()
+            if text and all(character.isprintable() or character in "\r\n\t" for character in text):
+                return text
+            return f"0x{octets.hex()}"
         except Exception:
-            return value.prettyPrint()
+            try:
+                return f"0x{value.asOctets().hex()}"
+            except Exception:
+                return value.prettyPrint()
     try:
         return int(value)
     except (ValueError, TypeError):
@@ -222,9 +239,9 @@ class SnmpTransport:
         loop = self._ensure_loop()
         return loop.run_until_complete(self._get(oid))
 
-    def walk(self, oid: str) -> dict[str, Any]:
+    def walk(self, oid: str, max_rows: int | None = None) -> dict[str, Any]:
         loop = self._ensure_loop()
-        return loop.run_until_complete(self._walk(oid))
+        return loop.run_until_complete(self._walk(oid, max_rows=max_rows))
 
     def close(self) -> None:
         if self._loop and not self._loop.is_closed():
@@ -264,7 +281,7 @@ class SnmpTransport:
             LOGGER.warning("SNMP get failed for %s: %s", oid, exc.__class__.__name__)
             return {"error": str(exc), "category": classify_error(str(exc))}
 
-    async def _walk(self, oid: str) -> dict[str, Any]:
+    async def _walk(self, oid: str, max_rows: int | None = None) -> dict[str, Any]:
         try:
             engine, auth_data, context = await self._build_args()
             target = await self._build_target()
@@ -297,6 +314,8 @@ class SnmpTransport:
                     if isinstance(value, rfc1905.EndOfMibView):
                         return results
                     results[oid_str] = _value_to_python(value)
+                    if max_rows is not None and len(results) >= max_rows:
+                        return results
             return results
         except Exception as exc:
             LOGGER.warning("SNMP walk failed for %s: %s", oid, exc.__class__.__name__)
@@ -395,16 +414,19 @@ class MockSnmpTransport:
             return self.responses[oid]
         return {"error": "noSuchObject", "category": "agent_error"}
 
-    def walk(self, oid: str) -> dict[str, Any]:
+    def walk(self, oid: str, max_rows: int | None = None) -> dict[str, Any]:
         self.polled_oids.append(oid)
         if oid in self.fail_oids:
             return {"error": "noSuchObject", "category": "agent_error"}
         prefix = f"{oid}."
-        return {
+        values = {
             key: value
             for key, value in self.responses.items()
             if isinstance(key, str) and key.startswith(prefix)
         }
+        if max_rows is None:
+            return values
+        return dict(list(values.items())[:max_rows])
 
     def close(self) -> None:
         pass

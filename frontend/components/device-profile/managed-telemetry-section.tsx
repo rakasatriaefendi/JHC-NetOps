@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ObservedLanHostsSummary } from "@/components/snmp/observed-lan-hosts";
 import {
   MANAGED_TELEMETRY_STATUS_LABELS,
   credentialProfileStatus,
@@ -14,6 +15,7 @@ import {
   managedSystemIdentityFields,
   type ManagedDeviceLatest,
   type ManagedInterfaceLatest,
+  type ManagedObservedHostLatest,
   type ManagedTelemetryEvent,
   type ManagedTelemetryTarget,
   type ManagedTelemetryThresholds,
@@ -37,6 +39,7 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
   const [target, setTarget] = useState<ManagedTelemetryTarget | null>(null);
   const [device, setDevice] = useState<ManagedDeviceLatest | null>(null);
   const [rows, setRows] = useState<ManagedInterfaceLatest[]>([]);
+  const [observedHosts, setObservedHosts] = useState<ManagedObservedHostLatest[]>([]);
   const [events, setEvents] = useState<ManagedTelemetryEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -56,14 +59,16 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
         if (cancelled) return;
         if (targetError || !data) { setLoading(false); return; }
         setTarget(data as ManagedTelemetryTarget);
-        const [{ data: latest }, { data: interfaceRows }, { data: eventRows }] = await Promise.all([
+        const [{ data: latest }, { data: interfaceRows }, { data: observedHostRows }, { data: eventRows }] = await Promise.all([
           supabase.from("managed_device_latest").select("*").eq("target_id", data.id).maybeSingle(),
           supabase.from("managed_interface_latest").select("*").eq("target_id", data.id),
+          supabase.from("managed_observed_hosts_latest").select("*,network_nodes(name)").eq("target_id", data.id),
           supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "managed_telemetry").eq("source_ref", data.id).order("created_at", { ascending: false }).limit(20),
         ]);
         if (cancelled) return;
         setDevice((latest as ManagedDeviceLatest) ?? null);
         setRows((interfaceRows as ManagedInterfaceLatest[]) ?? []);
+        setObservedHosts((observedHostRows as ManagedObservedHostLatest[]) ?? []);
         setEvents((eventRows as ManagedTelemetryEvent[]) ?? []);
         setLoading(false);
       } catch {
@@ -101,6 +106,14 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
       if (flushTimer.current) clearTimeout(flushTimer.current);
       flushTimer.current = setTimeout(mergeInterfaces, 50);
     };
+    const mergeObservedHost = (next: ManagedObservedHostLatest) => setObservedHosts((current) => {
+      const previous = current.find((row) => row.ip_address === next.ip_address);
+      return [...current.filter((row) => row.ip_address !== next.ip_address), {
+        ...previous,
+        ...next,
+        network_nodes: previous?.network_nodes ?? next.network_nodes,
+      }];
+    });
     const channel = supabase.channel(`managed-telemetry:${target.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "managed_device_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
         setDevice(payload.new as ManagedDeviceLatest);
@@ -115,6 +128,12 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "managed_interface_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
         pending.current[(payload.new as ManagedInterfaceLatest).if_index] = payload.new as ManagedInterfaceLatest;
         scheduleFlush();
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "managed_observed_hosts_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
+        mergeObservedHost(payload.new as ManagedObservedHostLatest);
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "managed_observed_hosts_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
+        mergeObservedHost(payload.new as ManagedObservedHostLatest);
       })
       .subscribe();
     return () => {
@@ -162,6 +181,13 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
     {physicalDown > 0 ? <p className="mt-2 text-meta text-severity-medium">{physicalDown} physical port{physicalDown === 1 ? " is" : "s are"} operationally down.</p> : null}
 
     {events.length ? <details className="mt-4 rounded-control border border-border bg-bg-base p-3 text-meta"><summary className="cursor-pointer text-text-secondary">Recent managed telemetry events ({events.length})</summary><ul className="mt-3 grid gap-2">{events.map((event) => <li key={event.id} className="flex flex-col gap-1 border-b border-border pb-2 last:border-0"><span className={event.resolved_at ? "text-text-muted" : event.severity === "high" ? "text-severity-critical" : event.severity === "medium" ? "text-severity-medium" : "text-text-secondary"}>{event.title}</span><span className="text-text-muted">{formatDateTime(event.created_at)}{event.resolved_at ? " · resolved" : ""}</span></li>)}</ul></details> : null}
+
+    <ObservedLanHostsSummary
+      targetId={target.id}
+      hosts={observedHosts}
+      status={device?.observed_hosts_status}
+      lastPolledAt={device?.last_polled_at ?? null}
+    />
 
     <div className="mt-6">
       <div className="flex items-end justify-between"><h4 className="text-section font-semibold">Interface state</h4><span className="text-meta text-text-muted">{rows.length} interfaces</span></div>

@@ -769,6 +769,7 @@ def upnp_metadata(
 def netbios_metadata(
     target: str,
     deadline: _InspectionDeadline | None = None,
+    timeout_seconds: float = METADATA_TIMEOUT_SECONDS,
 ) -> dict[str, str] | None:
     """Request one NetBIOS node-status response; never enumerate shares or users."""
     # NBSTAT wildcard name: '*' followed by 15 NUL bytes (not spaces)
@@ -780,7 +781,7 @@ def netbios_metadata(
     query += bytes((len(encoded),)) + encoded + b"\x00" + struct.pack("!HH", 0x21, 1)
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.settimeout(_bounded_timeout(deadline, METADATA_TIMEOUT_SECONDS))
+            udp.settimeout(_bounded_timeout(deadline, timeout_seconds))
             udp.sendto(query, (target, 137))
             response, address = udp.recvfrom(MAX_NETBIOS_BYTES)
     except OSError:

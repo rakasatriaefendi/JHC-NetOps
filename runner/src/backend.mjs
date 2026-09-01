@@ -72,8 +72,8 @@ export class BackendClient {
     return this.#postInspection({ action: "fail_session", runner_id: runnerId, inspection_id: inspectionId, error_code: errorCode });
   }
   managedTelemetryTargets(runnerId) { return this.#postTelemetry({ action: "list_targets", runner_id: runnerId }); }
-  publishManagedTelemetry(runnerId, device, interfaces, transitions) {
-    return this.#postTelemetry({ action: "publish", runner_id: runnerId, device, interfaces, transitions });
+  publishManagedTelemetry(runnerId, device, interfaces, transitions, observedHosts = []) {
+    return this.#postTelemetry({ action: "publish", runner_id: runnerId, device, interfaces, transitions, observed_hosts: observedHosts });
   }
 
   async #post(body) {
@@ -126,6 +126,10 @@ const SAFE_MANAGED_TELEMETRY_MESSAGES = new Set([
   "Managed telemetry event payload is invalid",
   "Managed telemetry interface target mismatch",
   "Managed telemetry event target mismatch",
+  "Managed telemetry observed host payload is invalid",
+  "Managed observed host state could not be prepared",
+  "Latest managed observed host state could not be stored",
+  "Stale managed observed host state could not be stored",
   "Managed telemetry payload is invalid",
   "Managed telemetry target authorization failed",
   "Managed telemetry target is not authorized",

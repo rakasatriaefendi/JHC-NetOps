@@ -45,7 +45,7 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
       notice={params.telemetry_notice}
       error={params.telemetry_error}
     />
-    <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} />
+    <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} observedHosts={telemetry.observedHosts} />
   </main>;
 }
 

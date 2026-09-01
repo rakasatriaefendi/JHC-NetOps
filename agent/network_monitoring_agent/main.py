@@ -231,6 +231,7 @@ def _build_parser() -> argparse.ArgumentParser:
     telemetry.add_argument("--priv-password", help="SNMPv3 priv password (never logged)")
     telemetry.add_argument("--community", help="SNMPv2c community (resolved locally on runner, never logged)")
     telemetry.add_argument("--timeout", type=float, default=3.0, help="per-request timeout in seconds")
+    telemetry.add_argument("--netbios-offset", type=int, default=0, choices=range(256), help=argparse.SUPPRESS)
 
     return parser
 
@@ -354,6 +355,7 @@ def _run_managed_telemetry_poll(args: argparse.Namespace) -> None:
         ip_address=args.ip_address,
         credential_profile_ref=args.credential_profile_ref,
         timeout_seconds=args.timeout,
+        netbios_offset=args.netbios_offset,
         emit=emit,
     )
 
