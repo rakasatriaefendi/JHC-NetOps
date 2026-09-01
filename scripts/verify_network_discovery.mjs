@@ -35,7 +35,9 @@ try {
   const prepared = await functionRequest(adminToken, { action: "prepare_session", runner_id: runner.runner_id });
   assert([200, 202].includes(prepared.status), `Discovery preparation was rejected (${prepared.status}: ${prepared.data?.error ?? prepared.data?.code ?? "unknown"})`);
   const idle = await waitForSession(adminToken, (session) => session.status === "idle", 60_000);
-  assert(idle.subnet_cidr && Number(idle.subnet_cidr.split("/")[1]) >= 24, "Runner did not supply a bounded subnet");
+  const resolvedPrefix = Number(idle.subnet_cidr?.split("/")[1]);
+  assert(idle.subnet_cidr && Number.isInteger(resolvedPrefix) && resolvedPrefix >= 8 && resolvedPrefix <= 30 && idle.total_hosts <= 254,
+    "Runner did not supply an eligible scope with a bounded scan unit");
 
   const started = await functionRequest(adminToken, { action: "start_session", runner_id: runner.runner_id, session_id: idle.session_id });
   assert(started.status === 202, "Discovery scan was not queued");

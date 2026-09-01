@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { normalizeObservedHosts, prepareObservedHostRows } from "./observed-hosts.ts";
+import { normalizeObservedHosts, persistObservedHostRows, prepareObservedHostRows } from "./observed-hosts.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -127,15 +127,18 @@ async function publish(db: ReturnType<typeof createClient>, body: Record<string,
     (existingHosts ?? []) as { ip_address: string; first_seen_at: string; netbios_name: string | null; enrichment_status: "resolved" | "unavailable" | "not_attempted" }[],
     (inventoryResult.data ?? []) as { id: string; ip_address: string }[],
   );
-  if (observedRows.current.length) {
-    const { error } = await db.from("managed_observed_hosts_latest").upsert(observedRows.current, { onConflict: "target_id,ip_address" });
-    if (error) return reply({ error: "Latest managed observed host state could not be stored" }, 500);
-  }
-  for (const row of observedRows.stale) {
-    const { error } = await db.from("managed_observed_hosts_latest").update({ status: row.status, updated_at: row.updated_at })
-      .eq("target_id", row.target_id).eq("ip_address", row.ip_address);
-    if (error) return reply({ error: "Stale managed observed host state could not be stored" }, 500);
-  }
+  const observedPersistenceError = await persistObservedHostRows({
+    markStale: async (staleTargetId, observedAt, currentIpFilter) => {
+      let query = db.from("managed_observed_hosts_latest").update({ status: "stale", updated_at: observedAt })
+        .eq("target_id", staleTargetId);
+      if (currentIpFilter) query = query.not("ip_address", "in", currentIpFilter);
+      return await query;
+    },
+    upsertCurrent: async (rows) => await db.from("managed_observed_hosts_latest")
+      .upsert(rows, { onConflict: "target_id,ip_address" }),
+  }, observedRows, targetId, now);
+  if (observedPersistenceError === "stale") return reply({ error: "Stale managed observed host state could not be stored" }, 500);
+  if (observedPersistenceError === "current") return reply({ error: "Latest managed observed host state could not be stored" }, 500);
 
   let inserted = 0;
   const transitionIds = transitions.map((item) => (item as Record<string, unknown>).event_id as string);

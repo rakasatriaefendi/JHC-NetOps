@@ -433,9 +433,13 @@ npx supabase functions deploy network-discovery
 
 Admin membuka Dashboard, memilih `Discover Network`, menunggu context Windows
 terdeteksi, lalu menekan `Start Discovery`. Tidak ada CIDR/range/flag yang perlu atau
-boleh diisi. Fixed helper memilih default physical IPv4 route Windows. Prefix yang lebih
-lebar dari `/24` ditolak; `/24`–`/30` dipindai sekali dengan concurrency 4 dan timeout
-400 ms memakai Windows neighbor cache + ICMP. Tidak ada port/service/OS scan.
+boleh diisi. Fixed helper membaca interface IPv4 aktif dan route Windows, lalu resolver
+memilih connected scope pada interface default sebagai scope Discovery saat ini. Prefix
+aktual dipertahankan. Bila scope lebih besar dari 254 usable host, runner hanya memindai
+satu window alamat deterministik maksimal 254 host yang memuat IPv4 sumber. Sweep tetap
+sekali, concurrency 4, timeout 400 ms, memakai Windows neighbor cache + ICMP. Default
+route, route publik, loopback, link-local, dan bridge virtual-internal tidak menjadi scope.
+Tidak ada port/service/OS scan.
 
 Hasil hanya berada pada satu temporary row per runner, dioverwrite selama progres, dan
 host/context dibersihkan setelah 10 menit oleh polling runner/Edge cleanup. `Beri nama`

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { validDiscoveryResults, validateDiscoveryContext } from "./scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -119,7 +120,7 @@ async function runnerAction(request: Request, body: Record<string, unknown>) {
 }
 
 async function updateContext(db: ReturnType<typeof createClient>, body: Record<string, unknown>, idle: boolean) {
-  const context = validateContext(body.context);
+  const context = validateDiscoveryContext(body.context);
   if (!context.ok) return reply({ error: context.error }, 400);
   const now = new Date();
   const { data, error } = await db.from("network_discovery_sessions").update({
@@ -133,9 +134,9 @@ async function updateContext(db: ReturnType<typeof createClient>, body: Record<s
 }
 
 async function updateProgress(db: ReturnType<typeof createClient>, body: Record<string, unknown>) {
-  const context = validateContext(body.context);
+  const context = validateDiscoveryContext(body.context);
   if (!context.ok) return reply({ error: context.error }, 400);
-  if (!integer(body.scanned_hosts, 0, context.value.total_hosts) || !validResults(body.results, context.value.subnet_cidr)) {
+  if (!integer(body.scanned_hosts, 0, context.value.total_hosts) || !validDiscoveryResults(body.results, context.scanRange)) {
     return reply({ error: "Discovery progress is invalid" }, 400);
   }
   const results = deduplicate(body.results as Record<string, unknown>[]);
@@ -193,32 +194,6 @@ async function runnerBusy(db: ReturnType<typeof createClient>, runnerId: string)
   return null;
 }
 
-function validateContext(value: unknown): { ok: true; value: Record<string, unknown> & { subnet_cidr: string; total_hosts: number } } | { ok: false; error: string } {
-  if (!record(value) || !["wifi", "ethernet", "unknown"].includes(String(value.connection_type)) ||
-      typeof value.interface_alias !== "string" || value.interface_alias.length > 256 || !ipv4(value.local_ipv4) || typeof value.subnet_cidr !== "string") {
-    return { ok: false, error: "Discovery network context is invalid" };
-  }
-  const [network, rawPrefix, extra] = value.subnet_cidr.split("/");
-  const prefix = Number(rawPrefix);
-  if (extra !== undefined || !ipv4(network) || !Number.isInteger(prefix) || prefix < 24 || prefix > 30) {
-    return { ok: false, error: "Detected subnet exceeds the safe discovery scope" };
-  }
-  const totalHosts = 2 ** (32 - prefix) - 2;
-  if (!sameSubnet(value.local_ipv4 as string, network, prefix)) return { ok: false, error: "Discovery subnet does not contain the runner address" };
-  return { ok: true, value: { connection_type: value.connection_type, interface_alias: value.interface_alias,
-    local_ipv4: value.local_ipv4, subnet_cidr: `${network}/${prefix}`, total_hosts: totalHosts } };
-}
-
-function validResults(value: unknown, subnet: string) {
-  if (!Array.isArray(value) || value.length > 254) return false;
-  const [network, prefix] = subnet.split("/");
-  return value.every((item) => record(item) && ipv4(item.ip_address) && isUsableHost(item.ip_address as string, network, Number(prefix)) &&
-    Array.isArray(item.evidence) && item.evidence.length >= 1 && item.evidence.length <= 2 && item.evidence.every((entry) => ["icmp", "neighbor"].includes(String(entry))) &&
-    (item.latency_ms === null || number(item.latency_ms, 0, 60_000)) && typeof item.is_this_device === "boolean" && typeof item.is_gateway === "boolean" &&
-    (item.reachability_evidence === undefined || ["icmp_verified", "l2_observed", "cached_only"].includes(String(item.reachability_evidence))) &&
-    (item.neighbor_state === undefined || ["Reachable", "Stale", "Delay", "Probe", "Permanent"].includes(String(item.neighbor_state))));
-}
-
 function deduplicate(results: Record<string, unknown>[]) {
   return [...new Map(results.map((item) => [item.ip_address as string, item])).values()]
     .sort((left, right) => ipNumber(left.ip_address as string) - ipNumber(right.ip_address as string));
@@ -249,8 +224,4 @@ function record(value: unknown): value is Record<string, unknown> { return typeo
 function identifier(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(value); }
 function uuid(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
 function integer(value: unknown, min: number, max: number) { return Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max; }
-function number(value: unknown, min: number, max: number) { return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max; }
-function ipv4(value: unknown): value is string { return typeof value === "string" && value.split(".").length === 4 && value.split(".").every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255); }
 function ipNumber(value: string) { return value.split(".").reduce((total, part) => total * 256 + Number(part), 0) >>> 0; }
-function sameSubnet(ip: string, network: string, prefix: number) { const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0; return (ipNumber(ip) & mask) === (ipNumber(network) & mask); }
-function isUsableHost(ip: string, network: string, prefix: number) { const base = ipNumber(network); const value = ipNumber(ip); const broadcast = base + 2 ** (32 - prefix) - 1; return sameSubnet(ip, network, prefix) && value > base && value < broadcast; }

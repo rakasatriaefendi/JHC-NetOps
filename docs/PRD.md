@@ -153,8 +153,11 @@ Halaman:
 - Discovery menjawab host IPv4 mana yang terlihat pada subnet lokal Windows saat ini;
   bukan traffic analysis, health monitoring, LAN throughput, atau topology mapping.
 - Admin memulai discovery dari drawer Dashboard. Browser hanya mengirim runner ID dan
-  structured action; subnet/CIDR/range/flag tidak diterima. Runner menentukan default
-  physical route Windows dan hanya mengizinkan prefix `/24` sampai `/30`.
+  structured action; subnet/CIDR/range/flag tidak diterima. Runner membentuk kandidat
+  scope privat dari interface IPv4 aktif dan explicit route Windows, lalu memilih connected
+  scope pada interface default. Prefix aktual dipertahankan; scope besar menggunakan satu
+  unit scan deterministik maksimal 254 host dan tidak pernah diperluas menjadi default
+  route, Internet, atau keseluruhan RFC1918.
 - Metode MVP menggabungkan Windows neighbor cache dengan satu ICMP bounded per usable
   address, concurrency 4 dan timeout 400 ms. Tidak ada port/service scan, OS fingerprint,
   vulnerability scan, SNMP, payload, atau sweep berulang. SNMP read-only telemetry (7.11)

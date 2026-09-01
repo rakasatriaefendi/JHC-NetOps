@@ -95,6 +95,40 @@ export function prepareObservedHostRows(
   return { current, stale };
 }
 
+export type PreparedObservedHostRows = ReturnType<typeof prepareObservedHostRows>;
+
+type PersistenceResult = { error: unknown | null };
+type ObservedHostPersistenceOperations = {
+  markStale: (targetId: string, observedAt: string, currentIpFilter: string | null) => PromiseLike<PersistenceResult>;
+  upsertCurrent: (rows: PreparedObservedHostRows["current"]) => PromiseLike<PersistenceResult>;
+};
+
+export async function persistObservedHostRows(
+  operations: ObservedHostPersistenceOperations,
+  rows: PreparedObservedHostRows,
+  targetId: string,
+  observedAt: string,
+): Promise<"stale" | "current" | null> {
+  if (rows.stale.length) {
+    const currentIpFilter = observedHostNotInFilter(rows.current.map((row) => row.ip_address));
+    const { error } = await operations.markStale(targetId, observedAt, currentIpFilter);
+    if (error) return "stale";
+  }
+  if (rows.current.length) {
+    const { error } = await operations.upsertCurrent(rows.current);
+    if (error) return "current";
+  }
+  return null;
+}
+
+export function observedHostNotInFilter(ipAddresses: string[]) {
+  if (!ipAddresses.length) return null;
+  if (ipAddresses.length > MAX_OBSERVED_HOSTS || new Set(ipAddresses).size !== ipAddresses.length || !ipAddresses.every(privateIpv4)) {
+    throw new Error("Invalid normalized observed host set");
+  }
+  return `(${ipAddresses.map((ipAddress) => `"${ipAddress}"`).join(",")})`;
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

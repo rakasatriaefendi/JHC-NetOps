@@ -47,9 +47,10 @@ AGENTS.md
     sebagai responding hop. Approved viewer hanya baca; mutation admin-only via RLS.
 19. **Network Discovery aktif hanya on-demand dan admin-only.** Discovery bukan bagian
     Health Watch atau Traffic. Browser hanya memilih runner; subnet harus berasal dari
-    default physical IPv4 route Windows dan divalidasi ulang runner. MVP hanya menerima
-    `/24` sampai `/30`, concurrency ICMP maksimal 4, timeout 400 ms, neighbor cache +
-    satu ICMP per host, tanpa port/service/OS/vulnerability scan. Hasil memakai satu row
+    interface/route IPv4 Windows yang aktif dan divalidasi ulang runner. Resolver menerima
+    prefix aktual tanpa memaksanya menjadi ukuran tertentu, tetapi satu sweep aktif selalu
+    memakai window deterministik maksimal 254 host yang memuat IPv4 sumber; concurrency ICMP maksimal 4, timeout
+    400 ms, neighbor cache + satu ICMP per host, tanpa port/service/OS/vulnerability scan. Hasil memakai satu row
     sementara per runner yang dioverwrite dan dibersihkan setelah expiry; jangan membuat
     `network_nodes` atau `network_targets` tanpa action admin eksplisit.
 
@@ -85,9 +86,12 @@ AGENTS.md
 - Network Health Watch memakai scheduler asynchronous terpisah di runner Windows yang sama. Jalankan hanya ICMP ke `network_targets` yang enabled, lewat fixed `PING.EXE` argument list (`shell: false`), bounded timeout, concurrency maksimal 4, dan jangan menghambat heartbeat/job polling.
 - Jangan simpan satu row per ping. Pertahankan short window maksimal 5 secara lokal, upsert satu `network_health_latest` per target, dan buat `events.source = network_health` hanya saat transisi status. Queue outage harus coalesced/bounded dan retry memakai backoff.
 - Network Discovery memakai fixed `get-discovery-context.ps1` tanpa argumen browser.
-  Jalankan hanya ketika structured session admin diklaim, tolak prefix lebih lebar dari
-  `/24`, hentikan setelah satu sweep, dan kirim progress maksimal per 32 alamat—bukan
-  satu request/row per ping. Discovery tidak memakai WSL, Scapy, iperf3, atau MTR.
+  Jalankan hanya ketika structured session admin diklaim. Scope berasal dari interface
+  aktif dan route privat Windows; default/public route, link-local, loopback, serta bridge
+  virtual-internal tidak eligible. Prefix aktual dipertahankan, sedangkan sweep diturunkan
+  secara deterministik menjadi window maksimal 254 host, berhenti setelah
+  satu unit, dan mengirim progress maksimal per 32 alamat—bukan satu request/row per ping.
+  Discovery tidak memakai WSL, Scapy, iperf3, atau MTR.
 
 - Device Inspector memakai runner yang sama dan structured operation `device_inspect`. Windows helper hanya mengumpulkan route/neighbor serta metadata adapter context; parsing metadata, evidence normalization, classifier, dan confidence tetap di agent Python. Jika target sama dengan IPv4 lokal Windows, helper wajib menandai `This Device` dan menentukan physical/virtual dari metadata adapter—bukan range IP atau nama interface WSL. Konflik dengan kategori operator hanya warning dan tidak boleh memutasi identity, Health target, event, atau severity. Optional probe failure menghasilkan partial profile, bukan menggagalkan seluruh inspection.
 - SNMP telemetry memakai scheduler terpisah di runner yang sama, independen dari capture/Health Watch/Discovery/Diagnostics. Polling hanya ke `managed_telemetry_targets` yang enabled dengan interval configurable, concurrency kecil, timeout pendek, dan profile credential di-resolve dari config lokal runner—bukan dari Supabase. Simpan counter cache lokal untuk menghitung rate/utilisasi antar-poll; upsert satu `managed_device_latest` + satu `managed_interface_latest` per interface, dan buat `events.source = managed_telemetry` hanya saat transisi. Jangan pernah menulis secret ke Supabase/log dan jangan publish per-poll ke browser.
@@ -147,6 +151,6 @@ AGENTS.md
 - Jangan menjalankan subnet scan otomatis/berulang, menerima arbitrary CIDR dari
   browser, auto-promote hasil discovery, menambah SNMP credential, atau menyimpulkan
   topology/perangkat mati. Satu-satunya pengecualian discovery adalah sweep ringan
-  admin-only pada subnet Windows `/24`–`/30` yang diatur rule 19. SNMP juga hanya
+  admin-only pada unit bounded dari scope privat Windows aktual yang diatur rule 19. SNMP juga hanya
   read-only polling target terkelola yang diatur rule 21—tanpa scanning luas,
   credential guessing, SNMP SET, LLDP/CDP, atau topology inference.
