@@ -1,22 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePlatform } from "./platform.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IDENTIFIER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
-export function loadRunnerConfig(configPath = path.join(RUNNER_ROOT, "config.local.json")) {
+export function loadRunnerConfig(configPath = path.join(RUNNER_ROOT, "config.local.json"), platform = process.platform) {
   const absolutePath = path.resolve(configPath);
   const value = JSON.parse(fs.readFileSync(absolutePath, "utf8"));
-  validateConfig(value);
+  const runtimePlatform = resolvePlatform(platform);
+  validateConfig(value, runtimePlatform);
   const envPath = path.resolve(path.dirname(absolutePath), value.environment_file);
   loadEnvFile(envPath);
+  const projectRoot = runtimePlatform === "win32" ? value.wsl_project_root : value.native_project_root;
   return {
     ...value,
+    runtime_platform: runtimePlatform,
     config_path: absolutePath,
     environment_path: envPath,
-    agent_path: joinWslPath(value.wsl_project_root, value.agent_executable),
-    python_path: joinWslPath(value.wsl_project_root, "agent/.venv/bin/python"),
+    agent_path: runtimePlatform === "win32"
+      ? joinWslPath(projectRoot, value.agent_executable)
+      : joinNativePath(projectRoot, value.agent_executable),
+    python_path: runtimePlatform === "win32"
+      ? joinWslPath(projectRoot, "agent/.venv/bin/python")
+      : joinNativePath(projectRoot, "agent/.venv/bin/python"),
+    data_directory: resolveRuntimeDirectory(path.dirname(absolutePath), value.data_directory ?? "data"),
+    log_directory: resolveRuntimeDirectory(path.dirname(absolutePath), value.log_directory ?? "logs"),
   };
 }
 
@@ -146,23 +156,23 @@ export function safeMessage(code) {
     INVALID_MANUAL_PING_JOB: "Manual ping job is invalid",
     MANUAL_PING_TARGET_UNAVAILABLE: "Manual ping target is not authorized by current Health Watch configuration",
     MANUAL_PING_FAILED: "Manual ping could not be completed",
-    INSPECTION_CONTEXT_UNAVAILABLE: "Windows inspection context could not be collected",
-    INSPECTION_NETWORK_CONTEXT_UNAVAILABLE: "Windows network context for the inspection target could not be resolved",
-    INSPECTION_CONTEXT_INVALID: "Windows inspection context was invalid",
+    INSPECTION_CONTEXT_UNAVAILABLE: "Local inspection context could not be collected",
+    INSPECTION_NETWORK_CONTEXT_UNAVAILABLE: "Local network context for the inspection target could not be resolved",
+    INSPECTION_CONTEXT_INVALID: "Local inspection context was invalid",
     INSPECTION_WSL_UNAVAILABLE: "The configured WSL environment could not be started for Device Inspector",
-    INSPECTION_AGENT_UNAVAILABLE: "The Device Inspector agent is unavailable in the configured WSL environment",
+    INSPECTION_AGENT_UNAVAILABLE: "The Device Inspector agent is unavailable in the configured Linux runtime",
     INSPECTION_TIMEOUT: "Device inspection exceeded its safe execution time",
     INSPECTION_FAILED: "Device inspection could not be completed",
-    DISCOVERY_CONTEXT_UNAVAILABLE: "Windows discovery context could not be collected",
-    DISCOVERY_CONTEXT_INVALID: "Windows discovery context was invalid",
+    DISCOVERY_CONTEXT_UNAVAILABLE: "Local discovery context could not be collected",
+    DISCOVERY_CONTEXT_INVALID: "Local discovery context was invalid",
     DISCOVERY_SCOPE_TOO_LARGE: "Detected subnet is larger than the authorized discovery limit",
     DISCOVERY_FAILED: "Network discovery could not be completed",
     TRAFFIC_CAPTURE_FAILED: "Traffic capture could not be completed",
-    IPERF3_MISSING: "Compatible iperf3 is unavailable in WSL",
+    IPERF3_MISSING: "Compatible iperf3 is unavailable in the configured Linux runtime",
     IPERF3_SERVER_UNAVAILABLE: "The iperf3 target server is unavailable",
     JOB_TIMEOUT: "Diagnostic job exceeded its safe time limit",
     MTR_FAILED: "Path diagnostic failed",
-    MTR_MISSING: "mtr is unavailable in WSL",
+    MTR_MISSING: "mtr is unavailable in the configured Linux runtime",
     RUNNER_INTERNAL_ERROR: "Local diagnostic runner encountered an error",
     TARGET_UNREACHABLE: "Diagnostic target is unreachable",
     UPLOAD_FAILED: "Upload measurement failed",
@@ -171,29 +181,45 @@ export function safeMessage(code) {
     WSL_READINESS_TIMEOUT: "WSL did not become ready for Device Inspector in time",
     WSL_RUNTIME_FAILED: "WSL could not run the required Linux command",
     WSL_START_FAILED: "WSL diagnostic agent could not be started",
-    NETWORK_CONTEXT_UNAVAILABLE: "Windows network context could not be collected",
-    NETWORK_CONTEXT_INVALID: "Windows network context was invalid",
-    NETWORK_INTERFACE_DOWN: "The selected Windows network interface is not up",
-    NO_ROUTE_TO_TARGET: "Windows has no route to the authorized target",
+    NETWORK_CONTEXT_UNAVAILABLE: "Local network context could not be collected",
+    NETWORK_CONTEXT_INVALID: "Local network context was invalid",
+    NETWORK_INTERFACE_DOWN: "The selected network interface is not up",
+    NO_ROUTE_TO_TARGET: "The local host has no route to the authorized target",
     SNMP_TARGET_INVALID: "Managed telemetry target is not authorized locally",
     SNMP_PROFILE_MISSING: "Managed telemetry credential profile is missing locally",
     SNMP_VERSION_MISMATCH: "Managed telemetry target and credential profile versions do not match",
     SNMP_CREDENTIALS_UNAVAILABLE: "Managed telemetry credentials are unavailable locally",
-    SNMP_AGENT_UNAVAILABLE: "The SNMP collector agent is unavailable in the configured WSL environment",
+    SNMP_AGENT_UNAVAILABLE: "The SNMP collector agent is unavailable in the configured Linux runtime",
     SNMP_TIMEOUT: "Managed telemetry poll exceeded its safe time limit",
     SNMP_POLL_FAILED: "Managed telemetry poll could not be completed",
     SNMP_BACKEND_FAILED: "Managed telemetry state could not be published",
+    LINUX_CONTEXT_UNAVAILABLE: "Linux network context could not be collected",
+    LINUX_CONTEXT_INVALID: "Linux network context was invalid",
+    NATIVE_AGENT_UNAVAILABLE: "Native Python agent is unavailable",
+    NATIVE_AGENT_TIMEOUT: "Native Python agent exceeded its safe execution time",
+    PING_UNAVAILABLE: "The platform ping executable is unavailable",
+    UNSUPPORTED_PLATFORM: "The local runner platform is unsupported",
   })[code] ?? "Local diagnostic runner encountered an error";
 }
 
-function validateConfig(value) {
+function validateConfig(value, runtimePlatform) {
   if (!value || typeof value !== "object") throw new Error("Runner config must be an object");
   if (!IDENTIFIER.test(value.runner_id ?? "") || typeof value.display_name !== "string") throw new Error("Runner identity is invalid");
-  for (const field of ["wsl_distro", "wsl_project_root", "agent_executable", "environment_file"]) {
+  const requiredFields = runtimePlatform === "win32"
+    ? ["wsl_distro", "wsl_project_root", "agent_executable", "environment_file"]
+    : ["native_project_root", "agent_executable", "environment_file"];
+  for (const field of requiredFields) {
     if (typeof value[field] !== "string" || !value[field].trim() || /[\r\n]/.test(value[field])) throw new Error(`${field} is invalid`);
   }
-  if (!value.wsl_project_root.startsWith("/") || path.posix.isAbsolute(value.agent_executable) || value.agent_executable.includes("..")) {
-    throw new Error("WSL paths are invalid");
+  if (path.posix.isAbsolute(value.agent_executable) || value.agent_executable.split(/[\\/]/).includes("..")) {
+    throw new Error("Agent path is invalid");
+  }
+  if (runtimePlatform === "win32" && !value.wsl_project_root.startsWith("/")) throw new Error("WSL paths are invalid");
+  if (runtimePlatform === "linux" && !path.posix.isAbsolute(value.native_project_root)) throw new Error("Native Linux project root is invalid");
+  for (const field of ["data_directory", "log_directory"]) {
+    if (value[field] !== undefined && (typeof value[field] !== "string" || !value[field].trim() || value[field].length > 4096 || /[\0\r\n]/.test(value[field]))) {
+      throw new Error(`${field} is invalid`);
+    }
   }
   if (value.enable_diagnostic_demo !== undefined && typeof value.enable_diagnostic_demo !== "boolean") throw new Error("enable_diagnostic_demo is invalid");
   if (value.enable_manual_ping !== undefined && typeof value.enable_manual_ping !== "boolean") throw new Error("enable_manual_ping is invalid");
@@ -234,6 +260,17 @@ function joinWslPath(root, relative) {
   const result = path.posix.resolve(normalizedRoot, relative);
   if (result !== normalizedRoot && !result.startsWith(`${normalizedRoot}/`)) throw new Error("Agent path escapes WSL project root");
   return result;
+}
+
+function joinNativePath(root, relative) {
+  const normalizedRoot = path.posix.normalize(root);
+  const result = path.posix.resolve(normalizedRoot, relative);
+  if (result !== normalizedRoot && !result.startsWith(`${normalizedRoot}/`)) throw new Error("Agent path escapes native project root");
+  return result;
+}
+
+function resolveRuntimeDirectory(configDirectory, configuredPath) {
+  return path.resolve(configDirectory, configuredPath);
 }
 
 function uniqueLabels(value) {

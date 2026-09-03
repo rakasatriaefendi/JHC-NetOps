@@ -226,6 +226,27 @@ Ubuntu Desktop 24.x tanpa menganggap native Linux atau always-on service sudah t
 
 ---
 
+## P8A — Native Ubuntu Runtime Compatibility
+
+- [x] Platform `win32`/`linux` eksplisit; platform lain gagal aman.
+- [x] Linux `ip -j` context menghasilkan kontrak scope yang sama, mempertahankan
+  prefix aktual dan bound 254 host, serta mengecualikan loopback/inactive/internal bridge.
+- [x] Runner Linux memanggil executable agent yang sama secara native dengan
+  structured args, `shell: false`, timeout, normalisasi, dan error aman; WSL tetap utuh.
+- [x] Health Watch/manual PING memakai adapter Linux bounded tanpa mengubah authorization.
+- [x] Device Inspector, Traffic, LAN Diagnostics, dan Managed Telemetry memiliki
+  jalur native; dependency optional dilaporkan preflight dan tidak mematikan runner.
+- [x] State/log runner dapat dipindah keluar versioned release dan runtime tidak
+  bergantung pada `.git`.
+- [ ] Validasi nyata di Mini PC Ubuntu, permission Traffic, dependency diagnostics,
+  live authorized operation, service always-on, restart/power-loss, dan rollback.
+
+**Definition of done P8A:** kompatibilitas aplikasi native Linux lulus test fixture
+tanpa probe live; status production/always-on baru boleh diberikan setelah item
+validasi host pada milestone P8 berikutnya selesai.
+
+---
+
 ## Catatan tambahan
 
 - [2026-08-21] Runner stability fixes pada branch `fix/runner-stability` selesai

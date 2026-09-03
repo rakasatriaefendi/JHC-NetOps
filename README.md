@@ -1,8 +1,9 @@
 # Network Monitoring
 
 Dashboard monitoring dan diagnostik jaringan untuk kebutuhan IT Support. Project ini
-menggabungkan dashboard Next.js, Supabase, agent Python di WSL, dan Windows Local
-Runner untuk memberikan visibilitas jaringan tanpa menyimpan raw packet atau PCAP.
+menggabungkan dashboard Next.js, Supabase, Python agent, dan Local Runner lintas
+Windows/WSL atau native Linux untuk memberikan visibilitas jaringan tanpa
+menyimpan raw packet atau PCAP.
 
 ## Fitur utama
 
@@ -24,19 +25,19 @@ Hermes AI Agent masih berupa endpoint stub dan belum menjalankan analisis LLM.
 ```mermaid
 flowchart LR
     Browser[Next.js dashboard] --> Supabase[Supabase Auth, Database, Realtime, Edge Functions]
-    Runner[Windows Local Runner] <--> Supabase
-    Runner -->|structured command| Agent[Python agent in WSL]
+    Runner[Local Runner: Windows or Linux] <--> Supabase
+    Runner -->|WSL or native structured command| Agent[Same Python agent]
     Agent -->|metrics and diagnostic results| Supabase
     Agent --> Tools[iperf3 / mtr / Scapy]
     Hermes[Hermes Flask agent - stub] -. event-based .-> Supabase
 ```
 
 Browser tidak dapat menjalankan shell command lokal. Runner hanya menerima job
-terstruktur dan me-resolve target dari allow-list lokal sebelum memanggil agent WSL.
+terstruktur dan me-resolve target dari allow-list lokal sebelum memanggil agent.
 
-Diagram tersebut adalah runtime development yang saat ini didukung: Windows +
-Ubuntu WSL. Target P8 adalah Mini PC Ubuntu Desktop 24.x dengan runner dan agent
-native tanpa WSL, tetapi adapter native Linux belum diimplementasikan. Lihat
+Windows + Ubuntu WSL tetap didukung. Adapter aplikasi native Linux P8A telah
+diimplementasikan dan diuji tanpa network live, tetapi Mini PC, dependency,
+permission, dan always-on operation belum divalidasi atau dideploy. Lihat
 [Technical Handover](docs/HANDOVER.md) dan
 [Ubuntu Deployment Readiness](docs/UBUNTU_DEPLOYMENT_READINESS.md).
 
@@ -46,7 +47,7 @@ native tanpa WSL, tetapi adapter native Linux belum diimplementasikan. Lihat
 |---|---|
 | [`agent`](agent/README.md) | Agent Python, metrik, diagnostics, dan capture traffic header-only. |
 | [`frontend`](frontend/README.md) | Dashboard Next.js App Router. |
-| [`runner`](runner/README.md) | Orkestrasi Windows, heartbeat, Health Watch, dan job lokal. |
+| [`runner`](runner/README.md) | Orkestrasi Windows/Linux, heartbeat, Health Watch, dan job lokal. |
 | [`supabase`](supabase/README.md) | Migration, RLS, dan Edge Functions. |
 | [`hermes-agent`](hermes-agent/README.md) | Service Flask untuk AI analysis; saat ini masih stub. |
 | [`scripts`](scripts/README.md) | Helper setup, target allow-list, dan verifikasi. |
@@ -57,11 +58,12 @@ runner diabaikan oleh Git.
 
 ## Prasyarat
 
-- Windows dengan WSL2 dan distro Linux yang sesuai konfigurasi runner.
-- Python 3.11 atau lebih baru di WSL.
+- Windows dengan WSL2, atau Ubuntu 24.x native untuk jalur P8A yang masih perlu
+  validasi host.
+- Python 3.11 atau lebih baru di WSL/native venv.
 - Node.js 22 untuk frontend dan runner.
 - Project Supabase dan Supabase CLI untuk migration/deployment.
-- `iperf3` dan `mtr` di WSL untuk LAN Diagnostics.
+- `iperf3` dan `mtr` di runtime Linux untuk LAN Diagnostics.
 - Server `iperf3 -s` pada target yang sudah mendapat izin.
 
 ## Quick start development
@@ -106,7 +108,7 @@ npm run dev
 
 Buka `http://localhost:3000`.
 
-### 4. Siapkan agent WSL
+### 4. Siapkan agent Linux
 
 ```bash
 cd agent
@@ -117,10 +119,14 @@ python -m pip install -e .
 sudo apt install iperf3 mtr-tiny
 ```
 
+Pada Windows perintah ini dijalankan di distro WSL. Untuk native Ubuntu P8A,
+buat venv baru di release yang aktif; jangan salin venv dari Windows/WSL.
+
 ### 5. Siapkan runner
 
-Salin `runner/config.example.json` menjadi `runner/config.local.json`, lalu isi
-distro, path WSL, source location, interface capture, dan target yang diizinkan.
+Salin `runner/config.example.json` menjadi `runner/config.local.json`. Windows
+memakai distro/path WSL; Linux memakai absolute `native_project_root`. Isi source
+location, interface capture, dan target yang diizinkan sesuai host.
 
 Dari root project di PowerShell:
 

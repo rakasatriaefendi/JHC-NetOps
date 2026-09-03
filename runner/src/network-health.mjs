@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import path from "node:path";
+import { resolvePlatform } from "./platform.mjs";
 
 const PING_EXE = "C:\\Windows\\System32\\PING.EXE";
 const WINDOW_SIZE = 5;
@@ -14,11 +15,12 @@ const MAX_BACKOFF_MS = 60_000;
 export const PING_PROCESS_STARTUP_GRACE_MS = 250;
 
 export class NetworkHealthWatch {
-  constructor({ runnerId, backend, cachePath, ping = pingTarget, log = () => {}, now = () => Date.now(), concurrency = 4 }) {
+  constructor({ runnerId, backend, cachePath, ping, platform = process.platform, log = () => {}, now = () => Date.now(), concurrency = 4 }) {
     this.runnerId = runnerId;
     this.backend = backend;
     this.cachePath = cachePath;
-    this.ping = ping;
+    this.platform = resolvePlatform(platform);
+    this.ping = ping ?? ((ipAddress, timeoutMs, signal) => pingTarget(ipAddress, timeoutMs, signal, spawn, this.platform));
     this.log = log;
     this.now = now;
     this.concurrency = concurrency;
@@ -185,9 +187,9 @@ export class NetworkHealthWatch {
   persist() { saveCache(this.cachePath, { version: 1, cachedTargets: [...this.targets.values()], states: this.states, pendingTransitions: this.pendingTransitions }); }
 }
 
-export function pingTarget(ipAddress, timeoutMs, signal, spawnProcess = spawn) {
+export function pingTarget(ipAddress, timeoutMs, signal, spawnProcess = spawn, platform = process.platform) {
   let invocation;
-  try { invocation = buildPingInvocation(ipAddress, timeoutMs); }
+  try { invocation = buildPingInvocation(ipAddress, timeoutMs, platform); }
   catch (error) { return Promise.reject(error); }
   return new Promise((resolve, reject) => {
     let output = "";
@@ -227,9 +229,15 @@ export function pingProcessWallTimeout(timeoutMs) {
   return timeoutMs + PING_PROCESS_STARTUP_GRACE_MS;
 }
 
-export function buildPingInvocation(ipAddress, timeoutMs) {
+export function buildPingInvocation(ipAddress, timeoutMs, platform = process.platform) {
   if (!isIP(ipAddress) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 5000) throw new Error("Invalid health ping parameters");
-  return { executable: PING_EXE, args: [isIP(ipAddress) === 6 ? "-6" : "-4", "-n", "1", "-w", String(timeoutMs), ipAddress],
+  const runtimePlatform = resolvePlatform(platform);
+  const family = isIP(ipAddress) === 6 ? "-6" : "-4";
+  if (runtimePlatform === "win32") {
+    return { executable: PING_EXE, args: [family, "-n", "1", "-w", String(timeoutMs), ipAddress],
+      options: { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] } };
+  }
+  return { executable: "ping", args: [family, "-n", "-c", "1", "-W", String(Math.max(1, Math.ceil(timeoutMs / 1000))), ipAddress],
     options: { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] } };
 }
 

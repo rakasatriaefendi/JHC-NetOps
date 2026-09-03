@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import readline from "node:readline";
 import { safeError } from "./config.mjs";
+import { resolvePlatform } from "./platform.mjs";
 
 const CREATE_NO_WINDOW = true;
 export const WSL_READINESS_TIMEOUT_MS = 15_000;
@@ -17,6 +18,7 @@ const INSPECTION_TRACE_PHASES = new Set([
 const INSPECTION_TRACE_STATUSES = new Set(["completed", "timeout", "skipped_budget", "failed", "exited"]);
 
 export function runPreflight(config, spawnSyncProcess = spawnSync) {
+  if (runtimePlatform(config) === "linux") return runLinuxPreflight(config, spawnSyncProcess);
   const distroList = spawnSyncProcess("wsl.exe", ["--list", "--quiet"], { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
   assertWslInvocation(distroList, "WSL_RUNTIME_FAILED");
   const distros = `${distroList.stdout ?? ""}${distroList.stderr ?? ""}`.replaceAll("\u0000", "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
@@ -45,12 +47,13 @@ export function runPreflight(config, spawnSyncProcess = spawnSync) {
   }
   const deviceInspector = validateInspectorCapabilities(deviceInspectorPayload);
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw safeError("RUNNER_INTERNAL_ERROR", "Runner backend credentials are unavailable");
-  return { python: pythonVersion[0], iperf3: `3.${iperfVersion[1]}`, mtr: true, traffic: true, device_inspector: deviceInspector };
+  return { platform: "win32", python: pythonVersion[0], iperf3: `3.${iperfVersion[1]}`, mtr: true, ping: true,
+    linux_network_context: false, traffic: true, diagnostics: true, device_inspector: deviceInspector,
+    operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect", ...(config.enable_manual_ping === true ? ["manual_ping"] : [])] };
 }
 
 export function buildAgentInvocation(config, job) {
-  return [
-    "-d", config.wsl_distro, "--exec", config.agent_path, "diagnostic-run", job.target.host,
+  const args = ["diagnostic-run", job.target.host,
     "--job-id", job.id,
     "--source-label", job.source_label,
     "--target-label", job.target.label,
@@ -59,24 +62,27 @@ export function buildAgentInvocation(config, job) {
     "--duration", String(job.duration_seconds),
     "--port", String(job.target.iperf_port),
   ];
+  return wrapAgentInvocation(config, args);
 }
 
 export function buildTrafficInvocation(config, session) {
-  return ["-d", config.wsl_distro, "--user", "root", "--exec", config.agent_path,
-    "traffic-live", "--runner-id", config.runner_id, "--session-id", session.id,
+  const args = ["traffic-live", "--runner-id", config.runner_id, "--session-id", session.id,
     "--duration", String(session.duration_seconds), "--interface", config.traffic_interface];
+  return runtimePlatform(config) === "win32"
+    ? ["-d", config.wsl_distro, "--user", "root", "--exec", config.agent_path, ...args]
+    : args;
 }
 
 export async function runTrafficAgent(config, session, onEvent, timeoutMs) {
-  return runStructuredProcess(buildTrafficInvocation(config, session), validateTrafficEvent, onEvent, timeoutMs);
+  return runStructuredProcess(config, buildTrafficInvocation(config, session), validateTrafficEvent, onEvent, timeoutMs);
 }
 
 export async function runAgent(config, job, onEvent, timeoutMs) {
-  return runStructuredProcess(buildAgentInvocation(config, job), validateAgentEvent, onEvent, timeoutMs);
+  return runStructuredProcess(config, buildAgentInvocation(config, job), validateAgentEvent, onEvent, timeoutMs);
 }
 
 export function buildInspectionInvocation(config, session, context) {
-  const args = ["-d", config.wsl_distro, "--exec", config.agent_path, "device-inspect", session.target_ip,
+  const args = ["device-inspect", session.target_ip,
     "--route-role", context.route_role,
     "--same-subnet", context.same_subnet ? "yes" : "no",
     "--reachable", context.reachable ? "yes" : "no",
@@ -87,7 +93,7 @@ export function buildInspectionInvocation(config, session, context) {
     "--interface-type", context.interface_type];
   if (context.default_gateway) args.push("--default-gateway", context.default_gateway);
   if (context.mac) args.push("--mac", context.mac);
-  return args;
+  return wrapAgentInvocation(config, args);
 }
 
 export function buildWslReadinessInvocation(config) {
@@ -142,13 +148,16 @@ export async function runInspectionAgent(
   config, session, context, onEvent, timeoutMs = 30_000, spawnProcess = spawn, onTrace = () => {},
   readiness = {},
 ) {
-  await waitForWslReadiness(config, {
-    timeoutMs: readiness.timeoutMs ?? WSL_READINESS_TIMEOUT_MS,
-    spawnProcess: readiness.spawnProcess ?? spawnProcess,
-    onTrace,
-  });
-  return runStructuredProcess(buildInspectionInvocation(config, session, context), validateInspectionEvent, onEvent, timeoutMs, {
-    start: "INSPECTION_WSL_UNAVAILABLE",
+  const platform = runtimePlatform(config);
+  if (platform === "win32") {
+    await waitForWslReadiness(config, {
+      timeoutMs: readiness.timeoutMs ?? WSL_READINESS_TIMEOUT_MS,
+      spawnProcess: readiness.spawnProcess ?? spawnProcess,
+      onTrace,
+    });
+  }
+  return runStructuredProcess(config, buildInspectionInvocation(config, session, context), validateInspectionEvent, onEvent, timeoutMs, {
+    start: platform === "win32" ? "INSPECTION_WSL_UNAVAILABLE" : "INSPECTION_AGENT_UNAVAILABLE",
     timeout: "INSPECTION_TIMEOUT",
     exit: "INSPECTION_AGENT_UNAVAILABLE",
     trace: onTrace,
@@ -158,7 +167,7 @@ export async function runInspectionAgent(
 export function buildSnmpInvocation(config, target, creds, netbiosOffset = 0) {
   const safeNetbiosOffset = Number.isSafeInteger(netbiosOffset) && netbiosOffset >= 0 && netbiosOffset < 256
     ? netbiosOffset : 0;
-  const args = ["-d", config.wsl_distro, "--exec", config.agent_path, "managed-telemetry-poll",
+  const args = ["managed-telemetry-poll",
     "--target-id", target.id,
     "--runner-id", config.runner_id,
     "--node-id", target.node_id,
@@ -177,11 +186,11 @@ export function buildSnmpInvocation(config, target, creds, netbiosOffset = 0) {
   } else if (creds.version === "2c" && creds.community) {
     args.push("--community", creds.community);
   }
-  return args;
+  return wrapAgentInvocation(config, args);
 }
 
 export async function runTelemetryAgent(config, target, creds, onEvent, timeoutMs = 30_000, netbiosOffset = 0) {
-  return runStructuredProcess(buildSnmpInvocation(config, target, creds, netbiosOffset), validateTelemetryEvent, onEvent, timeoutMs, {
+  return runStructuredProcess(config, buildSnmpInvocation(config, target, creds, netbiosOffset), validateTelemetryEvent, onEvent, timeoutMs, {
     start: "SNMP_AGENT_UNAVAILABLE",
     timeout: "SNMP_TIMEOUT",
     exit: "SNMP_AGENT_UNAVAILABLE",
@@ -262,9 +271,16 @@ function validateTelemetryInterface(item) {
   return out;
 }
 
-async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCodes = {}, spawnProcess = spawn) {
+async function runStructuredProcess(config, args, validator, onEvent, timeoutMs, errorCodes = {}, spawnProcess = spawn) {
   const startedAt = Date.now();
-  const child = spawnProcess("wsl.exe", args, { windowsHide: CREATE_NO_WINDOW, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+  const platform = runtimePlatform(config);
+  const executable = platform === "win32" ? "wsl.exe" : config.agent_path;
+  let child;
+  try {
+    child = spawnProcess(executable, args, { windowsHide: CREATE_NO_WINDOW, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    throw safeError(errorCodes.start ?? (platform === "win32" ? "WSL_START_FAILED" : "NATIVE_AGENT_UNAVAILABLE"));
+  }
   let safeAgentError = null;
   let protocolError = null;
   let callbackError = null;
@@ -286,9 +302,9 @@ async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCo
     firstAgentOutput = true;
     emitRunnerTrace("first_agent_output");
   };
-  emitRunnerTrace("wsl_spawn");
+  emitRunnerTrace(platform === "win32" ? "wsl_spawn" : "native_spawn");
   const exitPromise = new Promise((resolve, reject) => {
-    child.once("error", () => reject(safeError(errorCodes.start ?? "WSL_START_FAILED")));
+    child.once("error", () => reject(safeError(errorCodes.start ?? (platform === "win32" ? "WSL_START_FAILED" : "NATIVE_AGENT_UNAVAILABLE"))));
     child.once("close", resolve);
   });
   const timeout = setTimeout(() => {
@@ -352,12 +368,12 @@ async function runStructuredProcess(args, validator, onEvent, timeoutMs, errorCo
     }
   }
   const exit = await exitPromise.finally(() => clearTimeout(timeout));
-  emitRunnerTrace("wsl_close", { exit_code: Number.isInteger(exit) ? exit : -1 });
+  emitRunnerTrace(platform === "win32" ? "wsl_close" : "native_close", { exit_code: Number.isInteger(exit) ? exit : -1 });
   if (timedOut) throw safeError(errorCodes.timeout ?? "JOB_TIMEOUT");
   if (protocolError) throw protocolError;
   if (callbackError) throw callbackError;
   if (safeAgentError) throw safeAgentError;
-  if (exit !== 0) throw safeError(errorCodes.exit ?? "WSL_START_FAILED");
+  if (exit !== 0) throw safeError(errorCodes.exit ?? (platform === "win32" ? "WSL_START_FAILED" : "NATIVE_AGENT_UNAVAILABLE"));
   return { exit, stderr_bytes: stderrBytes };
 }
 
@@ -489,6 +505,78 @@ function validateFingerprint(value) {
     throw safeError("AGENT_PROTOCOL_ERROR");
   }
   return value;
+}
+
+function runLinuxPreflight(config, spawnSyncProcess) {
+  const python = captureNative(config.python_path, ["--version"], "AGENT_PYTHON_UNSUPPORTED", spawnSyncProcess);
+  const pythonVersion = python.match(/Python\s+(\d+)\.(\d+)/);
+  if (!pythonVersion || Number(pythonVersion[1]) < 3 || (Number(pythonVersion[1]) === 3 && Number(pythonVersion[2]) < 11)) {
+    throw safeError("AGENT_PYTHON_UNSUPPORTED");
+  }
+  let deviceInspectorPayload;
+  try {
+    deviceInspectorPayload = JSON.parse(captureNative(config.agent_path, ["capabilities"], "NATIVE_AGENT_UNAVAILABLE", spawnSyncProcess, true).trim());
+  } catch (error) {
+    if (error?.code) throw error;
+    throw safeError("NATIVE_AGENT_UNAVAILABLE");
+  }
+  const deviceInspector = validateInspectorCapabilities(deviceInspectorPayload);
+  const ip = nativeTool("ip", ["-V"], spawnSyncProcess);
+  const ping = nativeTool("ping", ["-V"], spawnSyncProcess);
+  const mtr = nativeTool("mtr", ["--version"], spawnSyncProcess);
+  const iperfResult = nativeToolResult("iperf3", ["--version"], spawnSyncProcess);
+  const iperfMatch = `${iperfResult.stdout ?? ""}${iperfResult.stderr ?? ""}`.match(/iperf\s+3\.(\d+)/i);
+  const iperf = iperfResult.available && iperfMatch && Number(iperfMatch[1]) >= 7;
+  const scapy = nativeTool(config.python_path, ["-c", "import scapy"], spawnSyncProcess);
+  const traffic = scapy && nativeTool(config.agent_path, ["traffic-interface-check", "--interface", config.traffic_interface], spawnSyncProcess);
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw safeError("RUNNER_INTERNAL_ERROR", "Runner backend credentials are unavailable");
+  const operations = [
+    ...(iperf && mtr && ip ? ["bandwidth_and_path"] : []),
+    ...(traffic ? ["traffic_live"] : []),
+    ...(ip && ping ? ["network_discovery"] : []),
+    ...(ip ? ["device_inspect"] : []),
+    ...(config.enable_manual_ping === true && ping ? ["manual_ping"] : []),
+  ];
+  return {
+    platform: "linux",
+    python: pythonVersion[0],
+    iperf3: iperf ? `3.${iperfMatch[1]}` : null,
+    mtr,
+    ping,
+    linux_network_context: ip,
+    traffic,
+    diagnostics: Boolean(iperf && mtr && ip),
+    device_inspector: deviceInspector,
+    operations,
+  };
+}
+
+function captureNative(executable, args, errorCode, spawnSyncProcess, stdoutOnly = false) {
+  const result = spawnSyncProcess(executable, args, { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+  if (result?.error?.code === "ETIMEDOUT") throw safeError("NATIVE_AGENT_TIMEOUT");
+  if (result?.error || result?.status !== 0) throw safeError(errorCode);
+  return `${result.stdout ?? ""}${stdoutOnly ? "" : result.stderr ?? ""}`;
+}
+
+function nativeTool(executable, args, spawnSyncProcess) {
+  return nativeToolResult(executable, args, spawnSyncProcess).available;
+}
+
+function nativeToolResult(executable, args, spawnSyncProcess) {
+  try {
+    const result = spawnSyncProcess(executable, args, { windowsHide: CREATE_NO_WINDOW, shell: false, encoding: "utf8", timeout: 10000 });
+    return { available: !result?.error && result?.status === 0, stdout: result?.stdout, stderr: result?.stderr };
+  } catch { return { available: false, stdout: "", stderr: "" }; }
+}
+
+function runtimePlatform(config) {
+  return resolvePlatform(config?.runtime_platform ?? "win32");
+}
+
+function wrapAgentInvocation(config, args) {
+  return runtimePlatform(config) === "win32"
+    ? ["-d", config.wsl_distro, "--exec", config.agent_path, ...args]
+    : args;
 }
 
 function captureWsl(config, args, errorCode, spawnSyncProcess = spawnSync) {

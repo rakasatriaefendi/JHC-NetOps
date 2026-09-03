@@ -4,6 +4,9 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { safeError } from "./config.mjs";
+import { collectLinuxDiagnosticContext } from "./linux-network-context.mjs";
+import { pingTarget } from "./network-health.mjs";
+import { resolvePlatform } from "./platform.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_PATH = path.join(RUNNER_ROOT, "scripts", "get-network-context.ps1"); 
@@ -24,7 +27,19 @@ export function buildNetworkContextInvocation(target, scriptPath = SCRIPT_PATH) 
   ];
 }
 
-export function collectNetworkContext(target, spawnProcess = spawn) {
+export function collectNetworkContext(target, spawnProcess = spawn, options = {}) {
+  const platform = resolvePlatform(options.platform);
+  if (platform === "linux") {
+    return (options.collectLinuxContext ?? collectLinuxDiagnosticContext)(target, {
+      ...options,
+      spawnProcess,
+      ping: options.ping ?? ((ipAddress, timeoutMs, signal) => pingTarget(ipAddress, timeoutMs, signal, spawnProcess, platform)),
+    }).then((value) => validateNetworkProbe(value, target)).catch((error) => {
+      if (error?.code === "LINUX_CONTEXT_INVALID") throw safeError("NETWORK_CONTEXT_INVALID");
+      if (error?.code === "NETWORK_CONTEXT_INVALID" || error?.code === "NO_ROUTE_TO_TARGET") throw error;
+      throw safeError("NETWORK_CONTEXT_UNAVAILABLE");
+    });
+  }
   return new Promise((resolve, reject) => {
     const child = spawnProcess("powershell.exe", buildNetworkContextInvocation(target), {
       windowsHide: true,
