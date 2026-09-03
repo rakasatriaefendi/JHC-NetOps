@@ -23,38 +23,45 @@ export async function collectLinuxNetworkState(options = {}) {
   const spawnProcess = options.spawnProcess ?? spawn;
   const command = options.ipExecutable ?? "ip";
   const commandOptions = { spawnProcess, timeoutMs: options.timeoutMs ?? COMMAND_TIMEOUT_MS };
-  const [addresses, routes, neighbors] = await Promise.all([
+  const [links, addresses, routes, neighbors] = await Promise.all([
+    runBoundedJsonCommand(command, ["-j", "-d", "link", "show"], commandOptions),
     runBoundedJsonCommand(command, ["-j", "-4", "address", "show"], commandOptions),
     runBoundedJsonCommand(command, ["-j", "-4", "route", "show", "table", "main"], commandOptions),
     runBoundedJsonCommand(command, ["-j", "-4", "neighbor", "show"], commandOptions),
   ]);
-  return normalizeLinuxNetworkState({ addresses, routes, neighbors }, options);
+  return normalizeLinuxNetworkState({ links, addresses, routes, neighbors }, options);
 }
 
 export function normalizeLinuxNetworkState(raw, options = {}) {
-  if (!Array.isArray(raw?.addresses) || !Array.isArray(raw?.routes) || !Array.isArray(raw?.neighbors)) {
+  if (!Array.isArray(raw?.links) || !Array.isArray(raw?.addresses) ||
+      !Array.isArray(raw?.routes) || !Array.isArray(raw?.neighbors)) {
     throw safeError("LINUX_CONTEXT_INVALID");
   }
   const wirelessInterface = options.isWirelessInterface ?? ((name) =>
     safeInterfaceName(name) && fs.existsSync(`/sys/class/net/${name}/wireless`));
-  const interfaces = raw.addresses.slice(0, MAX_INTERFACES).map((item) => {
-    if (!item || !Number.isSafeInteger(item.ifindex) || !safeInterfaceName(item.ifname)) return null;
-    const linkKind = item.linkinfo?.info_kind ?? null;
-    const interfaceKind = classifyInterface(item.link_type, linkKind);
-    const operationalStatus = normalizeOperationalStatus(item.operstate, item.flags);
-    const addresses = Array.isArray(item.addr_info) ? item.addr_info
+  const addressByIndex = new Map(raw.addresses.slice(0, MAX_INTERFACES)
+    .filter((item) => item && Number.isSafeInteger(item.ifindex) && safeInterfaceName(item.ifname))
+    .map((item) => [item.ifindex, item]));
+  const interfaces = raw.links.slice(0, MAX_INTERFACES).map((link) => {
+    if (!link || !Number.isSafeInteger(link.ifindex) || !safeInterfaceName(link.ifname)) return null;
+    const addressRecord = addressByIndex.get(link.ifindex);
+    const matchingAddressRecord = addressRecord?.ifname === link.ifname ? addressRecord : null;
+    const linkKind = link.linkinfo?.info_kind ?? null;
+    const interfaceKind = classifyInterface(link.link_type, linkKind);
+    const operationalStatus = normalizeOperationalStatus(link.operstate, link.flags);
+    const addresses = Array.isArray(matchingAddressRecord?.addr_info) ? matchingAddressRecord.addr_info
       .filter((address) => address?.family === "inet" && typeof address.local === "string" && Number.isSafeInteger(address.prefixlen))
       .slice(0, 16)
       .map((address) => ({ ip_address: address.local, prefix_length: address.prefixlen })) : [];
     return {
-      interface_index: item.ifindex,
-      interface_alias: item.ifname,
-      interface_description: `Linux ${item.link_type || linkKind || "network"} interface`,
+      interface_index: link.ifindex,
+      interface_alias: link.ifname,
+      interface_description: `Linux ${link.link_type || linkKind || "network"} interface`,
       operational_status: operationalStatus,
       interface_kind: interfaceKind,
-      connection_type: interfaceKind === "physical" ? (wirelessInterface(item.ifname) ? "wifi" : "ethernet") : "unknown",
+      connection_type: interfaceKind === "physical" ? (wirelessInterface(link.ifname) ? "wifi" : "ethernet") : "unknown",
       addresses,
-      link_type: typeof item.link_type === "string" ? item.link_type : null,
+      link_type: typeof link.link_type === "string" ? link.link_type : null,
       link_kind: typeof linkKind === "string" ? linkKind : null,
     };
   }).filter(Boolean);
@@ -292,8 +299,11 @@ function classifyInterface(linkType, linkKind) {
   return linkType === "ether" ? "physical" : "unknown";
 }
 function normalizeOperationalStatus(state, flags) {
-  if (String(state).toUpperCase() === "UP" || (Array.isArray(flags) && flags.includes("UP"))) return "up";
-  if (["DOWN", "DORMANT", "LOWERLAYERDOWN", "NOTPRESENT"].includes(String(state).toUpperCase())) return "down";
+  const normalizedState = String(state ?? "").toUpperCase();
+  if (normalizedState === "UP") return "up";
+  if (["DOWN", "DORMANT", "LOWERLAYERDOWN", "NOTPRESENT"].includes(normalizedState)) return "down";
+  const normalizedFlags = Array.isArray(flags) ? flags.map((flag) => String(flag).toUpperCase()) : [];
+  if ((normalizedState === "UNKNOWN" || normalizedState === "") && normalizedFlags.includes("LOWER_UP")) return "up";
   return "unknown";
 }
 function normalizedNeighborState(value) {
