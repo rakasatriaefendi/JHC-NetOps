@@ -20,7 +20,7 @@ test("Admin is account-only and monitoring configuration moved to approved-user 
   assert.match(devices, /requireApprovedProfile|DeviceInventory|NetworkHealthTargets/);
   assert.match(snmp, /requireApprovedProfile|ManagedTelemetryTargets|ManagedTelemetryDetail/);
   assert.match(devices, /canManage=\{profile\.role === "admin"\}/);
-  assert.match(snmp, /canManage=\{profile\.role === "admin"\}/);
+  assert.match(snmp, /canManage=\{!portable\.enabled && profile\.role === "admin"\}/);
 });
 
 test("manual onboarding is admin-only, server-validated, duplicate-safe, and never starts a probe", () => {

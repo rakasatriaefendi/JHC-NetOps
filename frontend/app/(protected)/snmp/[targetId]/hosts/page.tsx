@@ -1,13 +1,14 @@
 import Link from "next/link";
 
+import { PortableFixtureBanner } from "@/components/portable-fixture-banner";
 import { ObservedLanHostsWorkspace } from "@/components/snmp/observed-lan-hosts";
 import { requireApprovedProfile } from "@/lib/auth";
 import {
   formatDateTime,
   latestObservedAt,
-  loadManagedObservedHostsPage,
   MANAGED_TELEMETRY_STATUS_LABELS,
 } from "@/lib/managed-telemetry";
+import { loadObservedHostsData } from "@/lib/managed-telemetry-source";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,8 @@ export default async function ObservedHostsPage({ params }: ObservedHostsPagePro
   const { targetId } = await params;
   const { supabase } = await requireApprovedProfile();
   const result = UUID_PATTERN.test(targetId)
-    ? await loadManagedObservedHostsPage(supabase, targetId)
-    : { target: null, observedHosts: [], error: false };
+    ? await loadObservedHostsData(supabase, targetId)
+    : { target: null, observedHosts: [], error: false, portable: { enabled: false as const, scenario: null } };
   const target = result.target;
   const latestObservation = target
     ? latestObservedAt(result.observedHosts, target.latest?.last_polled_at ?? null)
@@ -38,6 +39,7 @@ export default async function ObservedHostsPage({ params }: ObservedHostsPagePro
       <h1 className="mt-2 text-heading font-semibold">Observed LAN Hosts</h1>
       <p className="mt-2 max-w-3xl text-text-secondary">Read-only Layer-3 neighbor evidence reported by one managed device. This workspace does not start a scan or prove physical switch-port attachment.</p>
     </div>
+    {result.portable.enabled ? <PortableFixtureBanner scenario={result.portable.scenario} /> : null}
 
     {result.error ? <StateCard title="Observed hosts unavailable">The latest managed observation could not be loaded. Return to the SNMP workspace and try again later.</StateCard>
       : !target ? <StateCard title="Managed SNMP target unavailable">This target does not exist or is not available to your approved account.</StateCard>
