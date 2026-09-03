@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireAdminProfile } from "@/lib/auth";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
 import { validateManagedTelemetryForm } from "@/lib/managed-telemetry";
+import { portableDevMode } from "@/lib/portable-dev-mode";
 
 const TELEMETRY_FIELDS = new Set([
   "node_id", "runner_id", "credential_profile_ref", "snmp_version",
@@ -15,6 +16,9 @@ const TELEMETRY_FIELDS = new Set([
 ]);
 
 export async function saveManagedTelemetryTargetAction(formData: FormData) {
+  if (portableDevMode()) {
+    redirect("/snmp?telemetry_error=portable-read-only#managed-telemetry");
+  }
   if (hasUnexpectedFormFields(formData, TELEMETRY_FIELDS)) {
     redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
   }

@@ -111,9 +111,11 @@ test("SNMP detail uses only the compact observed-host summary and dedicated rout
 
 test("dedicated observed-host workspace is approved-viewer read-only and handles required states", () => {
   const route = source("../app/(protected)/snmp/[targetId]/hosts/page.tsx");
+  const dataSource = source("../lib/managed-telemetry-source.ts");
   const component = source("../components/snmp/observed-lan-hosts.tsx");
   assert.match(route, /requireApprovedProfile/);
-  assert.match(route, /loadManagedObservedHostsPage/);
+  assert.match(route, /loadObservedHostsData/);
+  assert.match(dataSource, /loadManagedObservedHostsPage/);
   assert.match(route, /ObservedLanHostsWorkspace/);
   assert.doesNotMatch(route, /requireAdmin|profile\.role/);
   assert.match(route, /href="\/snmp"/);

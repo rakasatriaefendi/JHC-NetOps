@@ -122,6 +122,7 @@ function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner
 }
 
 function telemetryError(value: string) {
+  if (value === "portable-read-only") return "Portable Development Mode bersifat read-only.";
   if (value === "profile-unavailable") return "credential profile tidak tersedia di runner terpilih.";
   if (value === "invalid-fields" || value === "invalid-form") return "payload atau nilai form tidak valid.";
   return "periksa nilai dan policy akses.";

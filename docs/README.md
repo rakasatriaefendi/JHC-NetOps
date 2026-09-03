@@ -18,6 +18,7 @@ Jangan menyimpang dari dokumen tersebut tanpa persetujuan pemilik project.
 | [AGENT_SETUP.md](AGENT_SETUP.md) | Setup Supabase, WSL agent, runner, diagnostics, Traffic, Health Watch, dan Discovery. |
 | [AUTH_SETUP.md](AUTH_SETUP.md) | Environment auth, migration, seed admin, dan verifikasi approval. |
 | [PANDUAN.md](PANDUAN.md) | Panduan penggunaan harian LAN Diagnostics dan runner. |
+| [PORTABLE_DEVELOPMENT.md](PORTABLE_DEVELOPMENT.md) | Fixture Managed Telemetry lokal yang eksplisit, read-only, dan terisolasi dari data produksi. |
 
 ## Design references
 
@@ -26,4 +27,3 @@ Referensi tersebut tidak mengalahkan token atau keputusan pada `DESIGN.md`.
 
 Arsip `files.zip` dan folder backup dokumentasi lama bersifat lokal dan diabaikan
 Git. Gunakan dokumen aktif pada folder ini sebagai acuan implementasi.
-
