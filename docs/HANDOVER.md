@@ -7,13 +7,14 @@ current Windows/WSL setup detail in [AGENT_SETUP.md](AGENT_SETUP.md).
 
 ## Supported runtime and next milestone
 
-**Current supported development runtime:** Windows host, Windows Local Runner,
-and the Python agent in Ubuntu WSL.
+**Validated development runtime:** Windows host, Windows Local Runner, and the
+Python agent in Ubuntu WSL.
 
-**P8 target, not implemented yet:** an always-on Mini PC running Ubuntu Desktop
-24.x, with the Node.js runner and Python agent executed natively without WSL.
-See [UBUNTU_DEPLOYMENT_READINESS.md](UBUNTU_DEPLOYMENT_READINESS.md). Do not use
-that target architecture as evidence that native Ubuntu is supported today.
+**P8A compatibility implemented, not host-validated:** the runner now has native
+Ubuntu context/process/ping/preflight adapters. Always-on service operation and
+real Mini-PC validation are still pending. See
+[UBUNTU_DEPLOYMENT_READINESS.md](UBUNTU_DEPLOYMENT_READINESS.md); fixture coverage
+is not evidence of production deployment.
 
 ## Product mental model
 
@@ -38,12 +39,12 @@ Browser / Next.js
 Supabase Auth + Database + Realtime + Edge Functions
         ^
         |
-Windows Local Runner (Node.js)
-        |-- Windows network context and bounded PING.EXE work
-        `-- wsl.exe --exec
+Local Runner (Node.js)
+        |-- Windows: PowerShell context + PING.EXE + wsl.exe --exec
+        `-- Linux: ip -j context + ping + native child process
                  |
                  v
-          Python network-monitor agent in Ubuntu WSL
+          Same Python network-monitor agent
                  `-- iperf3 / mtr / Scapy / PySNMP / optional OpenSSL
 ```
 
@@ -51,7 +52,7 @@ Windows Local Runner (Node.js)
 |---|---|
 | Frontend | Authenticated UI, read models, Realtime subscriptions, and structured admin actions. It never runs local shell commands. |
 | Supabase | Authentication, RLS, persistent latest state/history, temporary job/session coordination, and validated Edge Function contracts. |
-| Windows runner | Heartbeat, allow-list enforcement, scheduling, Windows interface/route context, local state, and structured WSL process orchestration. |
+| Local runner | Heartbeat, allow-list enforcement, scheduling, platform context, relocatable local state/logs, and structured WSL/native process orchestration. |
 | Python agent | Network measurement, bounded inspection/capture, SNMP collection, and normalized protocol output. |
 
 ## Dependency sources of truth
@@ -187,27 +188,28 @@ but are operational state and should not be casually deleted during recovery.
 
 ### Discovery and Device Inspector
 
-Discovery derives the current private scope from active Windows interface,
+Discovery derives the current private scope from the active local interface,
 address/prefix, and route information. It does not assume `/24`: the real prefix
 is preserved, while a large connected network is reduced to one deterministic
 window of at most 254 usable addresses containing the source IP. Default, public,
 loopback, link-local, and virtual-internal routes are excluded. The browser cannot
 submit CIDR, address ranges, commands, or scan flags.
 
-Windows context currently comes from `Get-NetAdapter`, `Get-NetIPAddress`,
-`Get-NetRoute`, `Get-NetIPConfiguration`, and `Get-NetNeighbor`. The normalized
-scope contract is consumed by `runner/src/network-scope.mjs`.
+Windows context comes from `Get-NetAdapter`, `Get-NetIPAddress`, `Get-NetRoute`,
+`Get-NetIPConfiguration`, and `Get-NetNeighbor`; Linux context comes from bounded
+`ip -j` address, route, and neighbor reads. Both feed the normalized contract in
+`runner/src/network-scope.mjs`.
 
 Device Inspector is a bounded single-target operation. The target must be an
 active Discovery result or existing inventory node, and the runner revalidates
 that authorization. Its purpose is normalized identity/evidence, not arbitrary
-scanning. Today the runner gathers Windows route/neighbor context and invokes
-`network-monitor device-inspect` through WSL.
+scanning. The runner gathers platform route/neighbor context and invokes
+`network-monitor device-inspect` through WSL on Windows or directly on Linux.
 
 ### Health Watch and manual ping
 
 Health Watch continuously checks explicitly enabled inventory targets with
-bounded ICMP from Windows `PING.EXE`. It does not discover a subnet. Offline means
+bounded ICMP from Windows `PING.EXE` or Linux `ping`. It does not discover a subnet. Offline means
 repeated lack of ICMP response, which may also result from filtering or path
 conditions. Manual PING is an admin-only, one-shot, ephemeral action and does not
 overwrite scheduled Health Watch state.
@@ -216,9 +218,10 @@ overwrite scheduled Health Watch state.
 
 Traffic is a bounded Scapy capture of IPv4 TCP/UDP/ICMP header metadata on the
 runner device. It stores normalized flows/snapshots, never packet payload or PCAP.
-It cannot prove physical topology or available bandwidth. The current runner
-starts the WSL agent as root for raw-socket access and uses the configured Linux
-capture interface (`auto_ipv4` is supported under its existing constraints).
+It cannot prove physical topology or available bandwidth. Windows starts the WSL
+agent as root. Linux invokes the native agent with the configured interface
+(`auto_ipv4` is supported under its existing constraints), but native raw-socket
+permissions remain a P8 host-validation item.
 
 ### LAN Diagnostics
 
@@ -298,9 +301,9 @@ or SNMP secrets into the frontend or cloud database.
 | WSL unavailable | Check `wsl.exe --list --quiet`, configured distro, then restart WSL/runner once if authorized. | Use runner safe errors (`WSL_RUNTIME_FAILED`, readiness timeout, distro/path errors); avoid restart loops. |
 | `next-env.d.ts` appears as Git noise | Rebuild and compare the generated file with the branch before editing it. | It is generated by Next.js. Do not discard unrelated user changes or commit accidental mode-only churn. |
 
-Ubuntu-specific failures are not documented as operational troubleshooting yet,
-because the native runner path and Linux network-context adapter do not exist.
-Record them during P8 validation instead of pretending the Windows commands apply.
+Native Linux preflight reports agent, context, ping, MTR, iperf3, and Traffic
+capabilities independently. Real-host troubleshooting and service recovery must
+still be recorded during P8 validation; Windows commands do not apply to Linux.
 
 ## Handover checklist
 
@@ -317,5 +320,6 @@ Record them during P8 validation instead of pretending the Windows commands appl
 - [ ] `PORTABLE_DEV_MODE` is OFF for normal operation.
 - [ ] Frontend tests, lint, typecheck, and production build pass.
 - [ ] Safe stop/restart and local-state recovery procedure is known.
-- [ ] Maintainer understands that Windows + WSL is current support.
-- [ ] Maintainer has reviewed the native Ubuntu P8 gaps before Mini-PC deployment.
+- [ ] Maintainer understands that Windows + WSL is validated and P8A Linux is
+  application-compatible but not yet Mini-PC/always-on validated.
+- [ ] Maintainer has reviewed the remaining Ubuntu P8 deployment gaps before use.

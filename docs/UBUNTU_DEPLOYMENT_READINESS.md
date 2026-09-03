@@ -1,8 +1,10 @@
 # Ubuntu Desktop 24.x Mini-PC Deployment Readiness
 
-This is a P8 readiness audit, not an installation claim. Native Ubuntu support
-has not been implemented or validated. The current supported path remains Windows
-+ Ubuntu WSL as described in [HANDOVER.md](HANDOVER.md).
+P8A implements the application-level adapters needed for native Ubuntu, while
+preserving the Windows + Ubuntu WSL path. The adapters are covered by mocked,
+non-network tests; they have not yet been installed or validated on the shared
+Mini PC. Always-on operation, system integration, and live acceptance remain
+later P8 work.
 
 ## Target architecture
 
@@ -23,8 +25,9 @@ Three different readiness statements must not be conflated:
 
 1. **Portable runtime readiness:** adaptive scopes and normalized contracts avoid
    hardcoded office subnets and much application logic is platform-neutral.
-2. **Native Ubuntu support:** not complete until Linux context and direct process
-   adapters are implemented and verified.
+2. **Native Ubuntu compatibility:** implemented in P8A through Linux context,
+   native process, ICMP, preflight, and relocatable-state adapters. Real-host and
+   live authorized validation are still required before production support.
 3. **Always-on deployment:** not complete until service, restart, logging,
    persistence, update, rollback, and power-loss behavior are validated on the
    Mini PC.
@@ -38,28 +41,28 @@ requires Linux startup/service replacement, **D** documentation/config differenc
 |---|---|---|---|
 | Next.js frontend | Node.js application using Supabase over HTTPS. | A | Reinstall with `frontend/package.json` + lockfile; choose whether Mini PC hosts it or Vercel remains authoritative. |
 | Supabase clients/functions | HTTP/Realtime clients and Deno Edge Functions. | A | Verify outbound HTTPS/DNS and environment values; no platform fork expected. |
-| Node runner orchestration | Windows Node process; several jobs invoke `wsl.exe`. | B | Add a narrow native process adapter that invokes the existing agent executable directly. Preserve argument lists, timeouts, validation, and error semantics. |
+| Node runner orchestration | Windows continues to invoke `wsl.exe`; Linux invokes the configured agent executable directly. | A | P8A adapter implemented with fixed argument arrays, `shell: false`, bounded processes, and platform-specific safe errors. Real-host validation remains. |
 | Adaptive scope resolver | `runner/src/network-scope.mjs` consumes normalized interfaces/routes. | A | Reuse contract and tests unchanged where possible. |
-| Network-context collector | PowerShell `Get-Net*` scripts. | B | Implement a Linux provider emitting the same bounded normalized contract. Do not put raw shell control in the browser. |
-| Discovery ping engine | Windows `PING.EXE` with fixed arguments. | B | Add a bounded Linux ICMP adapter with equivalent timeout/concurrency/result semantics. |
-| Health Watch/manual ping | Windows `PING.EXE`; state/publish logic is Node.js. | B | Retain scheduler/state semantics; isolate only process invocation/parsing. |
+| Network-context collector | Windows keeps PowerShell `Get-Net*`; Linux uses bounded `ip -j` address/route/neighbor reads. | A | Both emit the same normalized scope contract. Linux live validation remains. |
+| Discovery ping engine | Platform adapter uses fixed Windows `PING.EXE` or Linux `ping` arguments. | A | Existing concurrency, timeout, and result semantics are shared. |
+| Health Watch/manual ping | Shared scheduler/authorization with the platform ICMP adapter. | A | No Health Watch or manual-ping semantic change. |
 | Python agent | Runs in Ubuntu WSL from `agent/.venv`. | A | Recreate a native venv from `pyproject.toml`/`uv.lock`; never copy the WSL venv. |
-| SNMP collector | PySNMP in the Linux agent, fixed OIDs and read-only credentials passed by the runner. | A/B | Preserve collector/OIDs/auth/counter/alert semantics; replace only WSL invocation and verify native routing/permissions. |
-| Device Inspector | Windows context helper plus WSL agent collectors. | B | Provide Linux route/neighbor/self-interface context and direct agent invocation while preserving authorization/deadlines/evidence. |
-| Traffic capture | Runner starts WSL agent as root; Scapy uses a Linux interface. | B | Define least-privilege raw-socket/service permissions and verify native interface selection. Do not broaden capture scope. |
-| LAN Diagnostics | WSL agent invokes `iperf3` and MTR. | A/B | Reuse agent parsers; direct-spawn the agent and confirm executable paths/versions on Ubuntu. |
-| Local state | Relative `runner/data`, `runner/logs`, and agent buffer paths. | A/D | Choose stable service-owned absolute directories, permissions, backup, and disk policy. Preserve formats unless migration is proven necessary. |
+| SNMP collector | The same PySNMP agent implementation is invoked through WSL on Windows or directly on Linux. | A | P8A changes invocation only; collector/OIDs/auth/counter/alert behavior is frozen. Live authorized Linux validation remains. |
+| Device Inspector | Windows context + WSL or Linux route/neighbor context + native agent. | A | Single-target authorization, deadlines, evidence, and normalization remain shared. |
+| Traffic capture | WSL root invocation remains on Windows; Linux uses the native agent and configured interface. | B | Architecture path exists; least-privilege raw-socket permission and native interface must be validated later. Missing capability is reported by preflight. |
+| LAN Diagnostics | Same agent parsers, native agent spawn on Linux. | B | `iperf3`, MTR, routing, and authorized server behavior require host validation. Missing optional tools do not take down unrelated runner functions. |
+| Local state | Runner state/log roots are configurable and may point outside versioned releases. | A/D | Select service-account ownership, retention, backup, and final absolute paths during deployment. |
 | Startup/autostart | Windows Task Scheduler through `runner/task.ps1`. | C | Design and validate an OS-managed service such as systemd during P8. No unit is supplied by P7. |
 | Logging | Runner appends local log; foreground components use process output. | C/D | Decide journald/file retention, rotation, support bundle, and secret redaction. |
-| Configuration/secrets | PowerShell env syntax, Windows paths, WSL paths, ignored local files. | D/B | Use Linux environment syntax/paths and service-account permissions; keep the same secret boundary. |
+| Configuration/secrets | One ignored local config supports WSL paths and an absolute native project root; state/log roots are relocatable. | D | Use Linux file permissions and service-account ownership later; the secret boundary is unchanged. |
 
-## Main P8 implementation gaps
+## P8A native compatibility now implemented
 
 ### Native Linux network context
 
-The Windows collector currently uses `Get-NetAdapter`, `Get-NetIPAddress`,
-`Get-NetRoute`, `Get-NetIPConfiguration`, and `Get-NetNeighbor`. P8 needs a native
-Linux provider for:
+Windows continues to use `Get-NetAdapter`, `Get-NetIPAddress`, `Get-NetRoute`,
+`Get-NetIPConfiguration`, and `Get-NetNeighbor`. Native Linux now reads bounded
+machine-readable JSON from `ip` for:
 
 - active interfaces and operational/type metadata;
 - IPv4 addresses and actual prefix lengths;
@@ -67,31 +70,39 @@ Linux provider for:
 - neighbor evidence;
 - source/default interface identity.
 
-It must emit the existing normalized `scope_inputs` contract consumed by
+It emits the existing normalized `scope_inputs` contract consumed by
 `runner/src/network-scope.mjs`. A `/23` remains `/23`, a `/16` remains `/16`, and
-the resolver continues to bound active Discovery to at most 254 addresses. Tool or
-library selection must be made after auditing the actual Mini PC; P7 does not
-choose or implement it.
+the resolver continues to bound active Discovery to at most 254 addresses.
+Loopback, inactive links, link-local addresses, and kernel-classified internal
+bridges such as a Docker bridge cannot become the primary LAN scope. Selection
+uses the eligible interface that owns the default route; no interface name or
+address is hardcoded.
 
 ### Native runner-to-agent invocation
 
-P8 must audit `runner/src/wsl.mjs`, `runner/src/main.mjs`, `runner/src/config.mjs`,
-the three PowerShell context scripts under `runner/scripts`, and helper launchers
-under `scripts`. Replace:
+P8A keeps the Windows path:
 
 ```text
 Windows runner -> wsl.exe -> WSL path -> agent executable
 ```
 
-with:
+and adds the Linux path:
 
 ```text
 Ubuntu runner -> native child process -> agent executable
 ```
 
-The adapter must retain `shell: false`, fixed command selection, structured
-arguments, allow-list validation, timeouts, child cleanup, heartbeat independence,
-and safe error classification. It must not redesign the working SNMP collector.
+The shared runner selects the path explicitly from `process.platform`; other
+platforms fail closed. Both use fixed structured arguments, `shell: false`, the
+existing allow-list validation, timeouts, child cleanup, heartbeat-independent
+async execution, and normalized output. Runtime execution does not use Git and
+therefore works from a versioned ZIP release.
+
+Native preflight requires the configured Python runtime and existing agent
+capabilities. It reports Linux context, ping, MTR, iperf3, and Traffic readiness
+separately. In particular, missing `iperf3` disables active LAN Diagnostics but
+does not prevent heartbeat, Health/Discovery where their own dependencies exist,
+Device Inspector context, or Managed Telemetry from starting.
 
 ### Always-on service
 
@@ -107,22 +118,39 @@ in P7 documentation.
 Reinstall; do not copy runtime directories:
 
 - Node.js 22 is the currently validated line. The project does not yet pin
-  `engines`, so P8 must record the exact deployed Node/npm versions.
+  `engines`, so deployment must select Node 22 explicitly through the host's
+  existing version manager without changing the system default.
 - Frontend dependencies come from `frontend/package.json` and
   `frontend/package-lock.json`; use `npm ci`.
 - Runner scripts come from `runner/package.json`. There are currently no external
   runner npm packages or runner lockfile.
 - Python runtime dependencies come from `agent/pyproject.toml` and `agent/uv.lock`;
   use `uv sync --locked` for the locked environment where available.
-- Verified Linux executable requirements are Python 3.11+, `ip`, `ping`,
-  `iperf3`, and `mtr`; optional TLS evidence uses `openssl`.
+- Core native runner readiness requires Python 3.11+ and the configured agent.
+  `ip` enables Linux context, `ping` enables ICMP features, `iperf3` plus MTR
+  enable LAN Diagnostics, and Scapy/interface readiness enables Traffic.
+  Optional TLS evidence continues to use `openssl` through the existing agent.
 
 On Ubuntu, the corresponding audited package families are `python3`,
 `python3-venv`, `python3-pip`, `iproute2`, `iputils-ping`, `iperf3`, `mtr-tiny`,
 and `openssl`. Package versions and executable locations must be verified on the
-actual Ubuntu 24.x host. Current Windows runner preflight has a WSL-specific exact
-path check for `/usr/local/bin/iperf3`; P8 must decide the native path contract
-rather than assuming the Ubuntu package location satisfies old WSL code.
+actual Ubuntu 24.x host. Windows keeps its existing WSL-specific exact path check.
+Native Linux resolves tools by executable name unless a reviewed local config
+override is supplied; it does not install, alias, or change host packages.
+
+## Native configuration and ZIP releases
+
+`runner/config.local.json` remains ignored. On Linux, set
+`native_project_root` to the active extracted release (or stable `current`
+symlink) and keep `agent_executable` relative to that root. `data_directory` and
+`log_directory` may be absolute shared paths outside the immutable release, so a
+release switch does not erase runner state or logs. Windows continues to use
+`wsl_distro` and `wsl_project_root`; adding Linux fields to the example does not
+change the selected Windows path.
+
+No `.git` directory or Git command is needed at runtime. P8A does not create the
+planned `/var/www/jhc/jhc_noc` directories, alter other JHC applications, install
+packages, or provide a service definition.
 
 Do not introduce `requirements-windows.txt` or `requirements-linux.txt` unless a
 real incompatibility is proven. The existing JavaScript and Python manifests are
@@ -156,9 +184,10 @@ routing, firewall policy, device ACLs, and explicit authorization.
 
 ## P8 acceptance sequence
 
-1. Audit the actual Mini PC and select Linux context/process/service adapters.
-2. Implement adapters without changing shared network semantics.
-3. Run unit and contract suites before any live operation.
+1. Review the P8A adapters and complete the non-network unit/contract gates.
+2. Prepare a versioned ZIP release, isolated config, native venv, state, and log
+   directories without changing host-wide defaults or existing JHC applications.
+3. Run native preflight and record Node/Python/tool capability results.
 4. Validate context on the authorized current LAN, including non-`/24` prefixes.
 5. Validate one bounded Discovery and one known Device Inspector target.
 6. Validate Health Watch/manual ping timing and state recovery.

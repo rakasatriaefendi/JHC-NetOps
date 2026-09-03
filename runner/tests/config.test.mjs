@@ -12,7 +12,7 @@ function loadConfig(overrides = {}) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "runner-config-"));
   const configPath = path.join(directory, "config.json");
   writeFileSync(configPath, JSON.stringify({ ...example, wsl_project_root: "/mnt/c/project", ...overrides }));
-  return loadRunnerConfig(configPath);
+  return loadRunnerConfig(configPath, "win32");
 }
 
 test("active SNMP timeout accepts bounded seconds", () => {
@@ -38,4 +38,10 @@ test("missing SNMP timeout preserves the existing three-second invocation defaul
   };
   const args = buildSnmpInvocation(config, target, { version: "3" });
   assert.equal(args[args.indexOf("--timeout") + 1], "3");
+});
+
+test("existing Windows config remains valid without native-only fields", () => {
+  const config = loadConfig({ native_project_root: undefined, data_directory: undefined, log_directory: undefined });
+  assert.equal(config.runtime_platform, "win32");
+  assert.equal(config.agent_path, "/mnt/c/project/agent/.venv/bin/network-monitor");
 });

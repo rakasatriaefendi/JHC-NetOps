@@ -17,11 +17,13 @@ const once = args.has("--once");
 const preflightOnly = args.has("--preflight-only");
 const configArg = process.argv.indexOf("--config");
 const configPath = configArg >= 0 ? process.argv[configArg + 1] : path.join(RUNNER_ROOT, "config.local.json");
+let logDirectory = path.join(RUNNER_ROOT, "logs");
 
 let config;
 let backend;
 try {
   config = loadRunnerConfig(configPath);
+  logDirectory = config.log_directory;
   backend = new BackendClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 } catch {
   log("Runner configuration is invalid");
@@ -34,10 +36,10 @@ let runtimeCapabilities = {};
 for (let attempt = 1; attempt <= 3; attempt += 1) {
   try {
     const versions = runPreflight(config);
-    runtimeCapabilities = { device_inspector: versions.device_inspector };
+    runtimeCapabilities = { ...versions, device_inspector: versions.device_inspector };
     healthStatus = "online";
     healthErrorCode = null;
-    log(`Preflight passed (${versions.python}, iperf3 ${versions.iperf3}, mtr available)`);
+    log(`Preflight passed (${versions.platform}; ${versions.python}; context=${versions.platform === "win32" || versions.linux_network_context ? "available" : "missing"}; ping=${versions.ping ? "available" : "missing"}; iperf3=${versions.iperf3 ?? "missing (optional)"}; mtr=${versions.mtr ? "available" : "missing (optional)"}; traffic=${versions.traffic ? "available" : "unavailable"})`);
     break;
   } catch (error) {
     healthErrorCode = error.code ?? "RUNNER_INTERNAL_ERROR";
@@ -64,17 +66,19 @@ const stopHeartbeat = startHeartbeatLoop(
 const healthWatch = new NetworkHealthWatch({
   runnerId: config.runner_id,
   backend,
-  cachePath: path.join(RUNNER_ROOT, "data", "network-health-state.json"),
+  cachePath: path.join(config.data_directory, "network-health-state.json"),
+  platform: config.runtime_platform,
   log,
 });
-if (!once) healthWatch.start();
+if (!once && runtimeCapabilities.ping !== false) healthWatch.start();
+else if (!once) log("Health Watch is unavailable because platform ping is missing");
 let telemetryWatch = null;
 if (config.enable_snmp_telemetry === true) {
   telemetryWatch = new ManagedTelemetryWatch({
     runnerId: config.runner_id,
     backend,
     config,
-    cachePath: path.join(RUNNER_ROOT, "data", "snmp-telemetry-state.json"),
+    cachePath: path.join(config.data_directory, "snmp-telemetry-state.json"),
     log,
     concurrency: config.snmp_max_concurrent,
   });
@@ -136,7 +140,9 @@ async function executePreflight(rawRequest) {
   let request;
   try {
     request = validatePreflightRequest(rawRequest, config);
-    const context = await collectNetworkContext(request.target);
+    const capabilityError = linuxDiagnosticCapabilityError();
+    if (capabilityError) throw safeError(capabilityError);
+    const context = await collectNetworkContext(request.target, undefined, { platform: config.runtime_platform });
     if (request.target.environment === "localhost_demo") {
       context.preflight.iperf = { ...context.preflight.iperf, ready: true, managed_demo: true };
     }
@@ -155,6 +161,7 @@ async function executeTraffic(rawSession) {
   catch (error) { await failTraffic(rawSession?.id, error); return; }
   let completed = false;
   try {
+    if (config.runtime_platform === "linux" && runtimeCapabilities.traffic !== true) throw safeError("TRAFFIC_CAPTURE_FAILED");
     await backend.trafficProgress(config.runner_id, session.id, "starting_wsl");
     await runTrafficAgent(config, session, async (event) => {
       if (event.type === "stage") await backend.trafficProgress(config.runner_id, session.id, event.stage);
@@ -175,7 +182,9 @@ async function executeDiscovery(rawSession) {
     return;
   }
   try {
-    const context = await collectDiscoveryContext();
+    if (config.runtime_platform === "linux" && runtimeCapabilities.linux_network_context !== true) throw safeError("DISCOVERY_CONTEXT_UNAVAILABLE");
+    if (config.runtime_platform === "linux" && runtimeCapabilities.ping !== true) throw safeError("DISCOVERY_FAILED");
+    const context = await collectDiscoveryContext(undefined, { platform: config.runtime_platform });
     const publicContext = publicDiscoveryContext(context);
     if (session.phase === "prepare") {
       await backend.discoveryContextReady(config.runner_id, session.session_id, publicContext);
@@ -201,12 +210,13 @@ async function executeInspection(rawSession) {
     return;
   }
   try {
+    if (config.runtime_platform === "linux" && runtimeCapabilities.linux_network_context !== true) throw safeError("INSPECTION_NETWORK_CONTEXT_UNAVAILABLE");
     log(`Device inspection ${session.inspection_id}: authorized ${session.authorization_source} target ${session.target_ip}`);
     await backend.inspectionStage(config.runner_id, session.inspection_id, "network_role");
-    const context = validateInspectionScope(session, await collectInspectionContext(session.target_ip));
-    log(`Device inspection ${session.inspection_id}: Windows context ready (${context.route_role}, same_subnet=${context.same_subnet})`);
+    const context = validateInspectionScope(session, await collectInspectionContext(session.target_ip, undefined, { platform: config.runtime_platform }));
+    log(`Device inspection ${session.inspection_id}: ${config.runtime_platform} context ready (${context.route_role}, same_subnet=${context.same_subnet})`);
     let fingerprint = null;
-    log(`Device inspection ${session.inspection_id}: checking WSL readiness`);
+    log(`Device inspection ${session.inspection_id}: checking ${config.runtime_platform === "win32" ? "WSL" : "native agent"} readiness`);
     await runInspectionAgent(config, session, context, async (event) => {
       if (event.type === "stage") await backend.inspectionStage(config.runner_id, session.inspection_id, event.stage);
       if (event.type === "result") {
@@ -245,8 +255,10 @@ async function executeJob(rawJob) {
   const summaries = {};
   let completedEvent = false;
   try {
+    const capabilityError = linuxDiagnosticCapabilityError();
+    if (capabilityError) throw safeError(capabilityError);
     await backend.progress(config.runner_id, job.id, "starting_wsl", {});
-    const context = await collectNetworkContext(job.target);
+    const context = await collectNetworkContext(job.target, undefined, { platform: config.runtime_platform });
     if (context.network_context.connection_type !== "wifi" && context.network_context.connection_type !== "ethernet") {
       throw safeError("INVALID_CONNECTION_TYPE");
     }
@@ -322,11 +334,18 @@ function logHeartbeatFailure(error) {
 }
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function linuxDiagnosticCapabilityError() {
+  if (config.runtime_platform !== "linux" || runtimeCapabilities.diagnostics === true) return null;
+  if (runtimeCapabilities.linux_network_context !== true) return "NETWORK_CONTEXT_UNAVAILABLE";
+  if (!runtimeCapabilities.iperf3) return "IPERF3_MISSING";
+  if (runtimeCapabilities.mtr !== true) return "MTR_MISSING";
+  return "RUNNER_INTERNAL_ERROR";
+}
 function log(message) {
   const line = `${new Date().toISOString()} ${message}`;
   console.log(line);
   try {
-    mkdirSync(path.join(RUNNER_ROOT, "logs"), { recursive: true });
-    appendFileSync(path.join(RUNNER_ROOT, "logs", "runner.log"), `${line}\n`, "utf8");
+    mkdirSync(logDirectory, { recursive: true });
+    appendFileSync(path.join(logDirectory, "runner.log"), `${line}\n`, "utf8");
   } catch {}
 }

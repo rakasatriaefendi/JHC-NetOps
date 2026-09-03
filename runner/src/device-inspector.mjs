@@ -4,6 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { safeError } from "./config.mjs";
+import { collectLinuxInspectionContext } from "./linux-network-context.mjs";
+import { pingTarget } from "./network-health.mjs";
+import { resolvePlatform } from "./platform.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_PATH = path.join(RUNNER_ROOT, "scripts", "get-device-inspection-context.ps1");
@@ -14,7 +17,19 @@ export function buildInspectionContextInvocation(target, scriptPath = SCRIPT_PAT
   return ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-TargetIp", target];
 }
 
-export function collectInspectionContext(target, spawnProcess = spawn) {
+export function collectInspectionContext(target, spawnProcess = spawn, options = {}) {
+  const platform = resolvePlatform(options.platform);
+  if (platform === "linux") {
+    return (options.collectLinuxContext ?? collectLinuxInspectionContext)(target, {
+      ...options,
+      spawnProcess,
+      ping: options.ping ?? ((ipAddress, timeoutMs, signal) => pingTarget(ipAddress, timeoutMs, signal, spawnProcess, platform)),
+    }).then((value) => validateInspectionContext(value, target)).catch((error) => {
+      if (error?.code === "LINUX_CONTEXT_INVALID" || error?.code === "INSPECTION_CONTEXT_INVALID") throw safeError("INSPECTION_CONTEXT_INVALID");
+      if (error?.code === "INVALID_INSPECTION_TARGET") throw error;
+      throw safeError("INSPECTION_NETWORK_CONTEXT_UNAVAILABLE");
+    });
+  }
   const args = buildInspectionContextInvocation(target);
   return new Promise((resolve, reject) => {
     const child = spawnProcess("powershell.exe", args, { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });

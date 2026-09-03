@@ -4,8 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { safeError } from "./config.mjs";
+import { buildLinuxDiscoveryPayload, collectLinuxNetworkState } from "./linux-network-context.mjs";
 import { pingProcessWallTimeout, pingTarget } from "./network-health.mjs";
 import { boundedDiscoveryRange, discoveryRangeAddresses, resolveNetworkScopes, selectPrimaryDiscoveryScope } from "./network-scope.mjs";
+import { resolvePlatform } from "./platform.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_PATH = path.join(RUNNER_ROOT, "scripts", "get-discovery-context.ps1");
@@ -22,7 +24,17 @@ export function buildDiscoveryContextInvocation(scriptPath = SCRIPT_PATH) {
   return ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath];
 }
 
-export function collectDiscoveryContext(spawnProcess = spawn) {
+export function collectDiscoveryContext(spawnProcess = spawn, options = {}) {
+  const platform = resolvePlatform(options.platform);
+  if (platform === "linux") {
+    return (options.collectLinuxState ?? collectLinuxNetworkState)({ ...options, spawnProcess })
+      .then((state) => validateDiscoveryContext(buildLinuxDiscoveryPayload(state)))
+      .catch((error) => {
+        if (error?.code === "LINUX_CONTEXT_INVALID") throw safeError("DISCOVERY_CONTEXT_INVALID");
+        if (error?.code === "DISCOVERY_CONTEXT_INVALID") throw error;
+        throw safeError("DISCOVERY_CONTEXT_UNAVAILABLE");
+      });
+  }
   return new Promise((resolve, reject) => {
     const child = spawnProcess("powershell.exe", buildDiscoveryContextInvocation(), {
       windowsHide: true,

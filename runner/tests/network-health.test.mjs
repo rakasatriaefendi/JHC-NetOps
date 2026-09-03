@@ -134,12 +134,12 @@ test("tick launches a probe without blocking runner polling", async () => {
 });
 
 test("ping invocation is fixed, bounded, and rejects command injection", () => {
-  const invocation = buildPingInvocation("192.0.2.10", 1000);
+  const invocation = buildPingInvocation("192.0.2.10", 1000, "win32");
   assert.equal(invocation.executable, "C:\\Windows\\System32\\PING.EXE");
   assert.deepEqual(invocation.args, ["-4", "-n", "1", "-w", "1000", "192.0.2.10"]);
   assert.equal(invocation.options.shell, false);
-  assert.throws(() => buildPingInvocation("127.0.0.1 & whoami", 1000));
-  assert.throws(() => buildPingInvocation("127.0.0.1", 60_000));
+  assert.throws(() => buildPingInvocation("127.0.0.1 & whoami", 1000, "win32"));
+  assert.throws(() => buildPingInvocation("127.0.0.1", 60_000, "win32"));
 });
 
 function fakePingChild(onSpawn) {
@@ -156,16 +156,16 @@ test("ping child normal reply and normal timeout are normalized", async () => {
   const reply = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => {
     child.stdout.write("Reply from 192.0.2.10: time=7ms");
     child.emit("close", 0);
-  }));
+  }), "win32");
   assert.deepEqual(reply, { success: true, latency_ms: 7 });
-  const timeout = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => child.emit("close", 1)));
+  const timeout = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => child.emit("close", 1)), "win32");
   assert.deepEqual(timeout, { success: false, latency_ms: null });
 });
 
 test("runner kills a PING child that never exits at 400ms plus 250ms grace", async () => {
   let child;
   const started = Date.now();
-  const result = await pingTarget("192.0.2.10", 400, undefined, () => (child = fakePingChild(() => {})));
+  const result = await pingTarget("192.0.2.10", 400, undefined, () => (child = fakePingChild(() => {})), "win32");
   assert.equal(pingProcessWallTimeout(400), 650);
   assert.ok(Date.now() - started < 1_000);
   assert.equal(child.killed, true);
@@ -175,7 +175,7 @@ test("runner kills a PING child that never exits at 400ms plus 250ms grace", asy
 test("ping process errors are bounded and do not leak the child", async () => {
   let child;
   await assert.rejects(
-    pingTarget("192.0.2.10", 400, undefined, () => (child = fakePingChild((owned) => owned.emit("error", new Error("synthetic"))))),
+    pingTarget("192.0.2.10", 400, undefined, () => (child = fakePingChild((owned) => owned.emit("error", new Error("synthetic")))), "win32"),
     /Ping process failed/,
   );
   assert.equal(child.listenerCount("error"), 0);
