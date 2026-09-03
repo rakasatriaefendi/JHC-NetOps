@@ -1,8 +1,8 @@
 # Python Network Monitoring Agent
 
-Agent berjalan di WSL pada perangkat yang terhubung ke jaringan target. Komponen
-ini mengumpulkan metrik, menjalankan diagnostics on-demand, dan melakukan bounded
-header-only traffic capture.
+Pada runtime yang didukung saat ini, agent berjalan di Ubuntu WSL pada perangkat
+Windows yang terhubung ke jaringan target. Komponen ini mengumpulkan metrik,
+menjalankan diagnostics on-demand, dan melakukan bounded header-only traffic capture.
 
 ## Tanggung jawab
 
@@ -16,6 +16,11 @@ Bandwidth/path diagnostics tidak masuk ke baseline, severity, atau loop metrik.
 
 ## Setup WSL
 
+Sumber dependency Python yang otoritatif adalah `pyproject.toml` dan `uv.lock`.
+Gunakan `uv sync --locked` untuk environment yang direproduksi dari lockfile, atau
+jalur compatibility editable berikut bila `uv` belum tersedia. Jangan menyalin
+folder `.venv` dari mesin lain.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -23,7 +28,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 cp .env.example .env
 chmod 600 .env
-sudo apt install iproute2 iputils-ping iperf3 mtr-tiny
+sudo apt install iproute2 iputils-ping iperf3 mtr-tiny openssl
 ```
 
 Isi minimal `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` pada `.env`. File ini
@@ -81,3 +86,5 @@ python -m pytest
 - Secret pada log atau stdout protocol runner.
 
 Dokumentasi lengkap: [AGENT_SETUP.md](../docs/AGENT_SETUP.md).
+Target native Ubuntu P8 belum didukung oleh runner; lihat audit gap di
+[UBUNTU_DEPLOYMENT_READINESS.md](../docs/UBUNTU_DEPLOYMENT_READINESS.md).

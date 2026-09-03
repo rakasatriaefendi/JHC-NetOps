@@ -2,6 +2,10 @@
 
 Panduan ini dipakai dari root project `Network-Monitoring`.
 
+Panduan ini khusus runtime development Windows + Ubuntu WSL yang saat ini
+didukung. Untuk gambaran lintas komponen dan gap target Mini PC Ubuntu P8, baca
+[HANDOVER.md](HANDOVER.md).
+
 ## Jawaban singkat
 
 Tidak perlu menjalankan `task.ps1` setiap kali mau melakukan diagnostik.

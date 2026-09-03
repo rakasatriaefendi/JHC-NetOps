@@ -18,6 +18,14 @@ $env:PORTABLE_DEV_SCENARIO = "healthy"
 npm.cmd run dev
 ```
 
+Padanan pada shell Linux:
+
+```bash
+export PORTABLE_DEV_MODE=true
+export PORTABLE_DEV_SCENARIO=healthy
+npm run dev
+```
+
 Scenario yang tersedia:
 
 - `healthy`
@@ -34,6 +42,11 @@ Workspace `/snmp` dan halaman Observed LAN Hosts menampilkan indikator
 aktif. Fixture berasal dari repository frontend dan tidak dipublish ke Edge
 Function atau tabel Supabase.
 
+Cakupan fixture saat ini hanya workspace Managed SNMP dan Observed LAN Hosts.
+Application shell tetap memakai autentikasi Supabase, sedangkan halaman global
+lain dapat tetap membaca data Supabase nyata. Mode ini bukan lingkungan offline
+untuk seluruh aplikasi.
+
 ## Menonaktifkan
 
 Hapus variable atau set ke `false`, lalu restart development server:
@@ -41,6 +54,12 @@ Hapus variable atau set ke `false`, lalu restart development server:
 ```powershell
 Remove-Item Env:PORTABLE_DEV_MODE -ErrorAction SilentlyContinue
 Remove-Item Env:PORTABLE_DEV_SCENARIO -ErrorAction SilentlyContinue
+```
+
+Pada shell Linux:
+
+```bash
+unset PORTABLE_DEV_MODE PORTABLE_DEV_SCENARIO
 ```
 
 Default selalu OFF. Auth dan tooling frontend normal masih dapat membutuhkan

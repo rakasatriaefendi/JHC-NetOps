@@ -13,6 +13,8 @@ Runner untuk memberikan visibilitas jaringan tanpa menyimpan raw packet atau PCA
 - Perbandingan bandwidth berdasarkan lokasi, target, serta WiFi/Ethernet.
 - Pelabelan manual responding Layer-3 hop melalui inventory `network_nodes`.
 - On-demand Network Discovery yang bounded dan admin-only.
+- Managed SNMP read-only untuk device/interface telemetry target yang disetujui.
+- Observed LAN Hosts dari evidence neighbor Layer-3, dengan naming enrichment opsional.
 - Buffer SQLite lokal untuk toleransi gangguan koneksi backend.
 
 Hermes AI Agent masih berupa endpoint stub dan belum menjalankan analisis LLM.
@@ -31,6 +33,12 @@ flowchart LR
 
 Browser tidak dapat menjalankan shell command lokal. Runner hanya menerima job
 terstruktur dan me-resolve target dari allow-list lokal sebelum memanggil agent WSL.
+
+Diagram tersebut adalah runtime development yang saat ini didukung: Windows +
+Ubuntu WSL. Target P8 adalah Mini PC Ubuntu Desktop 24.x dengan runner dan agent
+native tanpa WSL, tetapi adapter native Linux belum diimplementasikan. Lihat
+[Technical Handover](docs/HANDOVER.md) dan
+[Ubuntu Deployment Readiness](docs/UBUNTU_DEPLOYMENT_READINESS.md).
 
 ## Struktur repository
 
@@ -92,7 +100,7 @@ Deploy Edge Function yang diperlukan sesuai [Supabase README](supabase/README.md
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -164,3 +172,4 @@ Sebelum mengubah arsitektur atau fitur, baca:
 2. [AGENTS.md](docs/AGENTS.md)
 3. [DESIGN.md](docs/DESIGN.md)
 4. [PLANNING.md](docs/PLANNING.md)
+5. [HANDOVER.md](docs/HANDOVER.md)

@@ -14,7 +14,8 @@ Parsing `iperf3`, `mtr`, serta traffic capture tetap menjadi tanggung jawab
 - WSL dipanggil dengan argument list dan `shell=false`.
 - Browser tidak dapat mengirim command, arbitrary flag, interface, atau packet filter.
 - Health Watch hanya ICMP ke inventory target yang enabled.
-- Network Discovery hanya satu sweep bounded pada subnet Windows `/24` sampai `/30`.
+- Network Discovery memakai prefix privat aktual dari context Windows, tanpa
+  asumsi `/24`; scope besar dibatasi ke satu window deterministik maksimal 254 host.
 - Service-role key tetap berada di `.env` lokal dan tidak dikirim ke UI atau log.
 
 ## Setup
@@ -72,3 +73,7 @@ npm run e2e:localhost
 
 Tambahkan target LAN nyata hanya setelah alamat, izin pengujian, firewall, dan
 server `iperf3 -s` dikonfirmasi. Lihat [PANDUAN.md](../docs/PANDUAN.md).
+
+Setup dan operasi lintas komponen ada di [HANDOVER.md](../docs/HANDOVER.md).
+Runner native Ubuntu belum diimplementasikan; gap P8 dijelaskan di
+[UBUNTU_DEPLOYMENT_READINESS.md](../docs/UBUNTU_DEPLOYMENT_READINESS.md).

@@ -96,7 +96,7 @@ export function ObservedLanHostsWorkspace({ hosts, status }: WorkspaceProps) {
         >{option.label} ({filterCounts[option.value]})</button>)}
       </div>
     </div>
-    <p className="mt-3 text-meta text-text-muted" role="status">Devices: {displayed.length} / {hosts.length}</p>
+    <p className="mt-3 text-meta text-text-muted" role="status">Observed hosts: {displayed.length} / {hosts.length}</p>
     {status === "unsupported" ? <StateMessage>Neighbor-table observation is unsupported by this managed device.</StateMessage>
       : hosts.length === 0 ? <StateMessage>No hosts are currently observed through this managed device.</StateMessage>
       : <>
