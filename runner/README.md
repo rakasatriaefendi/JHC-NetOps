@@ -78,7 +78,9 @@ Tambahkan target LAN nyata hanya setelah alamat, izin pengujian, firewall, dan
 server `iperf3 -s` dikonfirmasi. Lihat [PANDUAN.md](../docs/PANDUAN.md).
 
 Setup dan operasi lintas komponen ada di [HANDOVER.md](../docs/HANDOVER.md).
-Adapter native Ubuntu P8A sudah diimplementasikan dan diuji dengan fixture, tetapi
-belum divalidasi/deploy pada Mini PC dan belum memiliki always-on service. Status
-dan langkah penerimaan ada di
-[UBUNTU_DEPLOYMENT_READINESS.md](../docs/UBUNTU_DEPLOYMENT_READINESS.md).
+Runtime native Ubuntu P8A sudah divalidasi pada Mini PC staging. Untuk deployment
+permanen, konfigurasi bernama `config.json` berada di luar release pada
+`/var/www/jhc/jhc_noc/shared/runner/config.json`; jangan memakai config acceptance
+sebagai konfigurasi service. Template systemd P8B belum dipasang dan prosedur
+review/update/rollback ada di
+[UBUNTU_ALWAYS_ON_DEPLOYMENT.md](../docs/UBUNTU_ALWAYS_ON_DEPLOYMENT.md).

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BaseEdge,
   Background,
@@ -22,8 +22,8 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/client";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
+import { useManualPing } from "./manual-ping-provider";
 import type { NetworkHealthTarget, NetworkHealthSample, NetworkHealthEvent, HealthStatus } from "@/lib/network-health";
 
 function formatLatency(value: number | null | undefined) {
@@ -34,7 +34,6 @@ export type ReachabilityMapProps = {
   targets: NetworkHealthTarget[];
   samples: NetworkHealthSample[];
   events: NetworkHealthEvent[];
-  isAdmin: boolean;
   runnerId?: string;
 };
 
@@ -46,16 +45,6 @@ type MonitoringEdgeData = {
   lastCheckedAt?: string;
   manualPingActivityToken?: number;
 };
-
-type ManualPingPhase = "loading" | "success" | "error";
-type ManualPingState = { phase: ManualPingPhase; message: string };
-type ManualPingContextValue = {
-  isAdmin: boolean;
-  states: Record<string, ManualPingState | undefined>;
-  run: (targetId: string) => void;
-};
-
-const ManualPingContext = createContext<ManualPingContextValue>({ isAdmin: false, states: {}, run: () => {} });
 
 function getStrokeColorClass(status: HealthStatus): string {
   switch (status) {
@@ -98,7 +87,7 @@ function RunnerNode({ data }: { data: RunnerNodeData }) {
 
 function TargetNode({ data }: { data: TargetNodeData }) {
   const { target } = data;
-  const manualPing = useContext(ManualPingContext);
+  const manualPing = useManualPing();
   const pingState = manualPing.states[target.id];
   const latest = target.latest;
   const status = latest?.status ?? "offline";
@@ -586,55 +575,6 @@ function MonitoringEdge({
     </g>
   );
 }
-type ManualPingJob = {
-  id: string;
-  status: "queued" | "running" | "completed" | "failed";
-  result: { ok: boolean; latency_ms?: number; category?: "timeout" | "unreachable" } | null;
-  error_code: string | null;
-};
-
-function waitForManualPing(client: ReturnType<typeof createClient>, pingId: string) {
-  return new Promise<ManualPingJob>((resolve, reject) => {
-    let settled = false;
-    const channel = client.channel(`manual-ping-${pingId}`);
-    const finish = (job: ManualPingJob | null, error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      void client.removeChannel(channel);
-      if (job) resolve(job);
-      else reject(error ?? new Error("Manual ping failed"));
-    };
-    const inspect = (value: unknown) => {
-      if (!value || typeof value !== "object") return;
-      const job = value as ManualPingJob;
-      if (job.id === pingId && (job.status === "completed" || job.status === "failed")) finish(job);
-    };
-    const timeout = setTimeout(() => finish(null, new Error("Manual ping timed out")), 15_000);
-    channel
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "network_health_ping_jobs", filter: `id=eq.${pingId}` }, (payload) => inspect(payload.new))
-      .subscribe(async (status) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          finish(null, new Error("Manual ping state unavailable"));
-          return;
-        }
-        if (status !== "SUBSCRIBED" || settled) return;
-        const { data, error } = await client.from("network_health_ping_jobs")
-          .select("id,status,result,error_code").eq("id", pingId).maybeSingle();
-        if (error) finish(null, new Error("Manual ping state unavailable"));
-        else inspect(data);
-      });
-  });
-}
-
-function manualPingOutcome(job: ManualPingJob): ManualPingState {
-  if (job.status !== "completed" || !job.result) return { phase: "error", message: "Ping gagal" };
-  if (job.result.ok === true && typeof job.result.latency_ms === "number") {
-    return { phase: "success", message: `Ping ${job.result.latency_ms.toFixed(1)} ms` };
-  }
-  return { phase: "error", message: job.result.category === "timeout" ? "Ping timeout" : "Tidak terjangkau" };
-}
-
 function buildReachabilityGraph(targets: NetworkHealthTarget[], runnerId?: string) {
   const runnerNode: Node = {
     id: `runner-${runnerId ?? "local"}`,
@@ -705,7 +645,7 @@ function layoutReachabilityGraph(nodes: Node[], edges: Edge[]) {
   return { nodes, edges };
 }
 
-export function ReachabilityMap({ targets, isAdmin, runnerId }: ReachabilityMapProps) {
+export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
   const initialState = useMemo(() => buildReachabilityGraph(targets, runnerId), [targets, runnerId]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialState.edges);
@@ -713,59 +653,13 @@ export function ReachabilityMap({ targets, isAdmin, runnerId }: ReachabilityMapP
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [layout, setLayout] = useState<Record<string, { x: number; y: number }>>({});
   const [layoutLoaded, setLayoutLoaded] = useState(false);
-  const [manualPingStates, setManualPingStates] = useState<Record<string, ManualPingState | undefined>>({});
   const { openDeviceProfile } = useDeviceProfile();
+  const manualPing = useManualPing();
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
-  const supabase = useMemo(() => createClient(), []);
-  const manualPingClearTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const manualPingInFlight = useRef(new Set<string>());
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstance.current = instance;
   }, []);
-
-  const runManualPing = useCallback(async (targetId: string) => {
-    const target = targets.find((candidate) => candidate.id === targetId);
-    if (!isAdmin || !target?.manual_ping_available || manualPingInFlight.current.has(targetId)) return;
-    manualPingInFlight.current.add(targetId);
-    if (manualPingClearTimers.current[targetId]) clearTimeout(manualPingClearTimers.current[targetId]);
-    setManualPingStates((current) => ({ ...current, [targetId]: { phase: "loading", message: "Pinging…" } }));
-    setEdges((current) => current.map((edge) => edge.target === targetId ? {
-      ...edge,
-      data: {
-        ...edge.data,
-        manualPingActivityToken: Number(edge.data?.manualPingActivityToken ?? 0) + 1,
-      },
-    } : edge));
-    let outcome: ManualPingState;
-    try {
-      const { data, error } = await supabase.functions.invoke("network-health", {
-        body: { action: "manual_ping", target_id: targetId },
-      });
-      const pingId = data?.data?.id;
-      if (error || typeof pingId !== "string") throw new Error("Manual ping could not be queued");
-      outcome = manualPingOutcome(await waitForManualPing(supabase, pingId));
-    } catch {
-      outcome = { phase: "error", message: "Ping gagal" };
-    } finally {
-      manualPingInFlight.current.delete(targetId);
-    }
-    setManualPingStates((current) => ({ ...current, [targetId]: outcome }));
-    manualPingClearTimers.current[targetId] = setTimeout(() => {
-      setManualPingStates((current) => ({ ...current, [targetId]: undefined }));
-      delete manualPingClearTimers.current[targetId];
-    }, 2500);
-  }, [isAdmin, setEdges, supabase, targets]);
-
-  useEffect(() => () => {
-    Object.values(manualPingClearTimers.current).forEach(clearTimeout);
-  }, []);
-
-  const manualPingContext = useMemo<ManualPingContextValue>(() => ({
-    isAdmin,
-    states: manualPingStates,
-    run: runManualPing,
-  }), [isAdmin, manualPingStates, runManualPing]);
 
   useEffect(() => {
     const saved = localStorage.getItem(`reachability-map-layout:${runnerId ?? "local"}`);
@@ -838,11 +732,12 @@ export function ReachabilityMap({ targets, isAdmin, runnerId }: ReachabilityMapP
           ...edge.data,
           status: target.latest?.status ?? "offline",
           lastCheckedAt: target.latest?.last_checked_at,
+          manualPingActivityToken: manualPing.activityTokens[edge.target] ?? 0,
         },
       } : edge;
     });
     return layoutReachabilityGraph(derivedNodes, derivedEdges);
-  }, [nodes, edges, targets]);
+  }, [nodes, edges, manualPing.activityTokens, targets]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -864,7 +759,6 @@ export function ReachabilityMap({ targets, isAdmin, runnerId }: ReachabilityMapP
   }
 
   return (
-    <ManualPingContext.Provider value={manualPingContext}>
     <div className="mt-6 overflow-hidden rounded-panel border border-border bg-bg-surface" style={{ height: isFullscreen ? "100vh" : 680 }}>
       {!isFullscreen && (
         <div className="flex flex-col gap-6 border-b border-border px-5 py-4 md:px-6 md:py-5 lg:flex-row lg:items-start lg:justify-between">
@@ -975,6 +869,5 @@ export function ReachabilityMap({ targets, isAdmin, runnerId }: ReachabilityMapP
         </div>
       )}
     </div>
-    </ManualPingContext.Provider>
   );
 }

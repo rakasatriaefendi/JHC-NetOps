@@ -48,6 +48,19 @@ export const HEALTH_TREND_RANGES: { value: HealthTrendRange; label: string; maxP
   { value: "7d", label: "Last 7 days", maxPoints: 480 },
 ];
 
+export const HEALTH_TARGET_PAGE_SIZE = 10;
+
+export function healthTargetPagination(total: number, requestedPage: number, pageSize = HEALTH_TARGET_PAGE_SIZE) {
+  const boundedTotal = Math.max(0, Math.trunc(total));
+  const boundedPageSize = Math.max(1, Math.trunc(pageSize));
+  const pageCount = Math.max(1, Math.ceil(boundedTotal / boundedPageSize));
+  const candidatePage = Number.isFinite(requestedPage) ? Math.trunc(requestedPage) : 0;
+  const page = Math.min(Math.max(0, candidatePage), pageCount - 1);
+  const start = page * boundedPageSize;
+  const end = Math.min(start + boundedPageSize, boundedTotal);
+  return { page, pageCount, start, end };
+}
+
 export async function loadNetworkHealth(supabase: SupabaseClient) {
   const [{ data: rows, error }, { data: runners }, { data: events, error: eventError }] = await Promise.all([
     supabase.from("network_targets").select("id,runner_id,enabled,critical,probe_interval_seconds,timeout_ms,failure_threshold,recovery_threshold,latency_warning_ms,loss_warning_percent,network_nodes!inner(id,ip_address,name,device_type,location,detected_fingerprint,last_inspected_at),network_health_latest(status,latency_ms,packet_loss_percent,last_checked_at,last_success_at,consecutive_failures,sample_count)").eq("enabled", true),

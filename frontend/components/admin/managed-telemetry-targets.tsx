@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { saveManagedTelemetryTargetAction } from "@/app/actions/snmp";
+import { deleteManagedTelemetryTargetAction, saveManagedTelemetryTargetAction } from "@/app/actions/snmp";
 import { Button } from "@/components/ui/button";
 import type { RunnerCapabilities } from "@/lib/diagnostic-jobs";
 import { credentialProfileStatus, formatDateTime } from "@/lib/managed-telemetry";
@@ -38,7 +38,7 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
       <p className="text-meta font-medium uppercase tracking-wide text-accent">Managed Infrastructure Telemetry</p>
       <h2 className="mt-2 text-heading font-semibold">SNMP read-only telemetry targets</h2>
       <p className="mt-2 max-w-3xl text-text-secondary">SYSTEM-MIB dan IF-MIB terbatas untuk inventory yang dikenal. Browser hanya menyimpan referensi profile non-rahasia.</p>
-      {notice ? <p className="mt-4 text-severity-low" role="status">Konfigurasi telemetry tersimpan.</p> : null}
+      {notice ? <p className="mt-4 text-severity-low" role="status">{notice === "deleted" ? "Target Managed SNMP dihapus; inventory dan Health Watch tetap ada." : "Konfigurasi telemetry tersimpan."}</p> : null}
       {error ? <p className="mt-4 text-severity-critical" role="alert">Konfigurasi telemetry gagal: {telemetryError(error)}</p> : null}
       <div className="mt-4 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">
         Community string dan password SNMP tetap hanya di konfigurasi lokal runner; halaman ini tidak menerima atau menampilkannya.
@@ -76,7 +76,10 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
                   <td className="p-3 font-data text-meta">v{target.snmp_version} · TCP/UDP {target.snmp_port}<br />{target.poll_interval_seconds}s cadence</td>
                   <td className="p-3 text-meta"><p className="font-data">{target.credential_profile_ref}</p><ProfileState profile={profile} /></td>
                   <td className="p-3 font-data text-meta">{formatDateTime(target.latest?.last_polled_at ?? null)}</td>
-                  {canManage ? <td className="p-3 text-right"><Button variant="secondary" onClick={() => setEditingId(target.id)}>Edit</Button></td> : null}
+                  {canManage ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={() => setEditingId(target.id)}>Edit</Button><form action={deleteManagedTelemetryTargetAction} onSubmit={(event) => {
+                    const label = `${node?.name ?? "Unknown node"} (${node?.ip_address ?? "unknown IP"})`;
+                    if (!window.confirm(`Delete Managed SNMP target ${label}? The inventory device, Health Watch configuration, and unrelated history will remain.`)) event.preventDefault();
+                  }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={`${node?.name ?? ""} (${node?.ip_address ?? ""})`} /><Button type="submit" variant="destructive">Delete</Button></form></div></td> : null}
                 </tr>;
               })}</tbody>
             </table>
@@ -104,8 +107,8 @@ function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner
   const [profileRef, setProfileRef] = useState(target?.credential_profile_ref ?? "");
   const selectedRunner = runners.find((runner) => runner.id === runnerId);
   const profile = credentialProfileStatus(selectedRunner?.capabilities?.snmp_telemetry?.credential_profiles, profileRef.trim());
-  return <form action={saveManagedTelemetryTargetAction} className="mt-5 grid gap-4 md:grid-cols-4">
-    <Field label="Inventory node"><select className={control} defaultValue={target?.node_id ?? ""} disabled={Boolean(target)} name="node_id" required><option disabled value="">Pilih inventory node</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.name} — {node.ip_address}</option>)}</select>{target ? <input name="node_id" type="hidden" value={target.node_id} /> : null}</Field>
+  return <form action={saveManagedTelemetryTargetAction} className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+    <Field label="Inventory node"><select className={control} defaultValue={target?.node_id ?? ""} disabled={Boolean(target)} name="node_id" required title="Pilih inventory node"><option disabled value="">Pilih inventory node</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.name} — {node.ip_address}</option>)}</select>{target ? <input name="node_id" type="hidden" value={target.node_id} /> : null}</Field>
     <Field label="Runner"><select className={control} value={runnerId} onChange={(event) => setRunnerId(event.target.value)} disabled={Boolean(target)} name="runner_id" required><option disabled value="">Pilih runner</option>{runners.map((runner) => <option key={runner.id} value={runner.id}>{runner.display_name}</option>)}</select>{target ? <input name="runner_id" type="hidden" value={target.runner_id} /> : null}</Field>
     <Field label="SNMP version"><select className={control} defaultValue={target?.snmp_version ?? "3"} name="snmp_version"><option value="3">SNMPv3</option><option value="2c">SNMPv2c</option></select></Field>
     <Field label="SNMP port"><input className={control} defaultValue={target?.snmp_port ?? 161} max={65535} min={1} name="snmp_port" required step="1" type="number" /></Field>
@@ -124,9 +127,11 @@ function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner
 function telemetryError(value: string) {
   if (value === "portable-read-only") return "Portable Development Mode bersifat read-only.";
   if (value === "profile-unavailable") return "credential profile tidak tersedia di runner terpilih.";
+  if (value === "unknown-target") return "target tidak ditemukan atau konfirmasi tidak cocok.";
+  if (value === "delete-failed") return "target gagal dihapus.";
   if (value === "invalid-fields" || value === "invalid-form") return "payload atau nilai form tidak valid.";
   return "periksa nilai dan policy akses.";
 }
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="grid gap-2 text-meta text-text-secondary">{label}{children}</label>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="grid min-w-0 gap-2 text-meta text-text-secondary">{label}{children}</label>; }
 function NumberField({ label, name, value, min, max }: { label: string; name: string; value: number; min: number; max: number }) { return <Field label={label}><input className={control} defaultValue={value} max={max} min={min} name={name} required step="1" type="number" /></Field>; }
-const control = "rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary outline-none focus:border-accent";
+const control = "min-w-0 w-full truncate rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary outline-none focus:border-accent";

@@ -1,4 +1,3 @@
-import { NetworkHealthTargets } from "@/components/admin/network-health-targets";
 import { DeviceInventory } from "@/components/devices/device-inventory";
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadNetworkNodes } from "@/lib/network-nodes";
@@ -20,18 +19,19 @@ export default async function DevicesPage({ searchParams }: DevicesPageProps) {
   const [inventory, runnersResult, targetsResult] = await Promise.all([
     loadNetworkNodes(supabase),
     supabase.from("diagnostic_runners").select("id,display_name").order("display_name"),
-    supabase.from("network_targets").select("id,node_id,runner_id,enabled,critical,probe_interval_seconds,timeout_ms,failure_threshold,recovery_threshold,latency_warning_ms,loss_warning_percent").order("created_at"),
+    supabase.from("network_targets").select("id,node_id,runner_id,enabled,critical,probe_interval_seconds,timeout_ms,failure_threshold,recovery_threshold,latency_warning_ms,loss_warning_percent,network_health_latest(status,last_checked_at)").order("created_at"),
   ]);
 
   return <main className="p-4 md:p-6">
-    <DeviceInventory nodes={inventory.data} canManage={profile.role === "admin"} notice={params.device_notice} error={inventory.error ? "load-failed" : params.device_error} />
-    <NetworkHealthTargets
+    <DeviceInventory
       nodes={inventory.data}
       runners={runnersResult.data ?? []}
       targets={targetsResult.data ?? []}
       canManage={profile.role === "admin"}
-      notice={params.health_notice}
-      error={targetsResult.error || runnersResult.error ? "load-failed" : params.health_error}
+      deviceNotice={params.device_notice}
+      deviceError={inventory.error ? "load-failed" : params.device_error}
+      healthNotice={params.health_notice}
+      healthError={targetsResult.error || runnersResult.error ? "load-failed" : params.health_error}
     />
   </main>;
 }

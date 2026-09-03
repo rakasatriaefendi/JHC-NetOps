@@ -14,11 +14,15 @@ import {
 } from "@/lib/network-nodes";
 
 const DEVICE_FIELDS = new Set(["ip_address", "name", "device_type", "location", "notes"]);
+const UPDATE_DEVICE_FIELDS = new Set(["node_id", "name", "device_type", "location", "notes"]);
+const DELETE_DEVICE_FIELDS = new Set(["node_id", "confirmation"]);
 const HEALTH_FIELDS = new Set([
   "node_id", "runner_id", "probe_interval_seconds", "timeout_ms",
   "failure_threshold", "recovery_threshold", "latency_warning_ms",
   "loss_warning_percent", "enabled", "critical",
 ]);
+const DELETE_HEALTH_FIELDS = new Set(["target_id", "confirmation"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function saveManualNetworkNodeAction(formData: FormData) {
   if (hasUnexpectedFormFields(formData, DEVICE_FIELDS)) {
@@ -86,9 +90,8 @@ export async function saveNetworkTargetAction(formData: FormData) {
     latency_warning_ms: Number(formData.get("latency_warning_ms")),
     loss_warning_percent: Number(formData.get("loss_warning_percent")),
   };
-  const validUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const validRunner = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-  const valid = validUuid.test(nodeId) && validRunner.test(runnerId)
+  const valid = UUID_PATTERN.test(nodeId) && validRunner.test(runnerId)
     && integerBetween(values.probe_interval_seconds, 15, 3600)
     && integerBetween(values.timeout_ms, 250, 5000)
     && integerBetween(values.failure_threshold, 2, 10)
@@ -117,6 +120,112 @@ export async function saveNetworkTargetAction(formData: FormData) {
   redirect("/devices?health_notice=saved#network-health-targets");
 }
 
+export async function updateNetworkNodeAction(formData: FormData) {
+  if (hasUnexpectedFormFields(formData, UPDATE_DEVICE_FIELDS)) {
+    redirect("/devices?device_error=invalid-request#device-inventory");
+  }
+  const nodeId = String(formData.get("node_id") ?? "");
+  const deviceType = String(formData.get("device_type") ?? "").trim();
+  if (!UUID_PATTERN.test(nodeId) || (deviceType && !NETWORK_NODE_TYPES.includes(deviceType as NetworkNodeType))) {
+    redirect("/devices?device_error=invalid-request#device-inventory");
+  }
+
+  const { supabase } = await requireAdminProfile();
+  const { data: existing, error: lookupError } = await supabase
+    .from("network_nodes")
+    .select("id,ip_address")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (lookupError || !existing) redirect("/devices?device_error=unknown-device#device-inventory");
+
+  const input: NetworkNodeInput = {
+    ip_address: existing.ip_address,
+    name: String(formData.get("name") ?? ""),
+    device_type: deviceType ? deviceType as NetworkNodeType : null,
+    location: optionalText(formData.get("location")),
+    notes: optionalText(formData.get("notes")),
+  };
+  if (validateManualNetworkNodeInput(input)) {
+    redirect("/devices?device_error=invalid-request#device-inventory");
+  }
+
+  const { error } = await supabase.from("network_nodes").update({
+    name: input.name.trim(),
+    device_type: input.device_type,
+    location: input.location,
+    notes: input.notes,
+  }).eq("id", nodeId);
+  if (error) redirect("/devices?device_error=save-failed#device-inventory");
+
+  revalidateDevices();
+  redirect("/devices?device_notice=updated#device-inventory");
+}
+
+export async function deleteNetworkTargetAction(formData: FormData) {
+  if (hasUnexpectedFormFields(formData, DELETE_HEALTH_FIELDS)) {
+    redirect("/devices?health_error=invalid-request#network-health-targets");
+  }
+  const targetId = String(formData.get("target_id") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "");
+  if (!UUID_PATTERN.test(targetId) || !confirmation || confirmation.length > 500) {
+    redirect("/devices?health_error=invalid-request#network-health-targets");
+  }
+
+  const { supabase } = await requireAdminProfile();
+  const { data: target, error: lookupError } = await supabase
+    .from("network_targets")
+    .select("id,node_id,network_nodes(name,ip_address)")
+    .eq("id", targetId)
+    .maybeSingle();
+  const node = relation(target?.network_nodes);
+  if (lookupError || !target || !node || confirmation !== confirmationLabel(node.name, node.ip_address)) {
+    redirect("/devices?health_error=unknown-target#network-health-targets");
+  }
+
+  const { error } = await supabase.from("network_targets").delete().eq("id", targetId);
+  if (error) redirect("/devices?health_error=delete-failed#network-health-targets");
+  revalidatePath("/devices");
+  revalidatePath("/dashboard");
+  redirect("/devices?health_notice=deleted#network-health-targets");
+}
+
+export async function deleteNetworkNodeAction(formData: FormData) {
+  if (hasUnexpectedFormFields(formData, DELETE_DEVICE_FIELDS)) {
+    redirect("/devices?device_error=invalid-request#device-inventory");
+  }
+  const nodeId = String(formData.get("node_id") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "");
+  if (!UUID_PATTERN.test(nodeId) || !confirmation || confirmation.length > 500) {
+    redirect("/devices?device_error=invalid-request#device-inventory");
+  }
+
+  const { supabase } = await requireAdminProfile();
+  const { data: node, error: lookupError } = await supabase
+    .from("network_nodes")
+    .select("id,name,ip_address")
+    .eq("id", nodeId)
+    .maybeSingle();
+  if (lookupError || !node || confirmation !== confirmationLabel(node.name, node.ip_address)) {
+    redirect("/devices?device_error=unknown-device#device-inventory");
+  }
+
+  const [{ data: healthDependencies, error: healthError }, { data: snmpDependencies, error: snmpError }] = await Promise.all([
+    supabase.from("network_targets").select("id").eq("node_id", nodeId).limit(1),
+    supabase.from("managed_telemetry_targets").select("id").eq("node_id", nodeId).limit(1),
+  ]);
+  if (healthError || snmpError) redirect("/devices?device_error=dependency-check-failed#device-inventory");
+  if (healthDependencies?.length && snmpDependencies?.length) {
+    redirect("/devices?device_error=blocked-health-snmp#device-inventory");
+  }
+  if (healthDependencies?.length) redirect("/devices?device_error=blocked-health#device-inventory");
+  if (snmpDependencies?.length) redirect("/devices?device_error=blocked-snmp#device-inventory");
+
+  const { error } = await supabase.from("network_nodes").delete().eq("id", nodeId);
+  if (error) redirect("/devices?device_error=delete-failed#device-inventory");
+  revalidateDevices();
+  redirect("/devices?device_notice=deleted#device-inventory");
+}
+
 function optionalText(value: FormDataEntryValue | null) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized || null;
@@ -124,4 +233,24 @@ function optionalText(value: FormDataEntryValue | null) {
 
 function integerBetween(value: number, minimum: number, maximum: number) {
   return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+
+function relation(value: unknown): { name: string; ip_address: string } | null {
+  if (Array.isArray(value)) return relation(value[0]);
+  if (!value || typeof value !== "object") return null;
+  const row = value as { name?: unknown; ip_address?: unknown };
+  return typeof row.name === "string" && typeof row.ip_address === "string"
+    ? { name: row.name, ip_address: row.ip_address }
+    : null;
+}
+
+function confirmationLabel(name: string, ipAddress: string) {
+  return `${name} (${ipAddress})`;
+}
+
+function revalidateDevices() {
+  revalidatePath("/devices");
+  revalidatePath("/snmp");
+  revalidatePath("/dashboard");
+  revalidatePath("/diagnostics");
 }

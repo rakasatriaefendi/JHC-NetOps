@@ -35,11 +35,11 @@ flowchart LR
 Browser tidak dapat menjalankan shell command lokal. Runner hanya menerima job
 terstruktur dan me-resolve target dari allow-list lokal sebelum memanggil agent.
 
-Windows + Ubuntu WSL tetap didukung. Adapter aplikasi native Linux P8A telah
-diimplementasikan dan diuji tanpa network live, tetapi Mini PC, dependency,
-permission, dan always-on operation belum divalidasi atau dideploy. Lihat
+Windows + Ubuntu WSL tetap didukung. Runtime native Linux P8A telah divalidasi
+pada staging. P8B menyediakan template always-on systemd yang belum dipasang
+atau diaktifkan pada Mini PC. Lihat
 [Technical Handover](docs/HANDOVER.md) dan
-[Ubuntu Deployment Readiness](docs/UBUNTU_DEPLOYMENT_READINESS.md).
+[Native Ubuntu always-on deployment](docs/UBUNTU_ALWAYS_ON_DEPLOYMENT.md).
 
 ## Struktur repository
 
@@ -124,9 +124,11 @@ buat venv baru di release yang aktif; jangan salin venv dari Windows/WSL.
 
 ### 5. Siapkan runner
 
-Salin `runner/config.example.json` menjadi `runner/config.local.json`. Windows
-memakai distro/path WSL; Linux memakai absolute `native_project_root`. Isi source
-location, interface capture, dan target yang diizinkan sesuai host.
+Untuk development, salin `runner/config.example.json` menjadi
+`runner/config.local.json`. Windows memakai distro/path WSL; Linux memakai
+absolute `native_project_root`. Deployment native permanen memakai file bernama
+`/var/www/jhc/jhc_noc/shared/runner/config.json`, dibuat dari
+`deploy/runner-config.example.json`; jangan commit config atau secret nyata.
 
 Dari root project di PowerShell:
 

@@ -170,12 +170,12 @@ export function NetworkDiscoveryDrawer({
         {eligibleRunners.length > 1 ? <label className="mt-6 grid gap-2 text-meta text-text-secondary">Runner<select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={runner?.id ?? ""} onChange={(event) => { setRunnerId(event.target.value); setSelected(new Set()); setError(null); }} disabled={busy}>{eligibleRunners.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label> : null}
 
         {!runnerOnline ? <Notice tone="critical">Local Runner is offline. Network discovery is unavailable.</Notice> : null}
-        {runnerOnline && !session ? <Notice>No discovery session has been run yet. Detecting the current Windows network…</Notice> : null}
+        {runnerOnline && !session ? <Notice>No discovery session has been run yet. Detecting the current local network…</Notice> : null}
         {runnerOnline && session && !expired ? <Context session={session} runnerName={runner?.display_name ?? session.runner_id} /> : null}
         {expired ? <Notice>Discovery results expired. Run discovery again for current information.</Notice> : null}
 
         {runnerOnline && session?.status === "queued" && session.phase === "prepare" ? <Notice>Detecting and validating the runner&apos;s current local subnet…</Notice> : null}
-        {runnerOnline && session?.status === "running" && session.phase === "prepare" ? <Notice>Reading current Windows network context…</Notice> : null}
+        {runnerOnline && session?.status === "running" && session.phase === "prepare" ? <Notice>Reading current local runner network context…</Notice> : null}
         {runnerOnline && session?.status === "idle" ? <div className="mt-5"><Button disabled={busy} onClick={() => void invoke("start_session")}>{busy ? "Menyiapkan…" : "Start Discovery"}</Button></div> : null}
         {runnerOnline && expired ? <div className="mt-5"><Button disabled={busy} onClick={() => void invoke("prepare_session")}>Refresh current network</Button></div> : null}
         {runnerOnline && session?.status === "failed" ? <div className="mt-5"><Notice tone="critical">{discoveryError(session.error_code)}</Notice><Button className="mt-3" disabled={busy} onClick={() => void invoke("prepare_session")}>Try again</Button></div> : null}
@@ -197,7 +197,7 @@ export function NetworkDiscoveryDrawer({
         {session?.status === "completed" && !expired && enriched.length === 0 ? <Notice>No responding devices were discovered.</Notice> : null}
         {session?.status === "completed" && !expired ? <Button className="mt-5" variant="secondary" disabled={busy} onClick={() => void invoke("start_session")}>Run discovery again</Button> : null}
         {error ? <p className="mt-4 text-severity-critical">{error}</p> : null}
-        <div className="mt-6 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">Scope is determined and validated by the Windows runner. The browser cannot submit a CIDR, range, command, or scan flags. Only neighbor information and bounded ICMP host discovery are used.</div>
+        <div className="mt-6 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">Scope is determined and validated by the local runner. The browser cannot submit a CIDR, range, command, or scan flags. Only neighbor information and bounded ICMP host discovery are used.</div>
         <div className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta text-text-secondary">Devices observed from this Local Runner. Some clients known only to the gateway or access point may not appear.</div>
         {editingIp ? <NameEditor ipAddress={editingIp} current={findNetworkNode(nodes, editingIp) ?? null} onClose={() => setEditingIp(null)} /> : null}
       </aside>
@@ -276,5 +276,5 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 function Notice({ children, tone = "normal" }: { children: React.ReactNode; tone?: "normal" | "critical" }) { return <div className={`mt-5 rounded-control border bg-bg-base p-4 ${tone === "critical" ? "border-severity-critical text-severity-critical" : "border-border text-text-secondary"}`}>{children}</div>; }
 function connectionLabel(value: DiscoverySession["connection_type"]) { return value === "wifi" ? "WiFi" : value === "ethernet" ? "Ethernet" : "Unknown"; }
 function toggleSelection(setter: React.Dispatch<React.SetStateAction<Set<string>>>, ip: string) { setter((current) => { const next = new Set(current); if (next.has(ip)) next.delete(ip); else next.add(ip); return next; }); }
-function discoveryError(code: string | null) { return code === "DISCOVERY_SCOPE_TOO_LARGE" ? "Detected subnet is larger than the safe /24 maximum. Discovery was not started." : code === "DISCOVERY_CONTEXT_UNAVAILABLE" ? "Windows network context could not be detected." : "Network discovery failed safely. No devices were promoted or monitored."; }
+function discoveryError(code: string | null) { return code === "DISCOVERY_SCOPE_TOO_LARGE" ? "Detected subnet is larger than the safe scan window. Discovery was not started." : code === "DISCOVERY_CONTEXT_UNAVAILABLE" ? "Local runner network context could not be detected." : "Network discovery failed safely. No devices were promoted or monitored."; }
 async function functionError(error: unknown) { if (error && typeof error === "object" && "context" in error) { const response = (error as { context?: unknown }).context; if (response instanceof Response) { try { const payload = await response.clone().json() as { error?: string }; if (payload.error) return payload.error; } catch {} } } return "Network discovery request failed."; }
