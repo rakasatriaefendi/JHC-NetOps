@@ -34,14 +34,17 @@ const UUID = "11111111-1111-4111-8111-111111111111";
 function rawLinuxState({ address = "192.168.50.130", prefix = 24 } = {}) {
   const network = prefix === 24 ? "192.168.50.0/24" : prefix === 23 ? "192.168.50.0/23" : "192.168.0.0/16";
   return {
+    links: [
+      { ifindex: 1, ifname: "lo", operstate: "UNKNOWN", flags: ["LOOPBACK", "UP", "LOWER_UP"], link_type: "loopback" },
+      { ifindex: 2, ifname: "enp1s0", operstate: "UP", flags: ["BROADCAST", "UP", "LOWER_UP"], link_type: "ether" },
+      { ifindex: 3, ifname: "wlp2s0", operstate: "DOWN", flags: ["BROADCAST", "MULTICAST"], link_type: "ether" },
+      { ifindex: 4, ifname: "docker0", operstate: "DOWN", flags: ["BROADCAST", "MULTICAST", "UP"], link_type: "ether",
+        linkinfo: { info_kind: "bridge" } },
+    ],
     addresses: [
-      { ifindex: 1, ifname: "lo", operstate: "UNKNOWN", flags: ["LOOPBACK", "UP"], link_type: "loopback",
-        addr_info: [{ family: "inet", local: "127.0.0.1", prefixlen: 8 }] },
-      { ifindex: 2, ifname: "enp1s0", operstate: "UP", flags: ["BROADCAST", "UP", "LOWER_UP"], link_type: "ether",
-        addr_info: [{ family: "inet", local: address, prefixlen: prefix }] },
-      { ifindex: 3, ifname: "wlp2s0", operstate: "DOWN", flags: ["BROADCAST"], link_type: "ether", addr_info: [] },
-      { ifindex: 4, ifname: "docker0", operstate: "DOWN", flags: ["BROADCAST"], link_type: "ether",
-        linkinfo: { info_kind: "bridge" }, addr_info: [{ family: "inet", local: "172.17.0.1", prefixlen: 16 }] },
+      { ifindex: 1, ifname: "lo", addr_info: [{ family: "inet", local: "127.0.0.1", prefixlen: 8 }] },
+      { ifindex: 2, ifname: "enp1s0", addr_info: [{ family: "inet", local: address, prefixlen: prefix }] },
+      { ifindex: 4, ifname: "docker0", addr_info: [{ family: "inet", local: "172.17.0.1", prefixlen: 16 }] },
     ],
     routes: [
       { dst: "default", gateway: "192.168.50.1", dev: "enp1s0", prefsrc: address, metric: 100 },
@@ -78,11 +81,22 @@ test("platform selection supports only Windows and native Linux", () => {
   assert.throws(() => resolvePlatform("darwin"), (error) => error.code === "UNSUPPORTED_PLATFORM");
 });
 
-test("Linux context selects the active default-route Ethernet and excludes loopback, inactive Wi-Fi, and docker bridge", () => {
+test("real Ubuntu link metadata is merged with address-only IPv4 records before scope selection", () => {
   const state = normalizedState();
   const payload = buildLinuxDiscoveryPayload(state);
   const context = validateDiscoveryContext(payload);
   const resolution = resolveNetworkScopes(payload.context.scope_inputs);
+  const ethernet = state.interfaces.find((item) => item.interface_alias === "enp1s0");
+  const wifi = state.interfaces.find((item) => item.interface_alias === "wlp2s0");
+  const bridge = state.interfaces.find((item) => item.interface_alias === "docker0");
+  const loopback = state.interfaces.find((item) => item.interface_alias === "lo");
+  assert.deepEqual({ kind: ethernet.interface_kind, connection: ethernet.connection_type, status: ethernet.operational_status,
+    addresses: ethernet.addresses }, { kind: "physical", connection: "ethernet", status: "up",
+    addresses: [{ ip_address: "192.168.50.130", prefix_length: 24 }] });
+  assert.deepEqual({ kind: wifi.interface_kind, connection: wifi.connection_type, status: wifi.operational_status,
+    addresses: wifi.addresses }, { kind: "physical", connection: "wifi", status: "down", addresses: [] });
+  assert.deepEqual({ kind: bridge.interface_kind, status: bridge.operational_status }, { kind: "virtual_internal", status: "down" });
+  assert.equal(loopback.interface_kind, "virtual_internal");
   assert.equal(context.interface_alias, "enp1s0");
   assert.equal(context.connection_type, "ethernet");
   assert.equal(context.subnet_cidr, "192.168.50.0/24");
@@ -113,14 +127,29 @@ test("Linux OS provider uses bounded structured ip JSON commands without a shell
   const spawnProcess = (executable, args, options) => fakeChild((child) => {
     calls.push({ executable, args, options });
     const key = args[2];
-    child.stdout.end(JSON.stringify(key === "address" ? raw.addresses : key === "route" ? raw.routes : raw.neighbors));
+    child.stdout.end(JSON.stringify(key === "link" ? raw.links : key === "address" ? raw.addresses : key === "route" ? raw.routes : raw.neighbors));
     child.emit("close", 0);
   });
   const result = await collectLinuxNetworkState({ spawnProcess, isWirelessInterface: () => false });
   assert.equal(result.default_interface_index, 2);
-  assert.equal(calls.length, 3);
-  assert.ok(calls.every((call) => call.executable === "ip" && call.args[0] === "-j" && call.args[1] === "-4"));
+  assert.equal(calls.length, 4);
+  assert.deepEqual(calls.map((call) => call.args), [
+    ["-j", "-d", "link", "show"],
+    ["-j", "-4", "address", "show"],
+    ["-j", "-4", "route", "show", "table", "main"],
+    ["-j", "-4", "neighbor", "show"],
+  ]);
+  assert.ok(calls.every((call) => call.executable === "ip"));
   assert.ok(calls.every((call) => call.options.shell === false));
+});
+
+test("link/address merge requires matching stable interface index and safe name", () => {
+  const raw = rawLinuxState();
+  raw.addresses = raw.addresses.map((item) => item.ifindex === 2 ? { ...item, ifname: "renamed0" } : item);
+  const state = normalizeLinuxNetworkState(raw, { isWirelessInterface: () => false });
+  const ethernet = state.interfaces.find((item) => item.interface_alias === "enp1s0");
+  assert.deepEqual(ethernet.addresses, []);
+  assert.throws(() => buildLinuxDiscoveryPayload(state), (error) => error.code === "DISCOVERY_CONTEXT_UNAVAILABLE");
 });
 
 test("Linux command adapter rejects malformed output and kills a bounded timeout", async () => {
