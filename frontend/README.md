@@ -19,7 +19,9 @@ alerts, LAN Diagnostics, administration, Health Watch, dan Network Discovery.
 | `/history` | Riwayat diagnostic serta trend. |
 | `/alerts` | Event aktif dan status jaringan. |
 | `/diagnostics` | One-click bandwidth dan Layer-3 path diagnostics. |
-| `/admin` | Approval user, inventory, dan monitoring targets. |
+| `/devices` | Inventory perangkat dan konfigurasi Health Watch. |
+| `/snmp` | Managed SNMP targets, device/interface telemetry, dan Observed LAN Hosts. |
+| `/admin` | Approval dan pengelolaan akses user. |
 
 Route protected memerlukan profile Supabase berstatus `approved`. Operasi sensitif
 seperti start/stop capture, discovery, dan pengelolaan target dibatasi untuk admin.
@@ -41,9 +43,13 @@ Jangan pernah menaruh service-role key pada frontend atau variabel `NEXT_PUBLIC_
 ## Development
 
 ```powershell
-npm install
+npm ci
 npm run dev
 ```
+
+Untuk fixture frontend tanpa perangkat SNMP nyata, ikuti
+[PORTABLE_DEVELOPMENT.md](../docs/PORTABLE_DEVELOPMENT.md). Mode tersebut default
+OFF dan hanya tersedia saat development.
 
 ## Quality checks
 
@@ -62,4 +68,3 @@ Jangan hardcode warna baru di komponen tanpa memperbarui design system.
 
 Frontend hanya membuat request/job terstruktur. Ia tidak boleh mengeksekusi shell,
 menentukan arbitrary capture filter, atau mengirim arbitrary subnet/target ke runner.
-

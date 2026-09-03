@@ -139,7 +139,7 @@ test("dedicated workspace exposes search and all five requested filters", () => 
   assert.match(component, /overflow-x-auto/);
   assert.match(component, /IP-MIB neighbor/);
   assert.match(component, /Legacy IP neighbor/);
-  assert.match(component, /Devices: \{displayed\.length\} \/ \{hosts\.length\}/);
+  assert.match(component, /Observed hosts: \{displayed\.length\} \/ \{hosts\.length\}/);
   assert.match(component, /filterCounts\[option\.value\]/);
 });
 

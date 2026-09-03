@@ -1,7 +1,11 @@
-# Basic agent & dashboard setup
+# Basic agent & dashboard setup (Windows + Ubuntu WSL)
 
 Tahap ini mengirim metrik agregat interface setiap 10 detik. Agent tidak melakukan
 packet capture dan tidak memindai device lain di LAN.
+
+Dokumen ini menjelaskan runtime yang saat ini didukung. Target Mini PC Ubuntu
+Desktop 24.x native belum diimplementasikan; audit adapter dan deployment P8 ada
+di [UBUNTU_DEPLOYMENT_READINESS.md](UBUNTU_DEPLOYMENT_READINESS.md).
 
 ## 1. Terapkan migration Realtime
 
@@ -402,7 +406,7 @@ npx supabase functions deploy network-health
 .\runner\task.ps1 restart
 ```
 
-Admin membuka `/admin#network-health-targets`, memilih node yang sudah ada di
+Admin membuka `/devices#network-health-targets`, memilih node yang sudah ada di
 `network_nodes`, memilih runner, lalu mengatur enabled/critical dan threshold.
 Tidak ada target yang dibuat atau diaktifkan otomatis; perangkat di luar inventory
 tidak diprobe. Metode MVP hanya ICMP dan tidak membutuhkan agent WSL/Scapy/SNMP.
@@ -463,7 +467,7 @@ virtualenv. Gunakan command berikut untuk audit manual dari jalur WSL yang sama:
 
 ```powershell
 wsl.exe -d Ubuntu-22.04 --exec `
-  /mnt/c/Users/rakas/OneDrive/Documents/JHC-work/Network-Monitoring/agent/.venv/bin/network-monitor `
+  <wsl-project-root>/agent/.venv/bin/network-monitor `
   capabilities
 
 node.exe runner\src\main.mjs --preflight-only
@@ -481,7 +485,7 @@ Untuk memeriksa context Windows satu target inventory secara read-only:
 ```powershell
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
   -File runner\scripts\get-device-inspection-context.ps1 `
-  -TargetIp 192.168.188.249
+  -TargetIp <AUTHORIZED_TARGET_IP>
 ```
 
 Helper memilih object `MSFT_NetIPAddress` dan `MSFT_NetRoute` secara eksplisit dari
@@ -511,11 +515,11 @@ diterapkan, restart runner agar capability `snmp_telemetry` diterbitkan:
 .\runner\task.ps1 restart
 ```
 
-Edge Function `managed-telemetry` sudah diimplementasikan dan lolos contract/unit
-test, tetapi **belum di-deploy** — runtime/deployment verification ditunda dan bukan
-bagian dari setup ini.
+Edge Function `managed-telemetry` sudah diimplementasikan, diuji, dan digunakan
+oleh jalur Managed Telemetry saat ini. Deployment tetap harus mengikuti release
+terkontrol pada project Supabase yang dituju.
 
-Admin membuka `/admin#managed-telemetry`, memilih node yang sudah ada di
+Admin membuka `/snmp#managed-telemetry`, memilih node yang sudah ada di
 `network_nodes`, memilih runner, versi SNMP, dan **credential profile lokal runner**
 (`monitoring-readonly` / `core-readonly`). Form hanya menyimpan nama profile—bukan
 community string, username, atau password. Profile didefinisikan di config lokal
@@ -524,7 +528,7 @@ tersedia ditandai `available = false` dan tidak dipoll.
 
 Runner melakukan polling read-only SNMPv2c/v3 dengan OID tetap dan terbatas (identitas
 sistem, uptime, satu set interface fisik/logis, octet counters, error/discard).
-Interval default 60 detik (boleh 30–300), concurrency kecil, timeout pendek, dan tidak
+Interval target yang didukung saat ini 30 atau 60 detik, concurrency kecil, timeout pendek, dan tidak
 mengganggu capture/Health Watch/Discovery/Diagnostics. Counter cache lokal dipakai
 menghitung rate/utilisasi antar-poll; hanya latest-state yang di-upsert (satu
 `managed_device_latest` + satu `managed_interface_latest` per interface) dan event

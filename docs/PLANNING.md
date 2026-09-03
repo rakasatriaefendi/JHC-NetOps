@@ -145,7 +145,8 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
   Realtime, expiry cleanup, dan tambahan node type workstation/printer
 - [x] Edge Function `network-discovery`: admin prepare/start, service claim/progress/
   complete/fail, runner busy guard, payload/scope bounds
-- [x] Windows runner discovery: fixed context helper, neighbor + ICMP `/24`–`/30`,
+- [x] Windows runner discovery: fixed context helper, actual private prefix tanpa
+  asumsi `/24`, deterministic scope maksimal 254 host, neighbor + ICMP,
   concurrency 4, timeout 400 ms, dedupe, progress setiap 32 alamat, no recurring sweep
 - [x] Dashboard order dan Local Traffic summary: Observed RX/TX, active flow, top talker,
   capture-stopped state, tanpa developer deployment copy
@@ -178,7 +179,7 @@ inventory/monitoring tanpa pilihan eksplisit.
 - [x] Device Profile bagian Managed Infrastructure Telemetry: status koneksi target,
   identitas/uptime, tabel interface + utilisasi/error/discard + peringatan, satu
   subscription Realtime; lint, typecheck, production build, dan unit tests lulus
-- [x] Admin config UI `/admin#managed-telemetry`: tambah/ubah/nonaktifkan target dari
+- [x] Admin config UI `/snmp#managed-telemetry`: tambah/ubah/nonaktifkan target dari
   `network_nodes`, pilih runner + SNMP version + credential profile (nama saja, tanpa
   secret), action `saveManagedTelemetryTargetAction` dengan RLS approved-read;
   lint, typecheck, production build, dan unit tests lulus
@@ -202,8 +203,26 @@ inventory/monitoring tanpa pilihan eksplisit.
 ber-profil lokal, runner mem-poll read-only bounded dan menyimpan latest-state, Device
 Profile menampilkan telemetry perangkat secara realtime dengan peringatan interface,
 approved viewer hanya membaca, dan tidak ada secret di Supabase/browser serta tidak ada
-row per poll. (Tercapai untuk frontend/runner/agent/schema + deployment Edge Function;
-satu-satunya sisa adalah validasi SNMP polling nyata ke perangkat managed.)
+row per poll. Production path telah diverifikasi pada target lab read-only dan validasi
+perangkat SNMPv3 nyata dilakukan hanya dengan credential resmi/authorized.
+
+---
+
+## P7 — Documentation + Handover Readiness
+
+- [x] Terminologi counter Observed LAN Hosts tidak menyebut observation sebagai device fisik.
+- [x] Technical handover mendokumentasikan sistem, dependency source-of-truth,
+  setup/operasi Windows + WSL, security, troubleshooting, dan checklist serah terima.
+- [x] P8 readiness memisahkan portable logic, native Ubuntu support, dan always-on
+  deployment serta memetakan adapter/service gap tanpa mengimplementasikannya.
+- [x] Portable Development Mode mendokumentasikan PowerShell/Linux enable-disable,
+  scenario, batas fixture, autentikasi, dan kemungkinan halaman global memakai data nyata.
+- [x] README komponen dan product/implementation docs diselaraskan dengan route,
+  adaptive Discovery, Managed SNMP, Observed LAN Hosts, dan status runtime aktual.
+
+**Definition of done:** maintainer baru dapat mereproduksi dan mengoperasikan runtime
+Windows + WSL saat ini, memahami security/semantics penting, dan merencanakan P8
+Ubuntu Desktop 24.x tanpa menganggap native Linux atau always-on service sudah tersedia.
 
 ---
 

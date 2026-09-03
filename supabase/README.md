@@ -16,6 +16,8 @@ schema hanya melalui Dashboard tanpa menyimpan migration yang setara.
 | `traffic-live` | Lifecycle session, snapshot, dan flow persistence. |
 | `network-health` | Target Health Watch, latest status, dan transition event. |
 | `network-discovery` | Session dan result Discovery yang sementara/bounded. |
+| `device-inspector` | Lifecycle inspeksi satu target yang terotorisasi dan bounded. |
+| `managed-telemetry` | Konfigurasi target serta persistence latest Managed SNMP dan Observed LAN Hosts. |
 
 Diagnostics, Health Watch, Traffic, dan Discovery memiliki jalur terpisah. Hasil
 diagnostics tidak boleh masuk rolling baseline atau severity `ingest`.
@@ -23,7 +25,8 @@ diagnostics tidak boleh masuk rolling baseline atau severity `ingest`.
 ### Migrations
 
 Migration mencakup schema awal, auth/RLS, diagnostics, Live Traffic, lock recovery,
-network context, node inventory, Health Watch, dan Network Discovery.
+network context, node inventory, Health Watch/history/manual ping, Network Discovery,
+Device Inspector, Managed Telemetry, alerting, dan Observed LAN Hosts.
 
 ## Setup
 
@@ -44,6 +47,8 @@ npx supabase functions deploy diagnostic-jobs
 npx supabase functions deploy traffic-live
 npx supabase functions deploy network-health
 npx supabase functions deploy network-discovery
+npx supabase functions deploy device-inspector
+npx supabase functions deploy managed-telemetry
 ```
 
 Jangan commit `supabase/.temp`; folder tersebut berisi state lokal project link.
@@ -58,4 +63,3 @@ Jangan commit `supabase/.temp`; folder tersebut berisi state lokal project link.
 
 Sebelum mengubah schema, cocokkan dengan bagian skema di [PRD.md](../docs/PRD.md)
 dan aturan RLS pada [AGENTS.md](../docs/AGENTS.md).
-
