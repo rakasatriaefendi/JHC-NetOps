@@ -19,6 +19,7 @@ import {
 } from "@/lib/diagnostic-jobs";
 import type { BandwidthMeasurement, DiagnosticsData } from "@/lib/diagnostics";
 import { createClient } from "@/lib/supabase/client";
+import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 
 type Props = {
   initialState: DiagnosticJobState;
@@ -26,7 +27,7 @@ type Props = {
   onDiagnosticsChange: (data: DiagnosticsData) => void;
   loadError: boolean;
   prefillTarget?: string;
-  role: "admin" | "viewer";
+  role: ProfileRole;
 };
 
 export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsChange, loadError, prefillTarget, role }: Props) {
@@ -102,7 +103,7 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   }, [onDiagnosticsChange]);
 
   useEffect(() => {
-    if (!runnerOnline || !runner || !target || jobActive) return;
+    if (!canOperateNetwork(role) || !runnerOnline || !runner || !target || jobActive) return;
     const key = `${runner.id}:${target.id}`;
     const freshComplete = preflight?.status === "completed" && preflight.completed_at && now - Date.parse(preflight.completed_at) < 80_000;
     if (requestedPreflight.current === key && (preflight?.status === "queued" || preflight?.status === "running" || freshComplete)) return;
@@ -113,11 +114,11 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
     }).then(async ({ error }) => {
       if (error) setFormError(await diagnosticJobErrorMessage(error));
     });
-  }, [jobActive, now, preflight?.completed_at, preflight?.status, runner, runnerOnline, target]);
+  }, [jobActive, now, preflight?.completed_at, preflight?.status, role, runner, runnerOnline, target]);
 
   async function createJob() {
     const location = source.trim();
-    if (!runner || !target || !location || jobActive || !preflightReady) return;
+    if (!canOperateNetwork(role) || !runner || !target || !location || jobActive || !preflightReady) return;
     setSubmitting(true);
     setFormError(null);
     const supabase = createClient();
@@ -170,9 +171,9 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
       <section className="rounded-panel border border-border bg-bg-surface p-4 md:p-6">
         <SectionTitle eyebrow="Run diagnostic" title="Bandwidth upload/download + Layer-3 path" />
         <p className="mt-3 text-text-secondary">iperf3 menghasilkan traffic aktif. Test hanya berjalan setelah klik dan dibatasi {selectedDuration} detik per arah.</p>
-        {role !== "admin" ? <Notice>Viewer dapat membaca hasil, tetapi hanya admin yang boleh memulai bandwidth diagnostic aktif.</Notice> : null}
+        {!canOperateNetwork(role) ? <Notice>Viewer dapat membaca hasil, tetapi role Operator diperlukan untuk memulai bandwidth diagnostic aktif.</Notice> : null}
         {formError ? <p className="mt-4 text-severity-critical">{formError}</p> : null}
-        <Button className="mt-5 w-full sm:w-auto sm:min-w-52" disabled={role !== "admin" || !runnerOnline || !target || !source.trim() || !preflightReady || submitting || jobActive} onClick={createJob} type="button">
+        <Button className="mt-5 w-full sm:w-auto sm:min-w-52" disabled={!canOperateNetwork(role) || !runnerOnline || !target || !source.trim() || !preflightReady || submitting || jobActive} onClick={createJob} type="button">
           {jobActive || submitting ? "Diagnostik sedang berjalan..." : displayedJob ? "Jalankan lagi" : "Jalankan diagnostik"}
         </Button>
         {target && checks && !checks.iperf.ready ? <p className="mt-3 text-severity-medium">Bandwidth test dinonaktifkan karena server iperf3 tidak tersedia pada TCP {checks.iperf.port}.</p> : null}

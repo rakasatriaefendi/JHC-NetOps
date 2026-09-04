@@ -4,28 +4,27 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireAdminProfile } from "@/lib/auth";
+import { isAccessStatus, isProfileRole } from "@/lib/authorization";
+import { hasUnexpectedFormFields } from "@/lib/form-security";
 
-export async function setViewerAccessAction(formData: FormData) {
+const USER_ACCESS_FIELDS = new Set(["user_id", "role", "access_status"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function setUserAccessAction(formData: FormData) {
   const targetUserId = String(formData.get("user_id") ?? "");
-  const requestedAccess = String(formData.get("enabled") ?? "");
+  const role = String(formData.get("role") ?? "");
+  const accessStatus = String(formData.get("access_status") ?? "");
 
-  if (!targetUserId || !["true", "false"].includes(requestedAccess)) {
+  if (hasUnexpectedFormFields(formData, USER_ACCESS_FIELDS) || !UUID_PATTERN.test(targetUserId) || !isProfileRole(role) || !isAccessStatus(accessStatus)) {
     redirect("/admin?error=invalid-request");
   }
 
-  const enabled = requestedAccess === "true";
-  const { supabase, userId } = await requireAdminProfile();
-  const { data: updatedProfile, error } = await supabase
-    .from("profiles")
-    .update({
-      status: enabled ? "approved" : "rejected",
-      approved_at: enabled ? new Date().toISOString() : null,
-      approved_by: enabled ? userId : null,
-    })
-    .eq("id", targetUserId)
-    .eq("role", "viewer")
-    .select("id")
-    .maybeSingle();
+  const { supabase } = await requireAdminProfile();
+  const { data: updatedProfile, error } = await supabase.rpc("admin_update_profile_access", {
+    p_target_id: targetUserId,
+    p_role: role,
+    p_access_status: accessStatus,
+  });
 
   if (error || !updatedProfile) {
     redirect("/admin?error=update-failed");
@@ -33,5 +32,5 @@ export async function setViewerAccessAction(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath("/pending");
-  redirect(`/admin?notice=${enabled ? "enabled" : "disabled"}`);
+  redirect("/admin?notice=updated");
 }

@@ -55,8 +55,9 @@ test("self-device evidence warns on conflicting infrastructure identity without 
   assert.equal(operatorIdentityConflict("workstation", fingerprint), false);
 });
 
-test("active inspection is admin-only and Health promotion is not duplicated", () => {
+test("active inspection is available to operators and Health promotion is not duplicated", () => {
   assert.equal(canLaunchActiveInspection("admin"), true);
+  assert.equal(canLaunchActiveInspection("operator"), true);
   assert.equal(canLaunchActiveInspection("viewer"), false);
   assert.equal(shouldOfferHealthPromotion(false, "node-1", "runner-1"), true);
   assert.equal(shouldOfferHealthPromotion(true, "node-1", "runner-1"), false);

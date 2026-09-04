@@ -37,9 +37,12 @@ Pastikan tepat satu row berubah. Tidak ada logic auto-admin di aplikasi.
 
 ## 4. Verifikasi alur
 
-1. Register akun viewer baru.
+1. Register akun baru (default role Viewer, status Menunggu persetujuan).
 2. Konfirmasi email jika Email Confirmations aktif.
 3. Viewer harus diarahkan ke `/pending` dan tidak dapat membaca tabel operasional.
-4. Admin membuka `/admin`, kemudian mengubah akses viewer ke **On** atau **Off**.
-5. **On** mengubah status menjadi `approved`; **Off** mengubah status menjadi `rejected`.
-6. User approved dapat membuka dashboard; user pending/rejected tetap diarahkan ke `/pending`.
+4. Admin membuka `/admin`, memilih role **Admin / Operator / Viewer** dan status
+   akses **Menunggu persetujuan / Aktif / Ditangguhkan** secara terpisah.
+5. Label status tersebut dipetakan ke nilai kompatibel `pending`, `approved`, dan
+   `rejected`; rename schema tidak diperlukan.
+6. User Aktif dapat membuka dashboard sesuai role; user Menunggu/Ditangguhkan
+   tetap diarahkan ke `/pending`.

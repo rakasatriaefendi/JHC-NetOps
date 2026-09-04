@@ -14,7 +14,7 @@ alerts, LAN Diagnostics, administration, Health Watch, dan Network Discovery.
 
 | Route | Fungsi |
 |---|---|
-| `/dashboard` | Traffic summary, Network Health Watch, dan Discovery admin. |
+| `/dashboard` | Traffic summary, Network Health Watch, dan Discovery Operator/Admin. |
 | `/traffic` | Bounded Live Traffic dan flow metadata. |
 | `/history` | Riwayat diagnostic serta trend. |
 | `/alerts` | Event aktif dan status jaringan. |
@@ -23,8 +23,9 @@ alerts, LAN Diagnostics, administration, Health Watch, dan Network Discovery.
 | `/snmp` | Latest device/interface telemetry dan Observed LAN Hosts terlebih dahulu, lalu konfigurasi Managed SNMP. |
 | `/admin` | Approval dan pengelolaan akses user. |
 
-Route protected memerlukan profile Supabase berstatus `approved`. Operasi sensitif
-seperti start/stop capture, discovery, dan pengelolaan target dibatasi untuk admin.
+Route protected memerlukan profile Supabase berstatus internal `approved` (label UI
+Aktif). Operasi jaringan seperti start/stop capture, discovery, dan pengelolaan
+target tersedia untuk Operator/Admin; administrasi akun tetap khusus Admin.
 
 ## Environment
 

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { canOperateNetwork } from "../_shared/authorization.ts";
 
 const CORS = {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"GET, POST, OPTIONS"};
 const DURATIONS = new Set([300, 600, 900, 1800]);
@@ -35,7 +36,7 @@ async function readState(request: Request) {
 async function userAction(request: Request, body: Record<string, unknown>) {
   const auth = await userAuth(request);
   if (!auth.ok) return auth.response;
-  if (auth.role !== "admin") return reply({error:"Admin role required"}, 403);
+  if (!canOperateNetwork(auth.role)) return reply({error:"Operator role required"}, 403);
   if (body.action === "stop_session") {
     if (!uuid(body.session_id)) return reply({error:"Invalid session"}, 400);
     const now = new Date().toISOString();

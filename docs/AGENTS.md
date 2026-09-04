@@ -39,24 +39,24 @@ AGENTS.md
     lease. Jangan melewati lock session yang lease-nya masih segar.
 15. **Traffic wajib header-only dan hospital-privacy safe.** Jangan kumpulkan payload, PCAP, URL, DNS content, hostname, credential, cookie, token, atau content aplikasi/pasien.
 16. **Traffic diagregasi lokal dan dikirim batch.** Satu packet bukan satu row/function call; live state bounded dan dioverwrite. Flow directional dan conversation normalized adalah konsep terpisah.
-17. **Start/stop Traffic admin-only.** Viewer approved read-only. Browser hanya mengirim duration allow-listed; interface/capture expression tidak boleh berasal dari browser.
+17. **Start/stop Traffic Operator/Admin.** Viewer approved read-only. Browser hanya mengirim duration allow-listed; interface/capture expression tidak boleh berasal dari browser.
 18. **Label hop adalah lookup manual, bukan topology discovery.** Simpan identitas
     responding Layer-3 IP satu kali di `network_nodes` dan resolve berdasarkan
     `hop_ip` saat render. Jangan copy label ke `hop_measurements`, jangan menebak
     nama/lokasi/perangkat, dan jangan mengklaim switch Layer-2 yang tidak muncul
-    sebagai responding hop. Approved viewer hanya baca; mutation admin-only via RLS.
-19. **Network Discovery aktif hanya on-demand dan admin-only.** Discovery bukan bagian
+    sebagai responding hop. Approved viewer hanya baca; mutation Operator/Admin via RLS.
+19. **Network Discovery aktif hanya on-demand dan Operator/Admin.** Discovery bukan bagian
     Health Watch atau Traffic. Browser hanya memilih runner; subnet harus berasal dari
     interface/route IPv4 Windows yang aktif dan divalidasi ulang runner. Resolver menerima
     prefix aktual tanpa memaksanya menjadi ukuran tertentu, tetapi satu sweep aktif selalu
     memakai window deterministik maksimal 254 host yang memuat IPv4 sumber; concurrency ICMP maksimal 4, timeout
     400 ms, neighbor cache + satu ICMP per host, tanpa port/service/OS/vulnerability scan. Hasil memakai satu row
     sementara per runner yang dioverwrite dan dibersihkan setelah expiry; jangan membuat
-    `network_nodes` atau `network_targets` tanpa action admin eksplisit.
+    `network_nodes` atau `network_targets` tanpa action Operator/Admin eksplisit.
 
-20. **Quick Device Inspector adalah single-target, bounded, admin-only.** Target harus berasal dari hasil Discovery aktif atau `network_nodes`, lalu divalidasi ulang runner. Browser tidak boleh mengirim command, CIDR, URI, port list, Nmap flags/NSE, atau script. Gunakan fixed TCP 22/80/443/445/554/631/1883/8080/8443/9100, SSDP unicast UDP/1900, serta NetBIOS Node Status UDP/137 hanya ketika SMB/445 terbuka; concurrency maksimal 4 dan total timeout 30 detik. HTTP/HTTPS tidak mengikuti redirect dan UPnP LOCATION wajib kembali ke target yang sama. Simpan hanya fingerprint normalized; jangan simpan raw stdout/HTML/XML/body/payload/secrets. MAC target hanya untuk same-subnet; routed target wajib MAC `null`. Detected identity tidak boleh menimpa operator identity atau membuat alert/severity event.
+20. **Quick Device Inspector adalah single-target, bounded, Operator/Admin.** Target harus berasal dari hasil Discovery aktif atau `network_nodes`, lalu divalidasi ulang runner. Browser tidak boleh mengirim command, CIDR, URI, port list, Nmap flags/NSE, atau script. Gunakan fixed TCP 22/80/443/445/554/631/1883/8080/8443/9100, SSDP unicast UDP/1900, serta NetBIOS Node Status UDP/137 hanya ketika SMB/445 terbuka; concurrency maksimal 4 dan total timeout 30 detik. HTTP/HTTPS tidak mengikuti redirect dan UPnP LOCATION wajib kembali ke target yang sama. Simpan hanya fingerprint normalized; jangan simpan raw stdout/HTML/XML/body/payload/secrets. MAC target hanya untuk same-subnet; routed target wajib MAC `null`. Detected identity tidak boleh menimpa operator identity atau membuat alert/severity event.
 
-21. **Managed Infrastructure Telemetry adalah SNMP read-only untuk target allow-listed.** Hanya perangkat yang sudah ada di `network_nodes` yang boleh dijadikan target. Admin menambahkan target di `/snmp#managed-telemetry` dan hanya memilih **nama credential profile** lokal runner (`monitoring-readonly`/`core-readonly`); jangan terima atau masukkan community string, username, atau password SNMP di form, browser, Supabase, atau log. Runner melakukan polling bounded SNMPv2c/v3 read-only dengan OID tetap dan terbatas (identitas sistem, uptime, interface, octet counters, error/discard); tanpa walk bebas, credential guessing, SNMP SET, LLDP/CDP, topology mapping, atau deep scan. Hanya simpan latest-state (satu `managed_device_latest` + satu row per `managed_interface_latest`) dan event transisi saat threshold terlampaui; jangan membuat row per poll. Browser hanya `select`; write latest lewat service-role runner endpoint dan config lewat admin action, dengan RLS approved-read.
+21. **Managed Infrastructure Telemetry adalah SNMP read-only untuk target allow-listed.** Hanya perangkat yang sudah ada di `network_nodes` yang boleh dijadikan target. Operator/Admin menambahkan target di `/snmp#managed-telemetry` dan hanya memilih **nama credential profile** lokal runner (`monitoring-readonly`/`core-readonly`); jangan terima atau masukkan community string, username, atau password SNMP di form, browser, Supabase, atau log. Runner melakukan polling bounded SNMPv2c/v3 read-only dengan OID tetap dan terbatas (identitas sistem, uptime, interface, octet counters, error/discard); tanpa walk bebas, credential guessing, SNMP SET, LLDP/CDP, topology mapping, atau deep scan. Hanya simpan latest-state (satu `managed_device_latest` + satu row per `managed_interface_latest`) dan event transisi saat threshold terlampaui; jangan membuat row per poll. Browser hanya `select`; write latest lewat service-role runner endpoint dan config lewat action terotorisasi, dengan RLS approved-read.
 
 ## Konvensi coding per komponen
 
@@ -79,7 +79,7 @@ AGENTS.md
 - Network context memakai fixed `scripts/get-network-context.ps1`, argument hanya
   target/port hasil allow-list lokal, `shell: false`, output JSON tervalidasi.
   Gunakan Windows route lookup; jangan pilih adapter aktif pertama.
-- Active bandwidth diagnostic admin-only, explicit click, satu job per runner,
+- Active bandwidth diagnostic Operator/Admin, explicit click, satu job per runner,
   durasi normal hanya 5/10 detik. Jangan mulai bila TCP iperf3 belum ready.
 - Task Scheduler setup harus mendukung install/start/status/remove dan berjalan tersembunyi saat user login.
 - Traffic memakai runner/Task Scheduler yang sama. Invocation harus structured, interface dari config lokal, dan hanya child capture milik runner yang boleh dihentikan.
@@ -114,7 +114,7 @@ AGENTS.md
   menjelaskan keterbatasan ICMP; link diagnostics tidak boleh auto-run. Admin mengelola
   identitas/promosi dari `network_nodes`, bukan input subnet/arbitrary host.
 
-- Device Profile harus satu reusable drawer untuk Discovery, Health Watch, Traffic, dan LAN Diagnostic hops. Approved viewer hanya membaca saved profile; admin dapat Inspect, Inspect again, Save identity/fingerprint, dan Add to Health Watch secara eksplisit. Target yang sudah enabled di Health Watch tidak boleh ditawari Add lagi; tampilkan status/link Health. Traffic dan MTR tidak boleh otomatis memicu active inspection.
+- Device Profile harus satu reusable drawer untuk Discovery, Health Watch, Traffic, dan LAN Diagnostic hops. Approved viewer hanya membaca saved profile; Operator/Admin dapat Inspect, Inspect again, Save identity/fingerprint, dan Add to Health Watch secara eksplisit. Target yang sudah enabled di Health Watch tidak boleh ditawari Add lagi; tampilkan status/link Health. Traffic dan MTR tidak boleh otomatis memicu active inspection.
 - Device Profile menampilkan bagian Managed Infrastructure Telemetry: status koneksi target, identitas sistem/uptime, dan tabel interface dengan utilisasi/error/discard plus peringatan per interface. Pakai satu subscription Realtime untuk latest-state (state berubah tanpa refresh). Tampilkan status credential profile (`available`/`missing`) tanpa pernah menampilkan nilai secret. Admin mengelola target di `/snmp#managed-telemetry`; approved viewer read-only. Nilai SNMP hanyalah snapshot, bukan bukti perangkat rusak.
 
 ### `/hermes-agent` (Flask)
@@ -124,12 +124,12 @@ AGENTS.md
 ### `/supabase`
 - Semua perubahan schema lewat file migration SQL, jangan ubah manual dari dashboard tanpa dicatat.
 - RLS policy ditulis eksplisit per tabel, jangan andalkan default.
-- `network_targets` approved-read/admin-write; `network_health_latest` approved-read dan service-role-write. Health event tidak boleh masuk ke baseline/severity `ingest` traffic.
-- `network_discovery_sessions` admin-read dan service-role-write. Tepat satu slot per
+- `network_targets` approved-read dan Operator/Admin-write; `network_health_latest` approved-read dan service-role-write. Health event tidak boleh masuk ke baseline/severity `ingest` traffic.
+- `network_discovery_sessions` Operator/Admin-read dan service-role-write. Tepat satu slot per
   runner; results bounded JSON sementara, bukan inventory/history, dan wajib expired.
 
-- `device_inspection_sessions` admin-read dan service-role-write; satu slot per runner, result maksimal 64 KiB dan expired 10 menit. `network_nodes.detected_fingerprint` maksimal 32 KiB, normalized, dan tidak memuat raw tool response.
-- `managed_telemetry_targets` approved-read/admin-write (config via admin action) dan hanya menyimpan `credential_profile` sebagai nama profil lokal runner—tanpa secret. `managed_device_latest` dan `managed_interface_latest` approved-read dan service-role-write, tepat satu row latest per target/interface. Event `source = managed_telemetry` terpisah dari baseline `ingest` traffic dan dari Health Watch.
+- `device_inspection_sessions` Operator/Admin-read dan service-role-write; satu slot per runner, result maksimal 64 KiB dan expired 10 menit. `network_nodes.detected_fingerprint` maksimal 32 KiB, normalized, dan tidak memuat raw tool response.
+- `managed_telemetry_targets` approved-read dan Operator/Admin-write dan hanya menyimpan `credential_profile` sebagai nama profil lokal runner—tanpa secret. `managed_device_latest` dan `managed_interface_latest` approved-read dan service-role-write, tepat satu row latest per target/interface. Event `source = managed_telemetry` terpisah dari baseline `ingest` traffic dan dari Health Watch.
 
 ## Definisi severity (jangan diubah tanpa approval Raka)
 

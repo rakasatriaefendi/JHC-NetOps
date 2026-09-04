@@ -25,6 +25,7 @@ import {
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
 import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
+import type { ProfileRole } from "@/lib/authorization";
 
 type OpenOptions = {
   ipAddress: string;
@@ -37,7 +38,7 @@ const DeviceProfileContext = createContext<DeviceProfileContextValue | null>(nul
 
 export function DeviceProfileProvider({ children, role, runners = [] }: {
   children: React.ReactNode;
-  role: "admin" | "viewer";
+  role: ProfileRole;
   runners?: InspectorRunner[];
 }) {
   const { nodes, saveNode, saveFingerprint } = useNetworkNodes();
@@ -87,7 +88,7 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
   async function startInspection(options = opened) {
     const selectedRunner = runners.find((item) => item.id === options?.runnerId)
       ?? runners.find((item) => item.capabilities.operations?.includes("device_inspect"));
-    if (!options || !canLaunchActiveInspection(role)) return setError("Hanya admin yang boleh menjalankan active inspection.");
+    if (!options || !canLaunchActiveInspection(role)) return setError("Role Operator diperlukan untuk menjalankan active inspection.");
     if (!selectedRunner) return setError("Tidak ada runner yang mengizinkan Device Inspector.");
     setBusy(true);
     setError(null);

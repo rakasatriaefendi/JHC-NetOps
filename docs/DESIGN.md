@@ -112,13 +112,13 @@ Grid dasar 4px. Skala yang dipakai: `4, 8, 12, 16, 24, 32, 48` (px). Jangan paka
   sebagai Receive dan TX sebagai Transmit; helper wajib menyatakan keduanya traffic
   teramati, bukan kapasitas maksimum link. Jika capture berhenti, tampilkan state
   operasional singkat tanpa instruksi deployment developer.
-- **Network Discovery drawer** — drawer kanan admin-only, mengikuti panel/radius/token
+- **Network Discovery drawer** — drawer kanan Operator/Admin, mengikuti panel/radius/token
   existing. Context runner tampil sebelum Start. Progress berupa scanned/total dan found;
   desktop memakai table, mobile card. Bedakan badge `DISCOVERED`, `KNOWN`, `MONITORED`,
   serta `Seen in Traffic` tanpa mengandalkan warna saja. Action nama dan promotion harus
   terpisah; tidak ada tombol utama Select All/Monitor All.
 
-- **Device Profile drawer** — satu drawer kanan reusable dari Discovery, Health Watch, Traffic, dan LAN Diagnostic hops; jangan membuat halaman profile baru. Header memakai operator name bila ada, IP monospace, detected identity, type, confidence berupa icon + label. Pisahkan section `Detected identity`, `Network identity`, `Observed services`, `Identification evidence`, dan `Operator identity`. Inspect membuka drawer segera dan menampilkan stage progress. Action aktif hanya admin; viewer mendapat saved profile read-only. Gunakan kata `Observed services`, bukan menyiratkan seluruh port sudah diuji. Tampilkan keterbatasan routed MAC, unmanaged Layer-2 switch, dan MTR Layer-3 secara ringkas tanpa mengandalkan warna.
+- **Device Profile drawer** — satu drawer kanan reusable dari Discovery, Health Watch, Traffic, dan LAN Diagnostic hops; jangan membuat halaman profile baru. Header memakai operator name bila ada, IP monospace, detected identity, type, confidence berupa icon + label. Pisahkan section `Detected identity`, `Network identity`, `Observed services`, `Identification evidence`, dan `Operator identity`. Inspect membuka drawer segera dan menampilkan stage progress. Action aktif tersedia untuk Operator/Admin; Viewer mendapat saved profile read-only. Gunakan kata `Observed services`, bukan menyiratkan seluruh port sudah diuji. Tampilkan keterbatasan routed MAC, unmanaged Layer-2 switch, dan MTR Layer-3 secara ringkas tanpa mengandalkan warna.
 
 ## Breakpoint & perilaku mobile
 

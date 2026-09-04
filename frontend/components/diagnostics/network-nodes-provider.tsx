@@ -11,6 +11,7 @@ import {
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
 import type { DeviceFingerprint } from "@/lib/device-inspector";
+import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 
 type NetworkNodesContextValue = {
   nodes: NetworkNode[];
@@ -32,13 +33,13 @@ export function NetworkNodesProvider({
   children: React.ReactNode;
   initialNodes: NetworkNode[];
   loadError?: boolean;
-  role: "admin" | "viewer";
+  role: ProfileRole;
 }) {
   const [nodes, setNodes] = useState(initialNodes);
-  const canManage = role === "admin";
+  const canManage = canOperateNetwork(role);
 
   async function saveNode(current: NetworkNode | null, input: NetworkNodeInput, fingerprint?: DeviceFingerprint | null) {
-    if (!canManage) return "Hanya admin yang boleh mengubah label network node.";
+    if (!canManage) return "Role Operator diperlukan untuk mengubah label network node.";
     const validationError = validateNetworkNodeInput(input);
     if (validationError) return validationError;
 
@@ -78,7 +79,7 @@ export function NetworkNodesProvider({
   }
 
   async function saveFingerprint(node: NetworkNode, fingerprint: DeviceFingerprint) {
-    if (!canManage) return "Hanya admin yang boleh menyimpan detected fingerprint.";
+    if (!canManage) return "Role Operator diperlukan untuk menyimpan detected fingerprint.";
     if (fingerprint.ip !== normalizeNetworkNodeIp(node.ip_address)) return "Fingerprint tidak cocok dengan IP inventory.";
     const supabase = createClient();
     const { data, error } = await supabase.from("network_nodes")
@@ -90,7 +91,7 @@ export function NetworkNodesProvider({
   }
 
   async function deleteNode(node: NetworkNode) {
-    if (!canManage) return "Hanya admin yang boleh menghapus label network node.";
+    if (!canManage) return "Role Operator diperlukan untuk menghapus label network node.";
     const supabase = createClient();
     const { error } = await supabase.from("network_nodes").delete().eq("id", node.id);
     if (error) return "Network node gagal dihapus. Periksa hak akses dan coba lagi.";

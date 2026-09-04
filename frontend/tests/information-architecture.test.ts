@@ -16,17 +16,17 @@ test("Admin is account-only and monitoring configuration moved to approved-user 
   const devices = source("../app/(protected)/devices/page.tsx");
   const snmp = source("../app/(protected)/snmp/page.tsx");
   assert.doesNotMatch(admin, /NetworkHealthTargets|ManagedTelemetryTargets|network_targets|managed_telemetry_targets/);
-  assert.match(admin, /ViewerAccessControl/);
+  assert.match(admin, /UserAccessControl/);
   assert.match(devices, /requireApprovedProfile|DeviceInventory/);
   assert.doesNotMatch(devices, /NetworkHealthTargets/);
   assert.match(snmp, /requireApprovedProfile|ManagedTelemetryTargets|ManagedTelemetryDetail/);
-  assert.match(devices, /canManage=\{profile\.role === "admin"\}/);
-  assert.match(snmp, /canManage=\{!portable\.enabled && profile\.role === "admin"\}/);
+  assert.match(devices, /canManage=\{canOperateNetwork\(profile\.role\)\}/);
+  assert.match(snmp, /canManage=\{!portable\.enabled && canOperateNetwork\(profile\.role\)\}/);
 });
 
-test("manual onboarding is admin-only, server-validated, duplicate-safe, and never starts a probe", () => {
+test("manual onboarding is operator-authorized, server-validated, duplicate-safe, and never starts a probe", () => {
   const action = source("../app/actions/devices.ts");
-  assert.match(action, /requireAdminProfile/);
+  assert.match(action, /requireOperatorProfile/);
   assert.match(action, /validateManualNetworkNodeInput/);
   assert.match(action, /hasUnexpectedFormFields/);
   assert.match(action, /\.eq\("ip_address", normalizedIp\)/);
@@ -39,7 +39,7 @@ test("manual onboarding is admin-only, server-validated, duplicate-safe, and nev
 test("SNMP onboarding stores only an authorized node and non-secret runner profile reference", () => {
   const action = source("../app/actions/snmp.ts");
   const component = source("../components/admin/managed-telemetry-targets.tsx");
-  assert.match(action, /requireAdminProfile/);
+  assert.match(action, /requireOperatorProfile/);
   assert.match(action, /hasUnexpectedFormFields/);
   assert.match(action, /network_nodes/);
   assert.match(action, /node_id: values\.node_id/);

@@ -9,6 +9,7 @@ import { useDeviceProfile } from "@/components/device-profile/device-profile-pro
 import { findNetworkNode } from "@/lib/network-nodes";
 import type { DiagnosticsData } from "@/lib/diagnostics";
 import { createClient } from "@/lib/supabase/client";
+import { canOperateNetwork } from "@/lib/authorization";
 import {
   filterFlows,
   type TrafficFlow,
@@ -187,7 +188,7 @@ export function TrafficLivePage({
           command atau packet filter.
         </p>
 
-        {state.role === "admin" ? (
+        {canOperateNetwork(state.role) ? (
           <div className="mt-5 flex min-w-0 gap-3">
             {active ? (
               <Button
@@ -210,7 +211,7 @@ export function TrafficLivePage({
           </div>
         ) : (
           <p className="mt-5 text-text-secondary">
-            Viewer bersifat read-only. Hanya admin yang dapat start/stop capture.
+            Viewer bersifat read-only. Role Operator diperlukan untuk start/stop capture.
           </p>
         )}
         {error ? <p className="mt-4 text-severity-critical">{error}</p> : null}

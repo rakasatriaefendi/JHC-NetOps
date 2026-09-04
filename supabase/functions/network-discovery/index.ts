@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { validDiscoveryResults, validateDiscoveryContext } from "./scope.ts";
+import { canOperateNetwork } from "../_shared/authorization.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +26,7 @@ Deno.serve(async (request) => {
 async function readState(request: Request) {
   const auth = await userAuth(request);
   if (!auth.ok) return auth.response;
-  if (auth.role !== "admin") return reply({ error: "Admin role required" }, 403);
+  if (!canOperateNetwork(auth.role)) return reply({ error: "Operator role required" }, 403);
   await expireSessions(auth.service);
   const { data, error } = await auth.client.from("network_discovery_sessions").select("*").limit(50);
   return error ? reply({ error: "Discovery state could not be loaded" }, 500) : reply({ data: data ?? [] }, 200);
@@ -34,7 +35,7 @@ async function readState(request: Request) {
 async function userAction(request: Request, body: Record<string, unknown>) {
   const auth = await userAuth(request);
   if (!auth.ok) return auth.response;
-  if (auth.role !== "admin") return reply({ error: "Admin role required" }, 403);
+  if (!canOperateNetwork(auth.role)) return reply({ error: "Operator role required" }, 403);
   if (["subnet_cidr", "cidr", "ip_range", "command", "flags"].some((field) => field in body)) {
     return reply({ error: "Browser-defined discovery scope is prohibited" }, 400);
   }
