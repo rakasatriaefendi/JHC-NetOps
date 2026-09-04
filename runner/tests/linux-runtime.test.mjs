@@ -243,16 +243,30 @@ test("native Device Inspector spawns the configured executable directly and skip
   assert.equal(calls[0].options.shell, false);
 });
 
-test("Linux ping uses fixed arguments and normalizes iputils output", async () => {
+test("Linux ping accepts real GNU inetutils output without an unsupported IPv4 family flag", async () => {
   const invocation = buildPingInvocation("192.168.50.20", 400, "linux");
   assert.equal(invocation.executable, "ping");
-  assert.deepEqual(invocation.args, ["-4", "-n", "-c", "1", "-W", "1", "192.168.50.20"]);
+  assert.deepEqual(invocation.args, ["-n", "-c", "1", "-W", "1", "192.168.50.20"]);
   assert.equal(invocation.options.shell, false);
+  assert.equal(invocation.options.LC_ALL, undefined);
+  assert.equal(invocation.options.env.LC_ALL, "C");
   const result = await pingTarget("192.168.50.20", 400, undefined, () => fakeChild((child) => {
-    child.stdout.end("64 bytes from 192.168.50.20: icmp_seq=1 ttl=64 time=0.742 ms\n");
+    child.stdout.end([
+      "PING 192.168.50.20 (192.168.50.20): 56 data bytes",
+      "64 bytes from 192.168.50.20: icmp_seq=0 ttl=64 time=0.776 ms",
+      "64 bytes from 192.168.50.20: icmp_seq=1 ttl=64 time=0.415 ms",
+      "64 bytes from 192.168.50.20: icmp_seq=2 ttl=64 time=0.471 ms",
+      "64 bytes from 192.168.50.20: icmp_seq=3 ttl=64 time=0.446 ms",
+      "",
+      "--- 192.168.50.20 ping statistics ---",
+      "4 packets transmitted, 4 packets received, 0% packet loss",
+      "round-trip min/avg/max/stddev = 0.415/0.527/0.776/0.146 ms",
+      "",
+    ].join("\n"));
     child.emit("close", 0);
   }), "linux");
-  assert.deepEqual(result, { success: true, latency_ms: 0.742 });
+  assert.deepEqual(result, { success: true, latency_ms: 0.527, packet_loss_percent: 0 });
+  assert.equal(Number.isFinite(result.latency_ms), true);
   assert.throws(() => buildPingInvocation("192.168.50.20;id", 400, "linux"));
 });
 

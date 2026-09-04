@@ -12,8 +12,9 @@ Python agent in Ubuntu WSL.
 
 **Native Ubuntu staging validated:** P8A context/process/ping/preflight adapters
 have been validated on the Ubuntu 24.04 Mini PC. P8B adds repository-owned
-systemd templates and a ZIP-release update/rollback procedure, but those units
-have not been installed or enabled. See
+systemd templates, one runner launcher, a build-time-safe frontend launcher, and
+a ZIP-release update/rollback procedure, but those units have not been installed
+or enabled. See
 [UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md).
 
 ## Product mental model
@@ -177,6 +178,7 @@ fresh heartbeat. It does not automatically run `iperf3`, MTR, Discovery, or SNMP
 | Foreground runner | `npm start` from `runner` | `Ctrl+C`; allow child cleanup to finish. |
 | Scheduled runner | `runner\task.ps1 start` | `Stop-ScheduledTask -TaskName "Network Monitoring Local Runner"`. |
 | Runner autostart | `runner\task.ps1 install` | `runner\task.ps1 remove` removes the task; it does not remove config or state. |
+| Native Ubuntu runner | `/usr/bin/bash /var/www/jhc/jhc_noc/current/deploy/run-runner.sh` under one process manager | Stop that one owning process manager; the launcher remains foreground and forwards lifecycle through `exec`. |
 | Standalone agent monitor | `network-monitor monitor` in the active WSL venv | `Ctrl+C`. Normal structured jobs are started by the runner instead. |
 
 Local runner logs are in `runner/logs/runner.log`. Coalesced Health Watch and

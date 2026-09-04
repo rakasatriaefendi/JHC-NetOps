@@ -551,13 +551,17 @@ dalam release. Gunakan file bernama `config.json` pada
 `native_project_root=/var/www/jhc/jhc_noc/current`. Environment, state, dan log
 tetap di bawah `shared/` agar pergantian release tidak menghapusnya.
 
-Contoh deployment permanen menetapkan `enable_manual_ping=true`. Ini hanya
-mengaktifkan capability Manual Ping yang sudah ada untuk admin dan target Health
-Watch yang telah diotorisasi; browser tetap tidak dapat mengirim IP, count,
-timeout, atau flag ping sendiri.
+Contoh deployment permanen menetapkan `enable_manual_ping=true` dan
+`enable_snmp_telemetry=true`. Manual Ping tetap hanya untuk admin dan target
+Health Watch yang telah diotorisasi; browser tidak dapat mengirim IP, count,
+timeout, atau flag ping sendiri. SNMP tetap membutuhkan target authorized dan
+credential profile read-only di config lokal; enable flag tidak menambahkan
+target maupun menyimpan secret ke backend.
 
-Template systemd, frontend bind `192.168.1.130:3401`, collision guard, serta
-prosedur ZIP release dan rollback didokumentasikan di
+Template systemd memakai `deploy/run-runner.sh` sebagai satu runner entrypoint.
+Build release frontend memakai `deploy/build-frontend.sh` agar seluruh
+`NEXT_PUBLIC_*` yang diwajibkan tersedia sebelum kompilasi. Frontend bind
+`192.168.1.130:3401`, collision guard, serta prosedur ZIP release dan rollback didokumentasikan di
 [UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md). Template belum
 dipasang otomatis; jangan menjalankan `sudo`, `daemon-reload`, atau mengubah
 service shared lainnya sebagai bagian build/review repository.

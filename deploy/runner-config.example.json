@@ -24,7 +24,7 @@
   "traffic_durations_seconds": [300, 600, 900, 1800],
   "poll_interval_ms": 2000,
   "heartbeat_interval_ms": 10000,
-  "enable_snmp_telemetry": false,
+  "enable_snmp_telemetry": true,
   "snmp_max_concurrent": 2,
   "snmp_timeout_seconds": 3,
   "snmp_poll_intervals_seconds": [30, 60],

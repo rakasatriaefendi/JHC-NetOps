@@ -23,6 +23,8 @@ hanya ke `192.168.1.130:3401`, bukan `0.0.0.0` atau IPv6 `::`.
 
 - `deploy/systemd/jhc-netops-runner.service`
 - `deploy/systemd/jhc-netops-frontend.service`
+- `deploy/run-runner.sh`
+- `deploy/build-frontend.sh`
 - `deploy/check-frontend-port.mjs`
 - `deploy/runner-config.example.json`
 
@@ -40,6 +42,7 @@ diotorisasi dan tidak menerima IP atau parameter ping dari browser. Nilai
 {
   "native_project_root": "/var/www/jhc/jhc_noc/current",
   "enable_manual_ping": true,
+  "enable_snmp_telemetry": true,
   "environment_file": "/var/www/jhc/jhc_noc/shared/runner/.env",
   "data_directory": "/var/www/jhc/jhc_noc/shared/state",
   "log_directory": "/var/www/jhc/jhc_noc/shared/logs"
@@ -66,12 +69,32 @@ atau service project JHC lain. Kedua unit memakai journald. Runner masih boleh
 menulis log aplikasinya ke `shared/logs` sesuai config; siapkan rotasi/retensi
 terpisah bila log tersebut dipertahankan.
 
+Unit runner memakai satu entrypoint repository:
+
+```text
+systemd -> deploy/run-runner.sh -> Node.js runner -> Python agent on demand
+```
+
+Launcher memverifikasi Node 22, root release aktif, entrypoint runner, environment,
+dan config; memuat environment tanpa mencetak nilainya; lalu mengganti proses Bash
+dengan Node melalui `exec`. Ia tidak membuat daemon, PID file, proses background,
+atau instance runner kedua.
+
 ## Frontend build dan port guard
 
-Release harus memiliki hasil production `.next` sebelum service dimulai. Muat
-nilai build-time frontend dari `shared/frontend/.env` ketika menjalankan
-`npm ci` dan `npm run build`; jangan menyalin secret ke release. Unit menjalankan
-`next start` langsung dengan Node 22 absolut.
+Release harus memiliki hasil production `.next` sebelum service dimulai. Setelah
+`npm ci`, jalankan launcher dari release baru sebelum symlink `current` diubah:
+
+```bash
+/usr/bin/bash /var/www/jhc/jhc_noc/releases/<commit>/deploy/build-frontend.sh
+```
+
+Launcher menurunkan root source dari lokasinya sendiri, memuat build-time values
+dari `shared/frontend/.env`, memastikan `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, dan `NEXT_PUBLIC_SITE_URL` tersedia tanpa
+mencetak nilainya, lalu menjalankan production build memakai Node 22. Ia tidak
+mengubah symlink atau service. Unit frontend tetap menjalankan `next start`
+langsung dengan Node 22 absolut.
 
 `ExecStartPre` memeriksa bind `192.168.1.130:3401`. Jika endpoint sudah ditempati,
 startup gagal dengan `FRONTEND_PORT_IN_USE`. Guard tidak membunuh proses dan tidak
@@ -95,7 +118,8 @@ logic atau asumsi subnet aplikasi.
 4. Extract ke `/var/www/jhc/jhc_noc/releases/<commit>` sebagai `mini-pc`.
 5. Jalankan `npm ci` untuk frontend, buat ulang venv Python dari lock/manifes,
    dan sinkronkan dependency release. Jangan menyalin `node_modules` atau venv.
-6. Muat environment frontend shared dan buat production `.next` untuk release.
+6. Jalankan `deploy/build-frontend.sh` dari release baru untuk membuat production
+   `.next` memakai environment frontend shared sebelum `current` diubah.
 7. Jalankan non-network tests serta runner `--preflight-only` terhadap
    `shared/runner/config.json`. Preflight tidak memberi izin probe aktif.
 8. Ubah symlink `current` secara atomik ke release baru yang tervalidasi.
@@ -118,9 +142,9 @@ compatibility harus direview sebelum switch.
 
 ## Batas keamanan
 
-- Service berjalan sebagai `mini-pc`, bukan root, dan `ExecStart` tidak memakai
-  `sudo`, shell wrapper, WSL, Docker, atau PM2. Permission raw-socket Traffic
-  tetap harus mengikuti hasil validasi P8A; template tidak menambah privilege.
+- Service berjalan sebagai `mini-pc`, bukan root, dan launcher tidak memakai
+  `sudo`, WSL, Docker, atau PM2. Permission raw-socket Traffic tetap harus
+  mengikuti hasil validasi P8A; template tidak menambah privilege.
 - `Restart=on-failure` memakai delay lima detik; tidak ada restart loop tanpa
   jeda.
 - `KillMode=control-group` menjaga child process release tetap berada dalam
@@ -128,3 +152,12 @@ compatibility harus direview sebelum switch.
 - Hanya inventory/target yang sudah diotorisasi boleh diaktifkan setelah deploy.
 - Instalasi template ini tidak dengan sendirinya mengotorisasi Discovery,
   Device Inspector, Traffic, diagnostics, atau SNMP target baru.
+
+## Process manager masa depan
+
+Aplikasi tetap process-manager-neutral. Hanya dua proses yang long-running:
+frontend Next.js dan runner Node.js. Jika mentor memilih PM2 di masa depan,
+entrypoint runner tetap `deploy/run-runner.sh`; jangan menjalankan service systemd
+runner dan proses PM2 runner bersamaan. Frontend tetap proses terpisah. Python
+agent bukan service ketiga—runner hanya memanggilnya on demand untuk operation
+yang memerlukannya. Repository tidak menambah dependency atau konfigurasi PM2.

@@ -22,9 +22,9 @@ test("systemd templates use the reviewed current/shared paths and non-root accou
     assert.match(unit, /StandardError=journal/);
     assert.doesNotMatch(unit, /sudo|pm2|docker|wsl\.exe/i);
   }
-  assert.match(runner, /WorkingDirectory=\/var\/www\/jhc\/jhc_noc\/current\/runner/);
-  assert.match(runner, /--config \/var\/www\/jhc\/jhc_noc\/shared\/runner\/config\.json/);
-  assert.match(runner, /EnvironmentFile=\/var\/www\/jhc\/jhc_noc\/shared\/runner\/\.env/);
+  assert.match(runner, /WorkingDirectory=\/var\/www\/jhc\/jhc_noc\/current/);
+  assert.match(runner, /ExecStart=\/usr\/bin\/bash \/var\/www\/jhc\/jhc_noc\/current\/deploy\/run-runner\.sh/);
+  assert.doesNotMatch(runner, /runner\/src\/main\.mjs|EnvironmentFile=/);
   assert.match(frontend, /WorkingDirectory=\/var\/www\/jhc\/jhc_noc\/current\/frontend/);
   assert.match(frontend, /EnvironmentFile=\/var\/www\/jhc\/jhc_noc\/shared\/frontend\/\.env/);
   assert.match(frontend, /Environment=NODE_ENV=production/);
@@ -43,6 +43,7 @@ test("native deployment example keeps config, state, and logs outside releases",
   assert.equal(config.data_directory, "/var/www/jhc/jhc_noc/shared/state");
   assert.equal(config.log_directory, "/var/www/jhc/jhc_noc/shared/logs");
   assert.equal(config.enable_manual_ping, true);
+  assert.equal(config.enable_snmp_telemetry, true);
   assert.deepEqual(config.snmp_credential_profiles, {});
   assert.equal(config.targets[0].enabled, false);
 });

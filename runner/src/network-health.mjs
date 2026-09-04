@@ -212,14 +212,11 @@ export function pingTarget(ipAddress, timeoutMs, signal, spawnProcess = spawn, p
     child.stderr.on("data", (chunk) => { if (output.length < 16_384) output += chunk.toString(); });
     child.once("error", () => finish(() => reject(new Error("Ping process failed"))));
     child.once("close", (code) => {
-      finish(() => {
-        const match = output.match(/(?:time[=<]|Average\s*=\s*)(\d+(?:\.\d+)?)\s*ms/i);
-        resolve({ success: code === 0, latency_ms: code === 0 && match ? Number(match[1]) : null });
-      });
+      finish(() => resolve(normalizePingResult(output, code)));
     });
     wallTimer = setTimeout(() => {
       child.kill();
-      finish(() => resolve({ success: false, latency_ms: null, timed_out: true }));
+      finish(() => resolve({ success: false, latency_ms: null, packet_loss_percent: 100, timed_out: true }));
     }, pingProcessWallTimeout(timeoutMs));
     if (signal?.aborted) abort();
   });
@@ -237,8 +234,42 @@ export function buildPingInvocation(ipAddress, timeoutMs, platform = process.pla
     return { executable: PING_EXE, args: [family, "-n", "1", "-w", String(timeoutMs), ipAddress],
       options: { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] } };
   }
-  return { executable: "ping", args: [family, "-n", "-c", "1", "-W", String(Math.max(1, Math.ceil(timeoutMs / 1000))), ipAddress],
-    options: { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] } };
+  // An IP literal already fixes the family. GNU inetutils ping (an Ubuntu
+  // alternative to iputils) is IPv4-only and rejects iputils' -4 flag.
+  const linuxFamilyArgs = family === "-6" ? [family] : [];
+  return { executable: "ping", args: [...linuxFamilyArgs, "-n", "-c", "1", "-W", String(Math.max(1, Math.ceil(timeoutMs / 1000))), ipAddress],
+    options: { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, LANG: "C", LC_ALL: "C" } } };
+}
+
+export function normalizePingResult(output, exitCode) {
+  const text = typeof output === "string" ? output.slice(0, 16_384) : "";
+  const lossMatch = text.match(/(\d+(?:[.,]\d+)?)%\s*(?:packet\s+)?loss/i);
+  const summaryMatch = text.match(/(?:rtt|round-trip)[^=\r\n]*=\s*\d+(?:[.,]\d+)?\/(\d+(?:[.,]\d+)?)\//i);
+  const directMatch = text.match(/(?:time[=<]|Average\s*=\s*)(\d+(?:[.,]\d+)?)\s*ms/i);
+  const latency = parsePingNumber(summaryMatch?.[1] ?? directMatch?.[1]);
+  const parsedLoss = parsePingNumber(lossMatch?.[1]);
+  const observedLoss = parsedLoss ?? (latency !== null ? 0 : 100);
+  const success = exitCode === 0 && latency !== null && observedLoss < 100;
+  return {
+    success,
+    latency_ms: success ? latency : null,
+    packet_loss_percent: exitCode === 0 ? observedLoss : 100,
+  };
+}
+
+export function manualPingCompletionLog(jobId, targetId, result) {
+  const reachable = result?.ok === true;
+  const latency = reachable && Number.isFinite(result.latency_ms)
+    ? Number(result.latency_ms).toFixed(3)
+    : "null";
+  return `Manual ping ${jobId} completed for Health target ${targetId}: reachable=${reachable} loss=${reachable ? 0 : 100} latency_ms=${latency}`;
+}
+
+function parsePingNumber(value) {
+  if (typeof value !== "string") return null;
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function publicState(state) {
