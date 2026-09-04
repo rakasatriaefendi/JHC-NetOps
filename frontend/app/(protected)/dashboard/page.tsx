@@ -9,18 +9,19 @@ import { loadDiscoverySessions, observedTrafficIps } from "@/lib/network-discove
 import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
 import { loadNetworkNodes } from "@/lib/network-nodes";
 import { loadTrafficState } from "@/lib/traffic";
+import { canOperateNetwork } from "@/lib/authorization";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const { supabase, profile } = await requireApprovedProfile();
-  const isAdmin = profile.role === "admin";
+  const canOperate = canOperateNetwork(profile.role);
   const health = await loadNetworkHealth(supabase);
   const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
     loadDiagnostics(supabase),
     loadTrafficState(supabase, profile.role),
     loadNetworkNodes(supabase),
-    loadDiscoverySessions(supabase, isAdmin),
+    loadDiscoverySessions(supabase, canOperate),
     loadHealthSamples(supabase, health.data.map((t) => t.id), "1h"),
   ]);
 
@@ -42,7 +43,7 @@ export default async function DashboardPage() {
           events={health.events}
           samples={samples.data ?? []}
           loadError={health.error || discovery.error}
-          isAdmin={isAdmin}
+          isAdmin={canOperate}
           discoveryRunners={traffic.data.runners}
           discoverySessions={discovery.data}
           trafficIps={observedTrafficIps(traffic.data.snapshots)}

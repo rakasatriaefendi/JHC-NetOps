@@ -1,6 +1,7 @@
 import { DeviceInventory } from "@/components/devices/device-inventory";
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadNetworkNodes } from "@/lib/network-nodes";
+import { canOperateNetwork } from "@/lib/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export default async function DevicesPage({ searchParams }: DevicesPageProps) {
       nodes={inventory.data}
       runners={runnersResult.data ?? []}
       targets={targetsResult.data ?? []}
-      canManage={profile.role === "admin"}
+      canManage={canOperateNetwork(profile.role)}
       deviceNotice={params.device_notice}
       deviceError={inventory.error ? "load-failed" : params.device_error}
       healthNotice={params.health_notice}

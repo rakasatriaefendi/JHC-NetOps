@@ -24,6 +24,8 @@ hanya ke `192.168.1.130:3401`, bukan `0.0.0.0` atau IPv6 `::`.
 - `deploy/systemd/jhc-netops-runner.service`
 - `deploy/systemd/jhc-netops-frontend.service`
 - `deploy/run-runner.sh`
+- `deploy/run-frontend.sh`
+- `deploy/ecosystem.config.cjs`
 - `deploy/build-frontend.sh`
 - `deploy/check-frontend-port.mjs`
 - `deploy/runner-config.example.json`
@@ -93,10 +95,11 @@ Launcher menurunkan root source dari lokasinya sendiri, memuat build-time values
 dari `shared/frontend/.env`, memastikan `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, dan `NEXT_PUBLIC_SITE_URL` tersedia tanpa
 mencetak nilainya, lalu menjalankan production build memakai Node 22. Ia tidak
-mengubah symlink atau service. Unit frontend tetap menjalankan `next start`
-langsung dengan Node 22 absolut.
+mengubah symlink atau service. Runtime frontend memakai `deploy/run-frontend.sh`:
+launcher memvalidasi `.next`, entrypoint Next.js, Node 22, environment shared,
+dan bind port sebelum menjalankan `next start` di foreground melalui `exec`.
 
-`ExecStartPre` memeriksa bind `192.168.1.130:3401`. Jika endpoint sudah ditempati,
+Launcher memeriksa bind `192.168.1.130:3401`. Jika endpoint sudah ditempati,
 startup gagal dengan `FRONTEND_PORT_IN_USE`. Guard tidak membunuh proses dan tidak
 memilih 3402/3403. Periksa konflik secara manual:
 
@@ -155,9 +158,41 @@ compatibility harus direview sebelum switch.
 
 ## Process manager masa depan
 
+Gunakan systemd **atau** PM2 untuk NetOps, tidak keduanya. Sebelum memulai PM2,
+hentikan kedua unit systemd NetOps agar tidak ada polling/heartbeat ganda atau
+konflik port 3401. Default Node 18 server tidak perlu diubah karena launcher
+memilih Node 22 secara absolut:
+
+```bash
+cd /var/www/jhc/jhc_noc/current
+pm2 start deploy/ecosystem.config.cjs
+```
+
+Ecosystem tersebut mendefinisikan tepat dua proses fork, masing-masing satu
+instance: `jhc-netops-runner` melalui `deploy/run-runner.sh` dan
+`jhc-netops-frontend` melalui `deploy/run-frontend.sh`. Keduanya memakai
+`/usr/bin/bash`, berjalan dari release `current`, dan dapat direstart oleh PM2.
+Konfigurasi tidak menyimpan secret serta tidak mengubah system Node atau default
+NVM. Jangan memakai `pm2 start npm`, menjalankan Python sebagai aplikasi PM2
+terpisah, atau menjalankan `pm2 save` secara otomatis; instance PM2 tersebut juga
+melayani project lain.
+
+## Model akses
+
+- Viewer: visibilitas read-only.
+- Operator: operasi jaringan dan konfigurasi target yang sudah dibatasi.
+- Admin: seluruh kemampuan Operator ditambah administrasi pengguna/akses.
+
+Status akses terpisah dari role: Menunggu persetujuan, Aktif, atau Ditangguhkan.
+Role hanya berlaku bagi akun Aktif.
+
+## Ringkasan runtime
+
 Aplikasi tetap process-manager-neutral. Hanya dua proses yang long-running:
 frontend Next.js dan runner Node.js. Jika mentor memilih PM2 di masa depan,
 entrypoint runner tetap `deploy/run-runner.sh`; jangan menjalankan service systemd
 runner dan proses PM2 runner bersamaan. Frontend tetap proses terpisah. Python
 agent bukan service ketiga—runner hanya memanggilnya on demand untuk operation
-yang memerlukannya. Repository tidak menambah dependency atau konfigurasi PM2.
+yang memerlukannya. Entrypoint PM2 yang direview adalah
+`deploy/ecosystem.config.cjs`; file ini tidak menambah dependency PM2 ke
+repository dan tidak menjalankan `pm2 save`.

@@ -2,9 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { canAdministerUsers, canOperateNetwork, isActiveUser, type ProfileRole, type ProfileStatus } from "@/lib/authorization";
 
-export type ProfileRole = "admin" | "viewer";
-export type ProfileStatus = "pending" | "approved" | "rejected";
+export type { ProfileRole, ProfileStatus } from "@/lib/authorization";
 
 export type Profile = {
   id: string;
@@ -46,7 +46,7 @@ export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile> {
 export async function requireApprovedProfile() {
   const auth = await getAuthenticatedProfile();
 
-  if (!auth.profile || auth.profile.status !== "approved") {
+  if (!auth.profile || !isActiveUser(auth.profile.status)) {
     redirect("/pending");
   }
 
@@ -56,10 +56,19 @@ export async function requireApprovedProfile() {
 export async function requireAdminProfile() {
   const auth = await requireApprovedProfile();
 
-  if (auth.profile.role !== "admin") {
+  if (!canAdministerUsers(auth.profile.role)) {
     redirect("/dashboard");
   }
 
   return auth;
 }
 
+export async function requireOperatorProfile() {
+  const auth = await requireApprovedProfile();
+
+  if (!canOperateNetwork(auth.profile.role)) {
+    redirect("/dashboard");
+  }
+
+  return auth;
+}

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { canOperateNetwork } from "../_shared/authorization.ts";
 import {
   MANUAL_PING_RESULT_TTL_MS,
   validManualPingFailureCode,
@@ -39,7 +40,7 @@ Deno.serve(async (request) => {
 async function createManualPing(request: Request, body: Record<string, unknown>) {
   const auth = await userAuth(request);
   if (!auth.ok) return auth.response;
-  if (auth.role !== "admin") return reply({error:"Only an admin may run a manual ping"}, 403);
+  if (!canOperateNetwork(auth.role)) return reply({error:"Operator role required"}, 403);
   if (Object.keys(body).some((key) => key !== "action" && key !== "target_id") || !uuid(body.target_id)) {
     return reply({error:"Only an authorized target_id is accepted"}, 400);
   }

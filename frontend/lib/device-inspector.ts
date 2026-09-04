@@ -134,8 +134,8 @@ const INFRASTRUCTURE_TYPES = new Set([
   "access_point", "printer", "camera", "iot", "phone",
 ]);
 
-export function canLaunchActiveInspection(role: "admin" | "viewer") {
-  return role === "admin";
+export function canLaunchActiveInspection(role: import("@/lib/authorization").ProfileRole) {
+  return role === "admin" || role === "operator";
 }
 
 export function operatorIdentityConflict(deviceType: string | null | undefined, fingerprint: DeviceFingerprint | null) {

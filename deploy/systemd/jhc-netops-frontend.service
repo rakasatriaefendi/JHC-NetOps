@@ -8,10 +8,7 @@ Type=simple
 User=mini-pc
 Group=mini-pc
 WorkingDirectory=/var/www/jhc/jhc_noc/current/frontend
-EnvironmentFile=/var/www/jhc/jhc_noc/shared/frontend/.env
-Environment=NODE_ENV=production
-ExecStartPre=/home/mini-pc/.nvm/versions/node/v22.23.2/bin/node /var/www/jhc/jhc_noc/current/deploy/check-frontend-port.mjs --host 192.168.1.130 --port 3401
-ExecStart=/home/mini-pc/.nvm/versions/node/v22.23.2/bin/node /var/www/jhc/jhc_noc/current/frontend/node_modules/next/dist/bin/next start --hostname 192.168.1.130 --port 3401
+ExecStart=/usr/bin/bash /var/www/jhc/jhc_noc/current/deploy/run-frontend.sh
 Restart=on-failure
 RestartSec=5s
 KillMode=control-group

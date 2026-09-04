@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { requireAdminProfile } from "@/lib/auth";
+import { requireOperatorProfile } from "@/lib/auth";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
 import {
   NETWORK_NODE_TYPES,
@@ -48,7 +48,7 @@ export async function saveManualNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { supabase, userId } = await requireAdminProfile();
+  const { supabase, userId } = await requireOperatorProfile();
   const { data: existing, error: lookupError } = await supabase
     .from("network_nodes")
     .select("id")
@@ -100,7 +100,7 @@ export async function saveNetworkTargetAction(formData: FormData) {
     && Number.isFinite(values.loss_warning_percent) && values.loss_warning_percent >= 0 && values.loss_warning_percent <= 100;
   if (!valid) redirect("/devices?health_error=invalid-request#network-health-targets");
 
-  const { supabase } = await requireAdminProfile();
+  const { supabase } = await requireOperatorProfile();
   const [{ data: node }, { data: runner }] = await Promise.all([
     supabase.from("network_nodes").select("id").eq("id", nodeId).maybeSingle(),
     supabase.from("diagnostic_runners").select("id").eq("id", runnerId).maybeSingle(),
@@ -130,7 +130,7 @@ export async function updateNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { supabase } = await requireAdminProfile();
+  const { supabase } = await requireOperatorProfile();
   const { data: existing, error: lookupError } = await supabase
     .from("network_nodes")
     .select("id,ip_address")
@@ -171,7 +171,7 @@ export async function deleteNetworkTargetAction(formData: FormData) {
     redirect("/devices?health_error=invalid-request#network-health-targets");
   }
 
-  const { supabase } = await requireAdminProfile();
+  const { supabase } = await requireOperatorProfile();
   const { data: target, error: lookupError } = await supabase
     .from("network_targets")
     .select("id,node_id,network_nodes(name,ip_address)")
@@ -199,7 +199,7 @@ export async function deleteNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { supabase } = await requireAdminProfile();
+  const { supabase } = await requireOperatorProfile();
   const { data: node, error: lookupError } = await supabase
     .from("network_nodes")
     .select("id,name,ip_address")

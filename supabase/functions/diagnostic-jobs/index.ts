@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { validateSnmpTelemetryCapability, type SnmpTelemetryCapability } from "./capabilities.ts";
+import { canOperateNetwork } from "../_shared/authorization.ts";
 
 type ConnectionType = "wifi" | "ethernet";
 type Environment = "lan" | "localhost_demo";
@@ -153,7 +154,7 @@ async function createJob(
 ): Promise<Response> {
   const auth = await approvedUserClient(request);
   if (!auth.ok) return auth.response;
-  if (auth.role !== "admin") return jsonResponse({ error: "Only an admin may start an active bandwidth diagnostic" }, 403);
+  if (!canOperateNetwork(auth.role)) return jsonResponse({ error: "Operator role required" }, 403);
 
   if (!isIdentifier(payload.runner_id) || !isLabel(payload.source_label)) {
     return jsonResponse({ error: "runner_id and source_label are required" }, 400);
@@ -264,6 +265,7 @@ async function createJob(
 async function requestPreflight(request: Request, payload: Record<string, unknown>): Promise<Response> {
   const auth = await approvedUserClient(request);
   if (!auth.ok) return auth.response;
+  if (!canOperateNetwork(auth.role)) return jsonResponse({ error: "Operator role required" }, 403);
   if (!isIdentifier(payload.runner_id) || !isIdentifier(payload.target_id)) {
     return jsonResponse({ error: "runner_id and target_id are required" }, 400);
   }

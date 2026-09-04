@@ -53,7 +53,7 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
           </div>
         </div>
         {targets.length === 0 ? (
-          <div className="mt-6 rounded-control border border-border bg-bg-base p-4"><p className="font-medium">Belum ada target health yang aktif.</p><p className="mt-2 text-text-secondary">Monitoring tidak memindai subnet. Admin harus memilih device inventory dan runner secara eksplisit.</p>{isAdmin ? <Link className="mt-3 inline-block text-accent hover:underline" href="/devices">Atur Health Watch di Devices</Link> : null}</div>
+          <div className="mt-6 rounded-control border border-border bg-bg-base p-4"><p className="font-medium">Belum ada target health yang aktif.</p><p className="mt-2 text-text-secondary">Monitoring tidak memindai subnet. Operator harus memilih device inventory dan runner secara eksplisit.</p>{isAdmin ? <Link className="mt-3 inline-block text-accent hover:underline" href="/devices">Atur Health Watch di Devices</Link> : null}</div>
         ) : (
           <>
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

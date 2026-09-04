@@ -539,7 +539,7 @@ atau row per poll.
 UI: Device Profile menampilkan bagian Managed Infrastructure Telemetry (status koneksi
 target, identitas sistem, uptime, tabel interface + peringatan) dengan satu subscription
 Realtime sehingga state berubah tanpa refresh; status credential profile ditampilkan
-tanpa pernah menampilkan nilai secret. Approved viewer read-only; admin CRUD target.
+tanpa pernah menampilkan nilai secret. Viewer Aktif read-only; Operator/Admin CRUD target.
 Verifikasi sintetis memakai `scripts/verify_managed_telemetry_browser.mjs` (fixtures
 synthetic, admin/viewer, Realtime, mobile/desktop, tanpa probe SNMP nyata).
 
@@ -552,7 +552,7 @@ dalam release. Gunakan file bernama `config.json` pada
 tetap di bawah `shared/` agar pergantian release tidak menghapusnya.
 
 Contoh deployment permanen menetapkan `enable_manual_ping=true` dan
-`enable_snmp_telemetry=true`. Manual Ping tetap hanya untuk admin dan target
+`enable_snmp_telemetry=true`. Manual Ping tetap hanya untuk Operator/Admin dan target
 Health Watch yang telah diotorisasi; browser tidak dapat mengirim IP, count,
 timeout, atau flag ping sendiri. SNMP tetap membutuhkan target authorized dan
 credential profile read-only di config lokal; enable flag tidak menambahkan
@@ -565,5 +565,9 @@ Build release frontend memakai `deploy/build-frontend.sh` agar seluruh
 [UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md). Template belum
 dipasang otomatis; jangan menjalankan `sudo`, `daemon-reload`, atau mengubah
 service shared lainnya sebagai bagian build/review repository.
+
+Mental model deployment: `build-frontend.sh` hanya untuk build; runtime hanya
+`run-runner.sh` dan `run-frontend.sh`. Keduanya dapat dimiliki systemd atau PM2,
+tetapi dua process manager tidak boleh menjalankan NetOps bersamaan.
 
 Hasil sementara berada di satu `device_inspection_sessions` row per runner dan expired 10 menit. Menutup drawer unknown tanpa Save tidak membuat `network_nodes`. `Save identity` menyimpan operator name/location/type/notes secara eksplisit; `Save detected evidence` menyimpan fingerprint terstruktur. Reinspection hanya boleh memperbarui `detected_fingerprint` dan `last_inspected_at` tanpa mengubah identity atau Health Watch. Bila evidence `This Device` bertentangan dengan kategori operator, perbaiki inventory secara eksplisit melalui form—warning tidak melakukan overwrite otomatis. Jangan menulis raw tool stdout, HTML/XML/body, token, atau credential ke Supabase/log.

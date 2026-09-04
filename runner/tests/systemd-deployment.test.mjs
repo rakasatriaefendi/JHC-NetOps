@@ -26,12 +26,9 @@ test("systemd templates use the reviewed current/shared paths and non-root accou
   assert.match(runner, /ExecStart=\/usr\/bin\/bash \/var\/www\/jhc\/jhc_noc\/current\/deploy\/run-runner\.sh/);
   assert.doesNotMatch(runner, /runner\/src\/main\.mjs|EnvironmentFile=/);
   assert.match(frontend, /WorkingDirectory=\/var\/www\/jhc\/jhc_noc\/current\/frontend/);
-  assert.match(frontend, /EnvironmentFile=\/var\/www\/jhc\/jhc_noc\/shared\/frontend\/\.env/);
-  assert.match(frontend, /Environment=NODE_ENV=production/);
-  assert.match(frontend, /--hostname 192\.168\.1\.130 --port 3401/);
+  assert.match(frontend, /ExecStart=\/usr\/bin\/bash \/var\/www\/jhc\/jhc_noc\/current\/deploy\/run-frontend\.sh/);
   assert.doesNotMatch(frontend, /--hostname (?:0\.0\.0\.0|::)/);
-  assert.match(frontend, /ExecStartPre=.*check-frontend-port\.mjs --host 192\.168\.1\.130 --port 3401/);
-  assert.match(frontend + runner, /\/home\/mini-pc\/\.nvm\/versions\/node\/v22\.23\.2\/bin\/node/);
+  assert.doesNotMatch(frontend, /next\/dist\/bin\/next|ExecStartPre/);
 });
 
 test("native deployment example keeps config, state, and logs outside releases", () => {

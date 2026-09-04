@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { requireAdminProfile } from "@/lib/auth";
+import { requireOperatorProfile } from "@/lib/auth";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
 import { validateManagedTelemetryForm } from "@/lib/managed-telemetry";
 import { portableDevMode } from "@/lib/portable-dev-mode";
@@ -40,7 +40,7 @@ export async function saveManagedTelemetryTargetAction(formData: FormData) {
   const validationError = validateManagedTelemetryForm(values);
   if (validationError) redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
 
-  const { supabase } = await requireAdminProfile();
+  const { supabase } = await requireOperatorProfile();
   const [{ data: node }, { data: runner }] = await Promise.all([
     supabase.from("network_nodes").select("id").eq("id", values.node_id).maybeSingle(),
     supabase.from("diagnostic_runners").select("id,capabilities").eq("id", values.runner_id).maybeSingle(),
@@ -86,7 +86,7 @@ export async function deleteManagedTelemetryTargetAction(formData: FormData) {
     redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
   }
 
-  const { supabase } = await requireAdminProfile();
+  const { supabase } = await requireOperatorProfile();
   const { data: target, error: lookupError } = await supabase
     .from("managed_telemetry_targets")
     .select("id,node_id,network_nodes(name,ip_address)")

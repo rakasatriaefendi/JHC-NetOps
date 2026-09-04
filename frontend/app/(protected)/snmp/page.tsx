@@ -4,6 +4,7 @@ import { ManagedTelemetryDetail } from "@/components/snmp/managed-telemetry-deta
 import { requireApprovedProfile } from "@/lib/auth";
 import type { RunnerCapabilities } from "@/lib/diagnostic-jobs";
 import { loadSnmpWorkspaceData } from "@/lib/managed-telemetry-source";
+import { canOperateNetwork } from "@/lib/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
       nodes={inventory.data}
       runners={runners}
       targets={telemetry.data}
-      canManage={!portable.enabled && profile.role === "admin"}
+      canManage={!portable.enabled && canOperateNetwork(profile.role)}
       notice={params.telemetry_notice}
       error={params.telemetry_error}
     />

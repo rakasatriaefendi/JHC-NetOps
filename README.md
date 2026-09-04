@@ -7,13 +7,13 @@ menyimpan raw packet atau PCAP.
 
 ## Fitur utama
 
-- Auth Supabase dengan alur registrasi, approval admin, dan role viewer/admin.
+- Auth Supabase dengan status akses terpisah dan role Viewer/Operator/Admin.
 - Dashboard metrik jaringan dan status target Network Health Watch.
 - Live Traffic berbasis metadata header/5-tuple dengan scope **This Device**.
 - LAN Diagnostics on-demand menggunakan `iperf3` dan `mtr`.
 - Perbandingan bandwidth berdasarkan lokasi, target, serta WiFi/Ethernet.
 - Pelabelan manual responding Layer-3 hop melalui inventory `network_nodes`.
-- On-demand Network Discovery yang bounded dan admin-only.
+- On-demand Network Discovery yang bounded untuk Operator/Admin.
 - Managed SNMP read-only untuk device/interface telemetry target yang disetujui.
 - Observed LAN Hosts dari evidence neighbor Layer-3, dengan naming enrichment opsional.
 - Buffer SQLite lokal untuk toleransi gangguan koneksi backend.

@@ -8,8 +8,8 @@ const statusStyles: Record<ProfileStatus, string> = {
 
 const statusLabels: Record<ProfileStatus, string> = {
   pending: "Menunggu persetujuan",
-  approved: "Disetujui",
-  rejected: "Ditolak",
+  approved: "Aktif",
+  rejected: "Ditangguhkan",
 };
 
 export function StatusBadge({ status }: { status: ProfileStatus }) {
@@ -22,4 +22,3 @@ export function StatusBadge({ status }: { status: ProfileStatus }) {
     </span>
   );
 }
-

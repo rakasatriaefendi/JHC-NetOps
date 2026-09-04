@@ -51,7 +51,7 @@ test("viewer has no manual ping action and enabled admin requests remain one-sho
   assert.match(manualPingSource, /body: \{ action: "manual_ping", target_id: targetId \}/);
   assert.match(source, /className="nodrag nopan/);
   assert.match(manualPingSource, /Ping timeout|Tidak terjangkau/);
-  assert.match(edgeFunction, /auth\.role !== "admin"/);
+  assert.match(edgeFunction, /!canOperateNetwork\(auth\.role\)/);
   assert.match(edgeFunction, /key !== "action" && key !== "target_id"/);
   assert.match(edgeFunction, /\.eq\("id", body\.target_id\)\.maybeSingle\(\)/);
 });

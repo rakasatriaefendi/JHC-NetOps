@@ -12,7 +12,7 @@ Python agent in Ubuntu WSL.
 
 **Native Ubuntu staging validated:** P8A context/process/ping/preflight adapters
 have been validated on the Ubuntu 24.04 Mini PC. P8B adds repository-owned
-systemd templates, one runner launcher, a build-time-safe frontend launcher, and
+systemd templates, foreground runner/frontend launchers, a build-only frontend launcher, and
 a ZIP-release update/rollback procedure, but those units have not been installed
 or enabled. See
 [UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md).
@@ -21,15 +21,37 @@ or enabled. See
 
 | Area | Responsibility | Important boundary |
 |---|---|---|
-| Dashboard | Current traffic summary, Health Watch status, Reachability Map, and admin Discovery entry point. | A summary surface, not a replacement for Traffic or Diagnostics. |
+| Dashboard | Current traffic summary, Health Watch status, Reachability Map, and Operator/Admin Discovery entry point. | A summary surface, not a replacement for Traffic or Diagnostics. |
 | Traffic | Bounded, header-only flow visibility for the runner device. | Not the whole LAN, physical topology, or available bandwidth. |
 | History | Diagnostic sessions and retained event/history views. | Diagnostic results remain separate from traffic baseline data. |
 | Alerts | Active conservative health/telemetry events. | An alert is evidence requiring interpretation, not proof that hardware is broken. |
 | LAN Diagnostics | Explicit `iperf3` upload/download and MTR Layer-3 path tests. | Active traffic, authorized targets only; MTR does not reveal every Layer-2 device. |
-| Discovery | Admin-triggered, bounded discovery of hosts visible to the current local runner. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
+| Discovery | Operator/Admin-triggered, bounded discovery of hosts visible to the current local runner. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
 | Devices | One operator inventory with contextual Health Watch configuration. | Inventory identity and detected identity are separate; dependent configuration blocks inventory deletion. |
 | SNMP | Latest read-only Managed Telemetry and Observed LAN Hosts first, followed by target configuration. | Known targets and local credential-profile references only. |
 | Admin | User approval and account access control. | Monitoring configuration lives on Devices and SNMP, not Admin. |
+
+Role dan status akses adalah dua dimensi terpisah. Viewer memiliki visibilitas
+read-only, Operator menjalankan operasi jaringan, dan Admin menambahkan administrasi
+user/akses. Hanya status Aktif (`approved`) yang dapat memakai izin role; Menunggu
+(`pending`) dan Ditangguhkan (`rejected`) tidak dapat masuk ke area protected.
+
+Untuk native Ubuntu, mental model prosesnya adalah:
+
+- build: `deploy/build-frontend.sh`;
+- runtime: `deploy/run-runner.sh` dan `deploy/run-frontend.sh`;
+- process manager: systemd atau PM2, tidak bersamaan. Jika memilih PM2, hentikan
+  service systemd NetOps terlebih dahulu lalu jalankan dari release aktif:
+
+  ```bash
+  cd /var/www/jhc/jhc_noc/current
+  pm2 start deploy/ecosystem.config.cjs
+  ```
+
+  Ecosystem menjalankan tepat dua aplikasi fork melalui launcher Bash tersebut,
+  masing-masing satu instance. Jangan menjalankan npm atau Python sebagai app
+  PM2 terpisah, mengubah system Node/default NVM, atau melakukan `pm2 save`
+  otomatis.
 
 ## Current architecture
 
