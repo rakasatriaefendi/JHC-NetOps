@@ -45,7 +45,7 @@ requires Linux startup/service replacement, **D** documentation/config differenc
 | Adaptive scope resolver | `runner/src/network-scope.mjs` consumes normalized interfaces/routes. | A | Reuse contract and tests unchanged where possible. |
 | Network-context collector | Windows keeps PowerShell `Get-Net*`; Linux uses bounded `ip -j` address/route/neighbor reads. | A | Both emit the same normalized scope contract; the Linux path is staging-validated. |
 | Discovery ping engine | Platform adapter uses fixed Windows `PING.EXE` or Linux `ping` arguments. | A | Existing concurrency, timeout, and result semantics are shared. |
-| Health Watch/manual ping | Shared scheduler/authorization with the platform ICMP adapter. | A | No Health Watch or manual-ping semantic change. |
+| Health Watch/manual ping | Shared scheduler/authorization with the platform ICMP adapter. | A | Native IPv4 invocation avoids iputils-only flags, and bounded normalization supports both iputils and GNU inetutils output without changing hysteresis. |
 | Python agent | Runs in Ubuntu WSL from `agent/.venv`. | A | Recreate a native venv from `pyproject.toml`/`uv.lock`; never copy the WSL venv. |
 | SNMP collector | The same PySNMP agent implementation is invoked through WSL on Windows or directly on Linux. | A | P8A changes invocation only; collector/OIDs/auth/counter/alert behavior is frozen. Live authorized Linux validation remains. |
 | Device Inspector | Windows context + WSL or Linux route/neighbor context + native agent. | A | Single-target authorization, deadlines, evidence, and normalization remain shared. |
@@ -107,9 +107,11 @@ Device Inspector context, or Managed Telemetry from starting.
 ### Always-on service
 
 `runner/task.ps1` tetap Windows-only. P8B menyediakan template systemd non-root,
-path `current`/`shared`, journald, restart backoff, dan port guard frontend dalam
-repository. Template belum dipasang atau diaktifkan pada Mini PC. Prosedur review,
-instalasi manual, update, dan rollback ada di
+path `current`/`shared`, journald, restart backoff, port guard frontend,
+`deploy/run-runner.sh` sebagai satu entrypoint runner, dan
+`deploy/build-frontend.sh` untuk build-time environment dalam repository.
+Template belum dipasang atau diaktifkan pada Mini PC. Prosedur review, instalasi
+manual, update, dan rollback ada di
 `docs/UBUNTU_ALWAYS_ON_DEPLOYMENT.md`.
 
 ## Reusable dependency foundation

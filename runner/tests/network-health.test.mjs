@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { buildPingInvocation, NetworkHealthWatch, pingProcessWallTimeout, pingTarget } from "../src/network-health.mjs";
+import { buildPingInvocation, manualPingCompletionLog, NetworkHealthWatch, pingProcessWallTimeout, pingTarget } from "../src/network-health.mjs";
 
 function target(overrides = {}) {
   return { id: "11111111-1111-4111-8111-111111111111", ip_address: "127.0.0.1", probe_method: "icmp",
@@ -157,9 +157,49 @@ test("ping child normal reply and normal timeout are normalized", async () => {
     child.stdout.write("Reply from 192.0.2.10: time=7ms");
     child.emit("close", 0);
   }), "win32");
-  assert.deepEqual(reply, { success: true, latency_ms: 7 });
+  assert.deepEqual(reply, { success: true, latency_ms: 7, packet_loss_percent: 0 });
   const timeout = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => child.emit("close", 1)), "win32");
-  assert.deepEqual(timeout, { success: false, latency_ms: null });
+  assert.deepEqual(timeout, { success: false, latency_ms: null, packet_loss_percent: 100 });
+});
+
+test("Linux ping distinguishes packet loss, malformed output, and non-zero exits", async () => {
+  const run = (output, code) => pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => {
+    child.stdout.end(output);
+    child.emit("close", code);
+  }), "linux");
+  assert.deepEqual(await run([
+    "1 packets transmitted, 0 packets received, 100% packet loss",
+    "",
+  ].join("\n"), 1), { success: false, latency_ms: null, packet_loss_percent: 100 });
+  assert.deepEqual(await run("unexpected successful-process output", 0),
+    { success: false, latency_ms: null, packet_loss_percent: 100 });
+  assert.deepEqual(await run("64 bytes from 192.0.2.10: icmp_seq=0 ttl=64 time=0.500 ms\n0% packet loss", 2),
+    { success: false, latency_ms: null, packet_loss_percent: 100 });
+});
+
+test("Linux ping also normalizes iputils output and locale decimal separators", async () => {
+  const output = [
+    "PING 192.0.2.10 (192.0.2.10) 56(84) bytes of data.",
+    "64 bytes from 192.0.2.10: icmp_seq=1 ttl=64 time=0,742 ms",
+    "1 packets transmitted, 1 received, 0% packet loss, time 0ms",
+    "rtt min/avg/max/mdev = 0,742/0,742/0,742/0,000 ms",
+  ].join("\n");
+  const result = await pingTarget("192.0.2.10", 400, undefined, () => fakePingChild((child) => {
+    child.stdout.end(output);
+    child.emit("close", 0);
+  }), "linux");
+  assert.deepEqual(result, { success: true, latency_ms: 0.742, packet_loss_percent: 0 });
+});
+
+test("manual ping completion log reports bounded result fields without process output", () => {
+  assert.equal(
+    manualPingCompletionLog("job-1", "target-1", { ok: true, latency_ms: 0.527 }),
+    "Manual ping job-1 completed for Health target target-1: reachable=true loss=0 latency_ms=0.527",
+  );
+  assert.equal(
+    manualPingCompletionLog("job-2", "target-2", { ok: false, category: "timeout", stderr: "not-for-logs" }),
+    "Manual ping job-2 completed for Health target target-2: reachable=false loss=100 latency_ms=null",
+  );
 });
 
 test("runner kills a PING child that never exits at 400ms plus 250ms grace", async () => {
@@ -169,7 +209,7 @@ test("runner kills a PING child that never exits at 400ms plus 250ms grace", asy
   assert.equal(pingProcessWallTimeout(400), 650);
   assert.ok(Date.now() - started < 1_000);
   assert.equal(child.killed, true);
-  assert.deepEqual(result, { success: false, latency_ms: null, timed_out: true });
+  assert.deepEqual(result, { success: false, latency_ms: null, packet_loss_percent: 100, timed_out: true });
 });
 
 test("ping process errors are bounded and do not leak the child", async () => {

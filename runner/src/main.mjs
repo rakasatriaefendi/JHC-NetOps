@@ -8,7 +8,7 @@ import { collectDiscoveryContext, publicDiscoveryContext, runNetworkDiscovery } 
 import { collectInspectionContext, validateInspectionScope } from "./device-inspector.mjs";
 import { startHeartbeatLoop } from "./heartbeat.mjs";
 import { runAgent, runInspectionAgent, runPreflight, runTrafficAgent } from "./wsl.mjs";
-import { NetworkHealthWatch } from "./network-health.mjs";
+import { manualPingCompletionLog, NetworkHealthWatch } from "./network-health.mjs";
 import { ManagedTelemetryWatch } from "./snmp-telemetry.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -128,7 +128,7 @@ async function executeManualPing(rawJob) {
   try {
     const result = await healthWatch.manualPing(job.target_id);
     await backend.completeManualPing(config.runner_id, job.id, result);
-    log(`Manual ping ${job.id} completed for Health target ${job.target_id}`);
+    log(manualPingCompletionLog(job.id, job.target_id, result));
   } catch (error) {
     const code = error?.code === "MANUAL_PING_TARGET_UNAVAILABLE" ? error.code : "MANUAL_PING_FAILED";
     await backend.failManualPing(config.runner_id, job.id, code).catch(() => {});

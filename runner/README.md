@@ -52,6 +52,17 @@ powershell -ExecutionPolicy Bypass -File task.ps1 remove
 Task berjalan tersembunyi, tanpa execution timeout, dan tidak dihentikan ketika
 laptop beralih ke baterai.
 
+Pada deployment native Ubuntu, gunakan satu entrypoint foreground:
+
+```bash
+/usr/bin/bash /var/www/jhc/jhc_noc/current/deploy/run-runner.sh
+```
+
+Launcher memakai Node 22 absolut, memuat environment dan config dari path
+`shared`, lalu memakai `exec`. Systemd dan process manager lain harus menunjuk ke
+launcher yang sama. Python agent tetap dipanggil oleh runner hanya ketika job
+membutuhkannya; jangan menjalankannya sebagai daemon terpisah.
+
 ## Troubleshooting
 
 Jika UI menunjukkan runner `OFFLINE`:
