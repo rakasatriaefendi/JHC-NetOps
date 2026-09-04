@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { logAuthFailure } from "@/lib/auth-logging";
 import { createClient } from "@/lib/supabase/server";
 
 export type AuthActionState = {
@@ -27,6 +28,7 @@ export async function loginAction(
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
+    logAuthFailure("login", error);
     return { error: "Email atau password tidak valid.", message: null };
   }
 
@@ -67,6 +69,7 @@ export async function registerAction(
   });
 
   if (error) {
+    logAuthFailure("register", error);
     return {
       error: "Registrasi gagal. Periksa data atau coba beberapa saat lagi.",
       message: null,

@@ -1,10 +1,10 @@
 # Ubuntu Desktop 24.x Mini-PC Deployment Readiness
 
 P8A implements the application-level adapters needed for native Ubuntu, while
-preserving the Windows + Ubuntu WSL path. The adapters are covered by mocked,
-non-network tests; they have not yet been installed or validated on the shared
-Mini PC. Always-on operation, system integration, and live acceptance remain
-later P8 work.
+preserving the Windows + Ubuntu WSL path. The native runtime has been validated
+on the Ubuntu 24.04 Mini PC staging host. P8B supplies repository-owned systemd
+templates and deployment documentation; installation, enablement, boot recovery,
+and rollback validation remain manual follow-up work.
 
 ## Target architecture
 
@@ -25,9 +25,9 @@ Three different readiness statements must not be conflated:
 
 1. **Portable runtime readiness:** adaptive scopes and normalized contracts avoid
    hardcoded office subnets and much application logic is platform-neutral.
-2. **Native Ubuntu compatibility:** implemented in P8A through Linux context,
-   native process, ICMP, preflight, and relocatable-state adapters. Real-host and
-   live authorized validation are still required before production support.
+2. **Native Ubuntu compatibility:** implemented and staging-validated in P8A
+   through Linux context, native process, ICMP, preflight, and relocatable-state
+   adapters.
 3. **Always-on deployment:** not complete until service, restart, logging,
    persistence, update, rollback, and power-loss behavior are validated on the
    Mini PC.
@@ -43,7 +43,7 @@ requires Linux startup/service replacement, **D** documentation/config differenc
 | Supabase clients/functions | HTTP/Realtime clients and Deno Edge Functions. | A | Verify outbound HTTPS/DNS and environment values; no platform fork expected. |
 | Node runner orchestration | Windows continues to invoke `wsl.exe`; Linux invokes the configured agent executable directly. | A | P8A adapter implemented with fixed argument arrays, `shell: false`, bounded processes, and platform-specific safe errors. Real-host validation remains. |
 | Adaptive scope resolver | `runner/src/network-scope.mjs` consumes normalized interfaces/routes. | A | Reuse contract and tests unchanged where possible. |
-| Network-context collector | Windows keeps PowerShell `Get-Net*`; Linux uses bounded `ip -j` address/route/neighbor reads. | A | Both emit the same normalized scope contract. Linux live validation remains. |
+| Network-context collector | Windows keeps PowerShell `Get-Net*`; Linux uses bounded `ip -j` address/route/neighbor reads. | A | Both emit the same normalized scope contract; the Linux path is staging-validated. |
 | Discovery ping engine | Platform adapter uses fixed Windows `PING.EXE` or Linux `ping` arguments. | A | Existing concurrency, timeout, and result semantics are shared. |
 | Health Watch/manual ping | Shared scheduler/authorization with the platform ICMP adapter. | A | No Health Watch or manual-ping semantic change. |
 | Python agent | Runs in Ubuntu WSL from `agent/.venv`. | A | Recreate a native venv from `pyproject.toml`/`uv.lock`; never copy the WSL venv. |
@@ -52,7 +52,7 @@ requires Linux startup/service replacement, **D** documentation/config differenc
 | Traffic capture | WSL root invocation remains on Windows; Linux uses the native agent and configured interface. | B | Architecture path exists; least-privilege raw-socket permission and native interface must be validated later. Missing capability is reported by preflight. |
 | LAN Diagnostics | Same agent parsers, native agent spawn on Linux. | B | `iperf3`, MTR, routing, and authorized server behavior require host validation. Missing optional tools do not take down unrelated runner functions. |
 | Local state | Runner state/log roots are configurable and may point outside versioned releases. | A/D | Select service-account ownership, retention, backup, and final absolute paths during deployment. |
-| Startup/autostart | Windows Task Scheduler through `runner/task.ps1`. | C | Design and validate an OS-managed service such as systemd during P8. No unit is supplied by P7. |
+| Startup/autostart | Windows Task Scheduler through `runner/task.ps1`. | C | P8B supplies reviewed repository templates for systemd; installation and service validation remain manual. |
 | Logging | Runner appends local log; foreground components use process output. | C/D | Decide journald/file retention, rotation, support bundle, and secret redaction. |
 | Configuration/secrets | One ignored local config supports WSL paths and an absolute native project root; state/log roots are relocatable. | D | Use Linux file permissions and service-account ownership later; the secret boundary is unchanged. |
 
@@ -106,12 +106,11 @@ Device Inspector context, or Managed Telemetry from starting.
 
 ### Always-on service
 
-`runner/task.ps1` is Windows-only. P8 should provide and validate a native service
-mechanism, expected to be systemd or an equivalent Ubuntu OS service. Its design
-must cover automatic boot start, restart on failure, graceful stop, working
-directory, environment/config loading, permissions, persistent state, logs,
-network-online ordering, and bounded child cleanup. No untested unit file belongs
-in P7 documentation.
+`runner/task.ps1` tetap Windows-only. P8B menyediakan template systemd non-root,
+path `current`/`shared`, journald, restart backoff, dan port guard frontend dalam
+repository. Template belum dipasang atau diaktifkan pada Mini PC. Prosedur review,
+instalasi manual, update, dan rollback ada di
+`docs/UBUNTU_ALWAYS_ON_DEPLOYMENT.md`.
 
 ## Reusable dependency foundation
 

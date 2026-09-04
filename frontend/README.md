@@ -19,8 +19,8 @@ alerts, LAN Diagnostics, administration, Health Watch, dan Network Discovery.
 | `/history` | Riwayat diagnostic serta trend. |
 | `/alerts` | Event aktif dan status jaringan. |
 | `/diagnostics` | One-click bandwidth dan Layer-3 path diagnostics. |
-| `/devices` | Inventory perangkat dan konfigurasi Health Watch. |
-| `/snmp` | Managed SNMP targets, device/interface telemetry, dan Observed LAN Hosts. |
+| `/devices` | Satu daftar inventory perangkat dengan konfigurasi Health Watch kontekstual. |
+| `/snmp` | Latest device/interface telemetry dan Observed LAN Hosts terlebih dahulu, lalu konfigurasi Managed SNMP. |
 | `/admin` | Approval dan pengelolaan akses user. |
 
 Route protected memerlukan profile Supabase berstatus `approved`. Operasi sensitif

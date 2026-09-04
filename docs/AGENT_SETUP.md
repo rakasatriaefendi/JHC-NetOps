@@ -543,4 +543,23 @@ tanpa pernah menampilkan nilai secret. Approved viewer read-only; admin CRUD tar
 Verifikasi sintetis memakai `scripts/verify_managed_telemetry_browser.mjs` (fixtures
 synthetic, admin/viewer, Realtime, mobile/desktop, tanpa probe SNMP nyata).
 
+## 13. Native Ubuntu always-on (P8B)
+
+Deployment permanen native Ubuntu tidak memakai `runner/config.local.json` di
+dalam release. Gunakan file bernama `config.json` pada
+`/var/www/jhc/jhc_noc/shared/runner/config.json`, dengan
+`native_project_root=/var/www/jhc/jhc_noc/current`. Environment, state, dan log
+tetap di bawah `shared/` agar pergantian release tidak menghapusnya.
+
+Contoh deployment permanen menetapkan `enable_manual_ping=true`. Ini hanya
+mengaktifkan capability Manual Ping yang sudah ada untuk admin dan target Health
+Watch yang telah diotorisasi; browser tetap tidak dapat mengirim IP, count,
+timeout, atau flag ping sendiri.
+
+Template systemd, frontend bind `192.168.1.130:3401`, collision guard, serta
+prosedur ZIP release dan rollback didokumentasikan di
+[UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md). Template belum
+dipasang otomatis; jangan menjalankan `sudo`, `daemon-reload`, atau mengubah
+service shared lainnya sebagai bagian build/review repository.
+
 Hasil sementara berada di satu `device_inspection_sessions` row per runner dan expired 10 menit. Menutup drawer unknown tanpa Save tidak membuat `network_nodes`. `Save identity` menyimpan operator name/location/type/notes secara eksplisit; `Save detected evidence` menyimpan fingerprint terstruktur. Reinspection hanya boleh memperbarui `detected_fingerprint` dan `last_inspected_at` tanpa mengubah identity atau Health Watch. Bila evidence `This Device` bertentangan dengan kategori operator, perbaiki inventory secara eksplisit melalui form—warning tidak melakukan overwrite otomatis. Jangan menulis raw tool stdout, HTML/XML/body, token, atau credential ke Supabase/log.

@@ -14,6 +14,8 @@ const TELEMETRY_FIELDS = new Set([
   "discard_threshold", "util_warning_percent", "util_critical_percent",
   "util_sustained_seconds", "enabled",
 ]);
+const DELETE_TELEMETRY_FIELDS = new Set(["target_id", "confirmation"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function saveManagedTelemetryTargetAction(formData: FormData) {
   if (portableDevMode()) {
@@ -71,6 +73,38 @@ export async function saveManagedTelemetryTargetAction(formData: FormData) {
   redirect("/snmp?telemetry_notice=saved#managed-telemetry");
 }
 
+export async function deleteManagedTelemetryTargetAction(formData: FormData) {
+  if (portableDevMode()) {
+    redirect("/snmp?telemetry_error=portable-read-only#managed-telemetry");
+  }
+  if (hasUnexpectedFormFields(formData, DELETE_TELEMETRY_FIELDS)) {
+    redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
+  }
+  const targetId = String(formData.get("target_id") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "");
+  if (!UUID_PATTERN.test(targetId) || !confirmation || confirmation.length > 500) {
+    redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
+  }
+
+  const { supabase } = await requireAdminProfile();
+  const { data: target, error: lookupError } = await supabase
+    .from("managed_telemetry_targets")
+    .select("id,node_id,network_nodes(name,ip_address)")
+    .eq("id", targetId)
+    .maybeSingle();
+  const node = relation(target?.network_nodes);
+  if (lookupError || !target || !node || confirmation !== `${node.name} (${node.ip_address})`) {
+    redirect("/snmp?telemetry_error=unknown-target#managed-telemetry");
+  }
+
+  const { error } = await supabase.from("managed_telemetry_targets").delete().eq("id", targetId);
+  if (error) redirect("/snmp?telemetry_error=delete-failed#managed-telemetry");
+  revalidatePath("/snmp");
+  revalidatePath("/devices");
+  revalidatePath("/dashboard");
+  redirect("/snmp?telemetry_notice=deleted#managed-telemetry");
+}
+
 function runnerCredentialProfiles(capabilities: unknown): string[] {
   if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities)) return [];
   const snmp = (capabilities as { snmp_telemetry?: unknown }).snmp_telemetry;
@@ -79,4 +113,13 @@ function runnerCredentialProfiles(capabilities: unknown): string[] {
   return Array.isArray(profiles) && profiles.every((value) => typeof value === "string")
     ? profiles
     : [];
+}
+
+function relation(value: unknown): { name: string; ip_address: string } | null {
+  if (Array.isArray(value)) return relation(value[0]);
+  if (!value || typeof value !== "object") return null;
+  const row = value as { name?: unknown; ip_address?: unknown };
+  return typeof row.name === "string" && typeof row.ip_address === "string"
+    ? { name: row.name, ip_address: row.ip_address }
+    : null;
 }

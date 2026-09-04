@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("../components/dashboard/reachability-map.tsx", import.meta.url), "utf8");
+const manualPingSource = readFileSync(new URL("../components/dashboard/manual-ping-provider.tsx", import.meta.url), "utf8");
 const edgeFunction = readFileSync(new URL("../../supabase/functions/network-health/index.ts", import.meta.url), "utf8");
 
 test("Reachability Map has one canonical custom edge and floating border geometry", () => {
@@ -46,22 +47,22 @@ test("admin always sees manual ping with capability-aware disabled and loading s
 
 test("viewer has no manual ping action and enabled admin requests remain one-shot", () => {
   assert.doesNotMatch(source, /\{!manualPing\.isAdmin \? \(/);
-  assert.match(source, /manualPingInFlight\.current\.has\(targetId\)/);
-  assert.match(source, /body: \{ action: "manual_ping", target_id: targetId \}/);
+  assert.match(manualPingSource, /inFlight\.current\.has\(targetId\)/);
+  assert.match(manualPingSource, /body: \{ action: "manual_ping", target_id: targetId \}/);
   assert.match(source, /className="nodrag nopan/);
-  assert.match(source, /Ping timeout|Tidak terjangkau/);
+  assert.match(manualPingSource, /Ping timeout|Tidak terjangkau/);
   assert.match(edgeFunction, /auth\.role !== "admin"/);
   assert.match(edgeFunction, /key !== "action" && key !== "target_id"/);
   assert.match(edgeFunction, /\.eq\("id", body\.target_id\)\.maybeSingle\(\)/);
 });
 
 test("unavailable manual ping returns before loading, edge activity, or backend invocation", () => {
-  const targetLookup = source.indexOf("const target = targets.find((candidate) => candidate.id === targetId);");
-  const availabilityGuard = source.indexOf("!target?.manual_ping_available", targetLookup);
-  const inFlightMutation = source.indexOf("manualPingInFlight.current.add(targetId)", targetLookup);
-  const loadingMutation = source.indexOf("phase: \"loading\"", targetLookup);
-  const activityMutation = source.indexOf("manualPingActivityToken: Number", targetLookup);
-  const backendInvocation = source.indexOf("supabase.functions.invoke", targetLookup);
+  const targetLookup = manualPingSource.indexOf("const target = targets.find((candidate) => candidate.id === targetId);");
+  const availabilityGuard = manualPingSource.indexOf("!target?.manual_ping_available", targetLookup);
+  const inFlightMutation = manualPingSource.indexOf("inFlight.current.add(targetId)", targetLookup);
+  const loadingMutation = manualPingSource.indexOf("phase: \"loading\"", targetLookup);
+  const activityMutation = manualPingSource.indexOf("setActivityTokens", targetLookup);
+  const backendInvocation = manualPingSource.indexOf("client.functions.invoke", targetLookup);
 
   assert.ok(targetLookup >= 0);
   assert.ok(availabilityGuard > targetLookup);

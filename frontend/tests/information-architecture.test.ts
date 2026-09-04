@@ -17,7 +17,8 @@ test("Admin is account-only and monitoring configuration moved to approved-user 
   const snmp = source("../app/(protected)/snmp/page.tsx");
   assert.doesNotMatch(admin, /NetworkHealthTargets|ManagedTelemetryTargets|network_targets|managed_telemetry_targets/);
   assert.match(admin, /ViewerAccessControl/);
-  assert.match(devices, /requireApprovedProfile|DeviceInventory|NetworkHealthTargets/);
+  assert.match(devices, /requireApprovedProfile|DeviceInventory/);
+  assert.doesNotMatch(devices, /NetworkHealthTargets/);
   assert.match(snmp, /requireApprovedProfile|ManagedTelemetryTargets|ManagedTelemetryDetail/);
   assert.match(devices, /canManage=\{profile\.role === "admin"\}/);
   assert.match(snmp, /canManage=\{!portable\.enabled && profile\.role === "admin"\}/);
@@ -50,7 +51,7 @@ test("SNMP onboarding stores only an authorized node and non-secret runner profi
 
 test("viewer receives read-only inventory and telemetry controls", () => {
   const inventory = source("../components/devices/device-inventory.tsx");
-  const health = source("../components/admin/network-health-targets.tsx");
+  const health = source("../components/devices/device-inventory.tsx");
   const telemetry = source("../components/admin/managed-telemetry-targets.tsx");
   assert.match(inventory, /canManage \? <div[\s\S]*saveManualNetworkNodeAction/);
   assert.match(health, /canManage \?/);

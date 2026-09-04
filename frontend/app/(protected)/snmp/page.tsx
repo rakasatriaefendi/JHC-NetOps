@@ -34,6 +34,7 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
       <Summary label="Poll errors" value={pollErrors} />
       <Summary label="Interfaces" value={interfaceCount} />
     </section>
+    <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} observedHosts={telemetry.observedHosts} />
     <ManagedTelemetryTargets
       nodes={inventory.data}
       runners={runners}
@@ -42,7 +43,6 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
       notice={params.telemetry_notice}
       error={params.telemetry_error}
     />
-    <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} observedHosts={telemetry.observedHosts} />
   </main>;
 }
 

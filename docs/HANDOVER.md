@@ -10,11 +10,11 @@ current Windows/WSL setup detail in [AGENT_SETUP.md](AGENT_SETUP.md).
 **Validated development runtime:** Windows host, Windows Local Runner, and the
 Python agent in Ubuntu WSL.
 
-**P8A compatibility implemented, not host-validated:** the runner now has native
-Ubuntu context/process/ping/preflight adapters. Always-on service operation and
-real Mini-PC validation are still pending. See
-[UBUNTU_DEPLOYMENT_READINESS.md](UBUNTU_DEPLOYMENT_READINESS.md); fixture coverage
-is not evidence of production deployment.
+**Native Ubuntu staging validated:** P8A context/process/ping/preflight adapters
+have been validated on the Ubuntu 24.04 Mini PC. P8B adds repository-owned
+systemd templates and a ZIP-release update/rollback procedure, but those units
+have not been installed or enabled. See
+[UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md).
 
 ## Product mental model
 
@@ -25,9 +25,9 @@ is not evidence of production deployment.
 | History | Diagnostic sessions and retained event/history views. | Diagnostic results remain separate from traffic baseline data. |
 | Alerts | Active conservative health/telemetry events. | An alert is evidence requiring interpretation, not proof that hardware is broken. |
 | LAN Diagnostics | Explicit `iperf3` upload/download and MTR Layer-3 path tests. | Active traffic, authorized targets only; MTR does not reveal every Layer-2 device. |
-| Discovery | Admin-triggered, bounded discovery of hosts visible on the current Windows LAN. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
-| Devices | Operator inventory and Health Watch target configuration. | Inventory identity and detected identity are separate. |
-| SNMP | Read-only Managed Telemetry targets, latest device/interface state, and Observed LAN Hosts. | Known targets and local credential-profile references only. |
+| Discovery | Admin-triggered, bounded discovery of hosts visible to the current local runner. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
+| Devices | One operator inventory with contextual Health Watch configuration. | Inventory identity and detected identity are separate; dependent configuration blocks inventory deletion. |
+| SNMP | Latest read-only Managed Telemetry and Observed LAN Hosts first, followed by target configuration. | Known targets and local credential-profile references only. |
 | Admin | User approval and account access control. | Monitoring configuration lives on Devices and SNMP, not Admin. |
 
 ## Current architecture
@@ -212,7 +212,11 @@ Health Watch continuously checks explicitly enabled inventory targets with
 bounded ICMP from Windows `PING.EXE` or Linux `ping`. It does not discover a subnet. Offline means
 repeated lack of ICMP response, which may also result from filtering or path
 conditions. Manual PING is an admin-only, one-shot, ephemeral action and does not
-overwrite scheduled Health Watch state.
+overwrite scheduled Health Watch state. Dashboard `Other known targets` dan
+Reachability Map memakai provider/request path yang sama, sehingga satu target
+tidak dapat dikirim dua kali selama request masih berjalan. Tabel Dashboard
+dipaginasi di client sebanyak 10 target per halaman dari dataset Realtime yang
+sudah dimuat; tidak ada input IP arbitrary atau query backend pagination baru.
 
 ### Traffic
 
@@ -321,5 +325,6 @@ still be recorded during P8 validation; Windows commands do not apply to Linux.
 - [ ] Frontend tests, lint, typecheck, and production build pass.
 - [ ] Safe stop/restart and local-state recovery procedure is known.
 - [ ] Maintainer understands that Windows + WSL is validated and P8A Linux is
-  application-compatible but not yet Mini-PC/always-on validated.
+  application-compatible and Mini-PC staging-validated; systemd always-on
+  installation and power-loss/rollback validation remain pending.
 - [ ] Maintainer has reviewed the remaining Ubuntu P8 deployment gaps before use.

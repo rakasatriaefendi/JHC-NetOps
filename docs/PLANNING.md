@@ -238,12 +238,39 @@ Ubuntu Desktop 24.x tanpa menganggap native Linux atau always-on service sudah t
   jalur native; dependency optional dilaporkan preflight dan tidak mematikan runner.
 - [x] State/log runner dapat dipindah keluar versioned release dan runtime tidak
   bergantung pada `.git`.
-- [ ] Validasi nyata di Mini PC Ubuntu, permission Traffic, dependency diagnostics,
-  live authorized operation, service always-on, restart/power-loss, dan rollback.
+- [x] Runtime native P8A tervalidasi pada Mini PC Ubuntu 24.04; kesiapan service
+  always-on, restart/power-loss, dan rollback dilanjutkan pada P8B.
 
 **Definition of done P8A:** kompatibilitas aplikasi native Linux lulus test fixture
 tanpa probe live; status production/always-on baru boleh diberikan setelah item
 validasi host pada milestone P8 berikutnya selesai.
+
+---
+
+## P8B — Handover UX + Native Ubuntu Always-on Preparation
+
+- [x] Devices memakai satu daftar inventory utama dengan status/config Health Watch
+  kontekstual; daftar inventory dan monitoring duplikat tidak lagi dirender.
+- [x] Edit/delete inventory dan remove Health Watch memakai konfirmasi eksplisit;
+  delete inventory diblokir bila konfigurasi Health Watch atau Managed SNMP masih ada.
+- [x] Form Devices/SNMP memakai grid `minmax(0,1fr)`, `min-w-0`, lebar penuh,
+  serta truncation agar label node panjang tidak menimpa field lain.
+- [x] Halaman SNMP menampilkan latest telemetry/interfaces/Observed LAN Hosts sebelum
+  konfigurasi, dan managed target memiliki Edit + Delete yang admin-only.
+- [x] Auth failure logging hanya menyimpan operation, bounded error code, dan status;
+  user-facing error tetap generik dan credential/token/FormData tidak dicatat.
+- [x] Template systemd non-root runner/frontend, exact Node 22 path, shared config/env,
+  journald, restart backoff, bind `192.168.1.130:3401`, serta collision guard tersedia.
+- [x] Dokumentasi menggunakan `shared/runner/config.json`, symlink `current`, ZIP
+  release, restart service NetOps saja, dan rollback ke release tervalidasi.
+- [x] Dashboard `Other known targets` memakai Manual Ping flow bersama dan pagination
+  client-side 10 row; contoh runner deployment permanen mengaktifkan capability itu.
+- [ ] Template systemd direview lalu dipasang/di-enable manual pada Mini PC; boot,
+  crash restart, power-loss, dan rollback nyata diverifikasi.
+
+**Definition of done P8B preparation:** UX inventory/telemetry tidak menduplikasi
+mental model, destructive CRUD tetap bounded, dan artefak always-on siap direview
+tanpa menyatakan systemd sudah dipasang atau production always-on sudah lulus.
 
 ---
 

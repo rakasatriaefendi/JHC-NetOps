@@ -1,0 +1,32 @@
+{
+  "runner_id": "it-lt8",
+  "display_name": "IT LT8 Runner",
+  "native_project_root": "/var/www/jhc/jhc_noc/current",
+  "agent_executable": "agent/.venv/bin/network-monitor",
+  "environment_file": "/var/www/jhc/jhc_noc/shared/runner/.env",
+  "data_directory": "/var/www/jhc/jhc_noc/shared/state",
+  "log_directory": "/var/www/jhc/jhc_noc/shared/logs",
+  "enable_diagnostic_demo": false,
+  "enable_manual_ping": true,
+  "source_locations": ["CHANGE_ME_LOCATION"],
+  "targets": [
+    {
+      "id": "disabled-placeholder",
+      "label": "Disabled placeholder",
+      "host": "127.0.0.1",
+      "iperf_port": 5201,
+      "environment": "localhost_demo",
+      "enabled": false
+    }
+  ],
+  "durations": [5, 10],
+  "traffic_interface": "CHANGE_ME_INTERFACE",
+  "traffic_durations_seconds": [300, 600, 900, 1800],
+  "poll_interval_ms": 2000,
+  "heartbeat_interval_ms": 10000,
+  "enable_snmp_telemetry": false,
+  "snmp_max_concurrent": 2,
+  "snmp_timeout_seconds": 3,
+  "snmp_poll_intervals_seconds": [30, 60],
+  "snmp_credential_profiles": {}
+}
