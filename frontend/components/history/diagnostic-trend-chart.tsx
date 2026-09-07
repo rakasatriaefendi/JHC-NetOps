@@ -139,9 +139,9 @@ function axisTimes(minTime: number, maxTime: number) {
 function formatAxisTime(timestamp: string, period: HistoryPeriod) { const date = new Date(timestamp); if (period === "today") return new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit" }).format(date); return new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short" }).format(date); }
 function formatExactTimestamp(timestamp: string) { return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(timestamp)); }
 function formatConnection(value: DiagnosticTest["connectionType"]) { return value === "wifi" ? "WiFi" : "Ethernet"; }
-function formatMbps(value: number | null | undefined) { return value == null ? "—" : `${value.toFixed(2)} Mbps`; }
+function formatMbps(value: number | null | undefined) { return value == null ? "-" : `${value.toFixed(2)} Mbps`; }
 function formatAxisMbps(value: number) { return value.toFixed(value >= 100 ? 0 : 1); }
 function formatPair(peak: number | null | undefined, minimum: number | null | undefined) { return `${formatMbps(peak)} / ${formatMbps(minimum)}`; }
-function formatCount(value: number | null | undefined) { return value == null ? "—" : String(value); }
-function formatLatency(value: number | null) { return value === null ? "—" : `${value.toFixed(2)} ms`; }
-function formatLoss(value: number | null) { return value === null ? "—" : `${value.toFixed(1)}%`; }
+function formatCount(value: number | null | undefined) { return value == null ? "-" : String(value); }
+function formatLatency(value: number | null) { return value === null ? "-" : `${value.toFixed(2)} ms`; }
+function formatLoss(value: number | null) { return value === null ? "-" : `${value.toFixed(1)}%`; }

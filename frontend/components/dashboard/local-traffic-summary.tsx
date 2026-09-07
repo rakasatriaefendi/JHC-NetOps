@@ -44,7 +44,7 @@ export function LocalTrafficSummary({ initialState, loadError }: { initialState:
           <Metric label="Observed RX" value={`${snapshot.summary.observed_rx_mbps.toFixed(2)} Mbps`} detail="Receive — traffic yang diterima interface." />
           <Metric label="Observed TX" value={`${snapshot.summary.observed_tx_mbps.toFixed(2)} Mbps`} detail="Transmit — traffic yang dikirim interface." />
           <Metric label="Active flows" value={new Intl.NumberFormat("id-ID").format(snapshot.summary.active_flows)} />
-          <Metric label="Top talker" value={snapshot.top_talkers[0]?.ip ?? "—"} />
+          <Metric label="Top talker" value={snapshot.top_talkers[0]?.ip ?? "-"} />
         </div>
       ) : null}
       <p className="mt-4 text-meta text-text-muted">RX/TX menunjukkan traffic yang sedang teramati pada perangkat ini, bukan kapasitas maksimum link.</p>

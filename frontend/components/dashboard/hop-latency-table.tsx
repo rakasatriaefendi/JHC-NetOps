@@ -355,7 +355,7 @@ function formatConnection(value: HopMeasurement["connection_type"]) {
 }
 
 function formatLatency(value: number | null) {
-  return value === null ? "—" : `${value.toFixed(2)} ms`;
+  return value === null ? "-" : `${value.toFixed(2)} ms`;
 }
 
 function formatTimestamp(timestamp: string) {

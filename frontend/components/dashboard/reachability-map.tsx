@@ -27,7 +27,7 @@ import { useManualPing } from "./manual-ping-provider";
 import type { NetworkHealthTarget, NetworkHealthSample, NetworkHealthEvent, HealthStatus } from "@/lib/network-health";
 
 function formatLatency(value: number | null | undefined) {
-  return typeof value === "number" ? `${value.toFixed(1)} ms` : "—";
+  return typeof value === "number" ? `${value.toFixed(1)} ms` : "-";
 }
 
 export type ReachabilityMapProps = {
@@ -842,15 +842,15 @@ export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
                 <>
                   <dl className="grid gap-2 sm:grid-cols-2 text-meta">
                     <div><dt className="text-text-secondary">IP</dt><dd className="font-data">{target.node.ip_address}</dd></div>
-                    <div><dt className="text-text-secondary">Location</dt><dd>{target.node.location ?? "—"}</dd></div>
+                    <div><dt className="text-text-secondary">Location</dt><dd>{target.node.location ?? "-"}</dd></div>
                     <div><dt className="text-text-secondary">Status</dt><dd>
                       <span className={latest?.status === "online" ? "text-severity-low" : latest?.status === "degraded" ? "text-severity-medium" : "text-severity-critical"}>
                         ● {latest?.status ?? "offline"}
                       </span>
                     </dd></div>
                     <div><dt className="text-text-secondary">Latency</dt><dd className="font-data">{formatLatency(latest?.latency_ms)}</dd></div>
-                    <div><dt className="text-text-secondary">Packet Loss</dt><dd className="font-data">{latest ? `${Number(latest.packet_loss_percent).toFixed(1)}%` : "—"}</dd></div>
-                    <div><dt className="text-text-secondary">Last Checked</dt><dd>{latest ? new Intl.DateTimeFormat("id-ID", { dateStyle: "short", timeStyle: "medium" }).format(new Date(latest.last_checked_at)) : "—"}</dd></div>
+                    <div><dt className="text-text-secondary">Packet Loss</dt><dd className="font-data">{latest ? `${Number(latest.packet_loss_percent).toFixed(1)}%` : "-"}</dd></div>
+                    <div><dt className="text-text-secondary">Last Checked</dt><dd>{latest ? new Intl.DateTimeFormat("id-ID", { dateStyle: "short", timeStyle: "medium" }).format(new Date(latest.last_checked_at)) : "-"}</dd></div>
                     <div><dt className="text-text-secondary">Monitoring State</dt><dd>{target.enabled ? "Active" : "Paused"}</dd></div>
                   </dl>
                   <Button variant="secondary" className="w-full" onClick={() => openDeviceProfile({ ipAddress: target.node.ip_address, runnerId: target.runner_id, observedStatus: latest?.status ?? "unknown" })}>

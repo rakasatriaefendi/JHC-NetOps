@@ -70,7 +70,7 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
                 const runner = runners.find((item) => item.id === target.runner_id);
                 const profile = credentialProfileStatus(runner?.capabilities?.snmp_telemetry?.credential_profiles, target.credential_profile_ref);
                 return <tr className="border-t border-border bg-bg-base" key={target.id}>
-                  <td className="p-3"><p className="font-medium">{node?.name ?? "Unknown node"}</p><p className="mt-1 font-data text-meta text-text-muted">{node?.ip_address ?? "—"}{node?.location ? ` · ${node.location}` : ""}</p></td>
+                  <td className="p-3"><p className="font-medium">{node?.name ?? "Unknown node"}</p><p className="mt-1 font-data text-meta text-text-muted">{node?.ip_address ?? "-"}{node?.location ? ` · ${node.location}` : ""}</p></td>
                   <td className="p-3 text-text-secondary">{runner?.display_name ?? target.runner_id}</td>
                   <td className="p-3"><State enabled={target.enabled} />{target.latest ? <p className="mt-1 text-meta text-text-secondary">{target.latest.status}</p> : null}</td>
                   <td className="p-3 font-data text-meta">v{target.snmp_version} · TCP/UDP {target.snmp_port}<br />{target.poll_interval_seconds}s cadence</td>

@@ -62,7 +62,7 @@ function BandwidthSeries({
             {formatMbps(latest.bitrate_mbps)}
           </p>
           <p className="mt-1 font-data text-meta text-text-muted">
-            jitter {latest.jitter_ms === null ? "—" : `${latest.jitter_ms.toFixed(2)} ms`}
+            jitter {latest.jitter_ms === null ? "-" : `${latest.jitter_ms.toFixed(2)} ms`}
           </p>
           <time className="mt-1 block font-data text-meta text-text-muted">
             {formatTimestamp(latest.measured_at)}

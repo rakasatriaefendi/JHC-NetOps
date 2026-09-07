@@ -163,9 +163,9 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
       <Value label="Last poll" value={formatDateTime(device?.last_polled_at ?? null)} data />
       <Value label="Last success" value={formatDateTime(device?.last_success_at ?? null)} data />
       <Value label="Uptime" value={formatUptime(device?.uptime_seconds ?? null)} data />
-      <Value label="Manufacturer" value={device?.manufacturer ?? "—"} />
-      <Value label="Model" value={device?.model ?? "—"} />
-      <Value label="Serial number" value={device?.serial_number ?? "—"} />
+      <Value label="Manufacturer" value={device?.manufacturer ?? "-"} />
+      <Value label="Model" value={device?.model ?? "-"} />
+      <Value label="Serial number" value={device?.serial_number ?? "-"} />
     </dl>
     {device ? <details className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta"><summary className="cursor-pointer text-text-secondary">System identity</summary><dl className="mt-3 grid gap-2 sm:grid-cols-2">{managedSystemIdentityFields(device).map((field) => <Value key={field.label} label={field.label} value={field.value} data={field.data} />)}</dl></details> : null}
 
@@ -207,9 +207,9 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
 function InterfaceRow({ row, thresholds, events, expanded, onToggle }: { row: ManagedInterfaceLatest; thresholds: ManagedTelemetryThresholds | null; events: ManagedTelemetryEvent[]; expanded: boolean; onToggle: () => void }) {
   return <>
     <tr className="cursor-pointer border-t border-border bg-bg-base hover:bg-bg-surface" onClick={onToggle}>
-      <td className="p-2.5"><p className="font-medium">{row.name ?? "—"}</p><p className="font-data text-text-muted">#{row.if_index}{row.is_physical ? "" : " · logical"}</p></td>
-      <td className="p-2.5">{row.admin_status ? statusChip(row.admin_status) : "—"}</td>
-      <td className="p-2.5">{row.oper_status ? operChip(row.oper_status) : "—"}</td>
+      <td className="p-2.5"><p className="font-medium">{row.name ?? "-"}</p><p className="font-data text-text-muted">#{row.if_index}{row.is_physical ? "" : " · logical"}</p></td>
+      <td className="p-2.5">{row.admin_status ? statusChip(row.admin_status) : "-"}</td>
+      <td className="p-2.5">{row.oper_status ? operChip(row.oper_status) : "-"}</td>
       <td className="p-2.5 font-data">{formatRate(row.speed_bps)}</td>
       <td className="p-2.5 font-data">{formatRate(row.rx_rate_bps)}</td>
       <td className="p-2.5 font-data">{formatRate(row.tx_rate_bps)}</td>
@@ -224,7 +224,7 @@ function InterfaceRow({ row, thresholds, events, expanded, onToggle }: { row: Ma
 
 function InterfaceCard({ row, thresholds, events, expanded, onToggle }: { row: ManagedInterfaceLatest; thresholds: ManagedTelemetryThresholds | null; events: ManagedTelemetryEvent[]; expanded: boolean; onToggle: () => void }) {
   return <article className="rounded-control border border-border bg-bg-surface p-4">
-    <button className="w-full text-left" onClick={onToggle}><div className="flex items-start justify-between gap-3"><div><h5 className="font-medium">{row.name ?? "—"}</h5><p className="font-data text-meta text-text-muted">#{row.if_index}{row.is_physical ? "" : " · logical"}</p></div><span className="text-meta">{row.oper_status ? operChip(row.oper_status) : "—"}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-meta"><div><dt className="text-text-muted">Speed</dt><dd className="font-data">{formatRate(row.speed_bps)}</dd></div><div><dt className="text-text-muted">RX / TX</dt><dd className="font-data">{formatRate(row.rx_rate_bps)} / {formatRate(row.tx_rate_bps)}</dd></div><div><dt className="text-text-muted">RX / TX util</dt><dd className="font-data">{formatUtil(row.rx_util_percent)} / {formatUtil(row.tx_util_percent)}</dd></div><div><dt className="text-text-muted">Errors / Discards Δ</dt><dd className="font-data">{deltaLabel(row.rx_errors_delta, row.tx_errors_delta)} / {deltaLabel(row.in_discards_delta, row.out_discards_delta)}</dd></div></dl><span className="mt-2 inline-block text-meta text-accent">{expanded ? "Tutup detail" : "Detail"}</span></button>
+    <button className="w-full text-left" onClick={onToggle}><div className="flex items-start justify-between gap-3"><div><h5 className="font-medium">{row.name ?? "-"}</h5><p className="font-data text-meta text-text-muted">#{row.if_index}{row.is_physical ? "" : " · logical"}</p></div><span className="text-meta">{row.oper_status ? operChip(row.oper_status) : "-"}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-meta"><div><dt className="text-text-muted">Speed</dt><dd className="font-data">{formatRate(row.speed_bps)}</dd></div><div><dt className="text-text-muted">RX / TX</dt><dd className="font-data">{formatRate(row.rx_rate_bps)} / {formatRate(row.tx_rate_bps)}</dd></div><div><dt className="text-text-muted">RX / TX util</dt><dd className="font-data">{formatUtil(row.rx_util_percent)} / {formatUtil(row.tx_util_percent)}</dd></div><div><dt className="text-text-muted">Errors / Discards Δ</dt><dd className="font-data">{deltaLabel(row.rx_errors_delta, row.tx_errors_delta)} / {deltaLabel(row.in_discards_delta, row.out_discards_delta)}</dd></div></dl><span className="mt-2 inline-block text-meta text-accent">{expanded ? "Tutup detail" : "Detail"}</span></button>
     {expanded ? <div className="mt-3 border-t border-border pt-3"><InterfaceDetail row={row} thresholds={thresholds} events={events} /></div> : null}
   </article>;
 }
@@ -233,12 +233,12 @@ function InterfaceDetail({ row, thresholds, events }: { row: ManagedInterfaceLat
   const warnings = interfaceWarnings(row, thresholds, events);
   return <div className="grid gap-3 sm:grid-cols-2">
     <Value label="ifIndex" value={String(row.if_index)} data />
-    <Value label="ifName" value={row.name ?? "—"} data />
-    <Value label="ifDescr" value={row.description ?? "—"} />
-    <Value label="ifType" value={row.if_type === null ? "—" : `ifType ${row.if_type}`} data />
+    <Value label="ifName" value={row.name ?? "-"} data />
+    <Value label="ifDescr" value={row.description ?? "-"} />
+    <Value label="ifType" value={row.if_type === null ? "-" : `ifType ${row.if_type}`} data />
     <Value label="Classification" value={row.is_physical ? "Likely physical port" : "Logical interface"} />
-    <Value label="Admin state" value={row.admin_status ?? "—"} data />
-    <Value label="Oper state" value={row.oper_status ?? "—"} data />
+    <Value label="Admin state" value={row.admin_status ?? "-"} data />
+    <Value label="Oper state" value={row.oper_status ?? "-"} data />
     <Value label="Speed" value={formatRate(row.speed_bps)} data />
     <Value label="RX rate" value={formatRate(row.rx_rate_bps)} data />
     <Value label="TX rate" value={formatRate(row.tx_rate_bps)} data />
@@ -260,10 +260,10 @@ function statusChip(value: string) { return <span className={`inline-flex rounde
 function operChip(value: string) { return value === "up" ? statusChip("up") : value === "down" ? statusChip("down") : <span className="text-text-muted">{value}</span>; }
 function deltaLabel(rx: number | null, tx: number | null): string {
   const value = (rx ?? 0) + (tx ?? 0);
-  if (rx === null && tx === null) return "—";
+  if (rx === null && tx === null) return "-";
   return value > 0 ? `+${value}` : "0";
 }
 function cumulativeLabel(rx: number | null, tx: number | null): string {
-  if (rx === null && tx === null) return "—";
-  return `${rx ?? "—"} / ${tx ?? "—"}`;
+  if (rx === null && tx === null) return "-";
+  return `${rx ?? "-"} / ${tx ?? "-"}`;
 }

@@ -102,7 +102,7 @@ export function DeviceInventory({ nodes, runners, targets, canManage, deviceNoti
                 const nodeTargets = targets.filter((target) => target.node_id === node.id);
                 return <tr className="border-t border-border bg-bg-base align-top" key={node.id}>
                   <td className="p-3"><p className="font-medium">{node.name}</p><p className="mt-1 font-data text-meta text-text-muted">{node.ip_address}</p></td>
-                  <td className="p-3 text-text-secondary"><p>{node.device_type ? networkNodeTypeLabel(node.device_type) : "—"}</p><p className="mt-1 text-meta text-text-muted">{node.location ?? "—"}</p></td>
+                  <td className="p-3 text-text-secondary"><p>{node.device_type ? networkNodeTypeLabel(node.device_type) : "-"}</p><p className="mt-1 text-meta text-text-muted">{node.location ?? "-"}</p></td>
                   <td className="p-3 text-text-secondary">{node.detected_fingerprint?.detected_identity.likely_label ?? "Not observed"}</td>
                   <td className="p-3"><HealthSummary targets={nodeTargets} runners={runners} /></td>
                   {canManage ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2">

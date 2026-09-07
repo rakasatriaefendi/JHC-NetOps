@@ -160,8 +160,8 @@ export function TrafficLivePage({
 
         <dl className="mt-5 grid gap-3 sm:grid-cols-3">
           <StatusValue label="Runner" value={runner?.display_name ?? "Tidak tersedia"} />
-          <StatusValue label="Started" value={active?.started_at ? formatTime(active.started_at) : "—"} data />
-          <StatusValue label="Elapsed" value={active?.started_at ? formatDuration(elapsedSeconds) : "—"} data />
+          <StatusValue label="Started" value={active?.started_at ? formatTime(active.started_at) : "-"} data />
+          <StatusValue label="Elapsed" value={active?.started_at ? formatDuration(elapsedSeconds) : "-"} data />
         </dl>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -240,8 +240,8 @@ export function TrafficLivePage({
           <Metric label="Observed TX" value={metric(snapshot?.summary.observed_tx_mbps, "Mbps")} />
           <Metric label="Packets/sec" value={formatNumber(snapshot?.summary.packets_per_second)} />
           <Metric label="Active flows" value={formatNumber(snapshot?.summary.active_flows)} />
-          <Metric label="Top talker" value={snapshot?.top_talkers[0]?.ip ?? "—"} />
-          <Metric label="Dominant protocol" value={snapshot?.summary.dominant_protocol?.toUpperCase() ?? "—"} />
+          <Metric label="Top talker" value={snapshot?.top_talkers[0]?.ip ?? "-"} />
+          <Metric label="Dominant protocol" value={snapshot?.summary.dominant_protocol?.toUpperCase() ?? "-"} />
         </div>
         <p className="mt-3 text-meta text-text-muted">
           RX/TX adalah observed traffic rate selama interval snapshot, bukan kapasitas atau
@@ -577,8 +577,8 @@ function endpoint(ip: string, port: number | null) { return port === null ? ip :
 function formatTime(value: string) { return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)); }
 function formatDuration(totalSeconds: number) { const minutes = Math.floor(totalSeconds / 60); const seconds = totalSeconds % 60; return `${minutes}:${String(seconds).padStart(2, "0")}`; }
 function bytes(value: number) { return new Intl.NumberFormat("id-ID", { style: "unit", unit: "byte", unitDisplay: "short" }).format(value); }
-function formatNumber(value: number | null | undefined) { return value == null ? "—" : new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(value); }
-function metric(value: number | null | undefined, unit: string) { return value == null ? "—" : `${value.toFixed(2)} ${unit}`; }
+function formatNumber(value: number | null | undefined) { return value == null ? "-" : new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(value); }
+function metric(value: number | null | undefined, unit: string) { return value == null ? "-" : `${value.toFixed(2)} ${unit}`; }
 function trendLabel(value: TrafficFlow["rate_trend"] | undefined) { return value === "increasing" ? "↑ increasing" : value === "decreasing" ? "↓ decreasing" : "→ stable"; }
 function maxNullable(values: (number | null)[]) { const numbers = values.filter((value): value is number => value !== null); return numbers.length ? Math.max(...numbers) : null; }
 

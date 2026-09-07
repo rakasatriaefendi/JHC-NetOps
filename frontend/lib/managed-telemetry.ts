@@ -57,6 +57,8 @@ export type ManagedObservedHostLatest = {
 };
 
 export type ObservedHostFilter = "all" | "named" | "unnamed" | "fresh" | "stale";
+export type ObservedHostSortKey = "device" | "ip_address";
+export type ObservedHostSortDirection = "asc" | "desc";
 
 export type ManagedInterfaceLatest = {
   target_id: string;
@@ -143,11 +145,11 @@ export function managedSystemIdentityFields(
   device: ManagedDeviceLatest,
 ): { label: string; value: string; data: boolean }[] {
   return [
-    { label: "sysName", value: device.sys_name ?? "—", data: true },
-    { label: "sysDescr", value: device.sys_descr ?? "—", data: false },
+    { label: "sysName", value: device.sys_name ?? "-", data: true },
+    { label: "sysDescr", value: device.sys_descr ?? "-", data: false },
     {
       label: "System Object ID",
-      value: device.sys_object_id ?? "—",
+      value: device.sys_object_id ?? "-",
       data: true,
     },
   ];
@@ -179,7 +181,7 @@ export function interfaceWarnings(row: ManagedInterfaceLatest, thresholds: Manag
 }
 
 export function formatRate(bps: number | null): string {
-  if (bps === null || bps === undefined || !Number.isFinite(bps) || bps < 0) return "—";
+  if (bps === null || bps === undefined || !Number.isFinite(bps) || bps < 0) return "-";
   if (bps >= 1_000_000_000) return `${trim(bps / 1_000_000_000)} Gbps`;
   if (bps >= 1_000_000) return `${trim(bps / 1_000_000)} Mbps`;
   if (bps >= 1_000) return `${trim(bps / 1_000)} kbps`;
@@ -187,12 +189,12 @@ export function formatRate(bps: number | null): string {
 }
 
 export function formatUtil(value: number | null): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
   return `${trim(value)}%`;
 }
 
 export function formatUptime(seconds: number | null): string {
-  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "-";
   const total = Math.floor(seconds);
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
@@ -203,9 +205,9 @@ export function formatUptime(seconds: number | null): string {
 }
 
 export function formatDateTime(value: string | null): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "—";
+  if (Number.isNaN(parsed.getTime())) return "-";
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
 }
 
@@ -337,8 +339,23 @@ export function observedHostDisplayName(row: ManagedObservedHostLatest): string 
 
 export function observedHostMacLabel(row: Pick<ManagedObservedHostLatest, "mac_address">): string {
   const value = row.mac_address?.trim() ?? "";
-  if (!/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(value)) return "—";
-  return value.toLowerCase() === "00:00:00:00:00:00" ? "—" : value;
+  if (!/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(value)) return "-";
+  return value.toLowerCase() === "00:00:00:00:00:00" ? "-" : value;
+}
+
+export function sortObservedHosts(
+  hosts: ManagedObservedHostLatest[],
+  key: ObservedHostSortKey,
+  direction: ObservedHostSortDirection,
+): ManagedObservedHostLatest[] {
+  const multiplier = direction === "asc" ? 1 : -1;
+  return [...hosts].sort((left, right) => {
+    const primary = key === "device"
+      ? observedHostDisplayName(left).localeCompare(observedHostDisplayName(right), undefined, { sensitivity: "base" })
+      : compareIpv4(left.ip_address, right.ip_address);
+    if (primary !== 0) return primary * multiplier;
+    return compareIpv4(left.ip_address, right.ip_address) * multiplier;
+  });
 }
 
 export function filterObservedHosts(
@@ -383,6 +400,16 @@ export function latestObservedAt(hosts: ManagedObservedHostLatest[], fallback: s
   const values = hosts.map((host) => host.last_seen_at).filter((value) => !Number.isNaN(Date.parse(value)));
   if (!values.length) return fallback;
   return values.reduce((latest, value) => Date.parse(value) > Date.parse(latest) ? value : latest);
+}
+
+function compareIpv4(left: string, right: string): number {
+  const leftOctets = left.split(".").map(Number);
+  const rightOctets = right.split(".").map(Number);
+  for (let index = 0; index < 4; index += 1) {
+    const difference = (leftOctets[index] ?? 0) - (rightOctets[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function relation(value: unknown): Record<string, unknown> | null {

@@ -79,7 +79,7 @@ test("managed system identity renders a safe unavailable value for a null System
   });
   assert.deepEqual(fields.find((field) => field.label === "System Object ID"), {
     label: "System Object ID",
-    value: "—",
+    value: "-",
     data: true,
   });
   assert.equal(fields.find((field) => field.label === "sysName")?.value, baseDevice.sys_name);
@@ -163,8 +163,8 @@ test("interfaceWarnings shows Speed changed only from a matching event", () => {
 });
 
 test("formatRate renders Gbps/Mbps/kbps/bps and a dash for null or negative", () => {
-  assert.equal(formatRate(null), "—");
-  assert.equal(formatRate(-1), "—");
+  assert.equal(formatRate(null), "-");
+  assert.equal(formatRate(-1), "-");
   assert.equal(formatRate(1_500_000_000), "1.5 Gbps");
   assert.equal(formatRate(1_000_000), "1 Mbps");
   assert.equal(formatRate(1500), "1.5 kbps");
@@ -172,21 +172,21 @@ test("formatRate renders Gbps/Mbps/kbps/bps and a dash for null or negative", ()
 });
 
 test("formatUtil renders a dash for null and never a misleading 0%", () => {
-  assert.equal(formatUtil(null), "—");
+  assert.equal(formatUtil(null), "-");
   assert.equal(formatUtil(0), "0%");
   assert.equal(formatUtil(12.5), "12.5%");
 });
 
 test("formatUptime renders days/hours/minutes and a dash for null", () => {
-  assert.equal(formatUptime(null), "—");
+  assert.equal(formatUptime(null), "-");
   assert.equal(formatUptime(90), "1m");
   assert.equal(formatUptime(3725), "1h 2m");
   assert.equal(formatUptime(90061), "1d 1h 1m");
 });
 
 test("formatDateTime renders a dash for null and invalid dates", () => {
-  assert.equal(formatDateTime(null), "—");
-  assert.equal(formatDateTime("not-a-date"), "—");
+  assert.equal(formatDateTime(null), "-");
+  assert.equal(formatDateTime("not-a-date"), "-");
   assert.match(formatDateTime("2026-01-02T03:04:05Z"), /2026|2025|Jan/i);
 });
 

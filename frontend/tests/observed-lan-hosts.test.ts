@@ -8,6 +8,7 @@ import {
   observedHostDisplayName,
   observedHostFilterCounts,
   observedHostMacLabel,
+  sortObservedHosts,
   type ManagedObservedHostLatest,
 } from "../lib/managed-telemetry.ts";
 
@@ -34,9 +35,39 @@ test("observed host naming falls back from inventory to NetBIOS to IP", () => {
 
 test("observed host MAC formatting hides missing, malformed, and all-zero values", () => {
   assert.equal(observedHostMacLabel({ mac_address: "AA:BB:CC:DD:EE:FF" }), "AA:BB:CC:DD:EE:FF");
-  assert.equal(observedHostMacLabel({ mac_address: null }), "—");
-  assert.equal(observedHostMacLabel({ mac_address: "00:00:00:00:00:00" }), "—");
-  assert.equal(observedHostMacLabel({ mac_address: "not-a-mac" }), "—");
+  assert.equal(observedHostMacLabel({ mac_address: null }), "-");
+  assert.equal(observedHostMacLabel({ mac_address: "00:00:00:00:00:00" }), "-");
+  assert.equal(observedHostMacLabel({ mac_address: "not-a-mac" }), "-");
+});
+
+test("Device sorting uses the displayed inventory, NetBIOS, and IP fallback names", () => {
+  const inventory = { ...baseHost, ip_address: "192.168.1.100", network_nodes: { name: "alpha Switch" } };
+  const netbios = { ...baseHost, ip_address: "192.168.1.20", netbios_name: "Bravo-PC" };
+  const ipFallback = { ...baseHost, ip_address: "192.168.1.3" };
+  const hosts = [netbios, ipFallback, inventory];
+
+  assert.deepEqual(sortObservedHosts(hosts, "device", "asc"), [ipFallback, inventory, netbios]);
+  assert.deepEqual(sortObservedHosts(hosts, "device", "desc"), [netbios, inventory, ipFallback]);
+  assert.deepEqual(hosts, [netbios, ipFallback, inventory], "sorting must not mutate the loaded observations");
+});
+
+test("IP sorting compares IPv4 octets numerically in both directions", () => {
+  const low = { ...baseHost, ip_address: "192.168.1.3" };
+  const middle = { ...baseHost, ip_address: "192.168.1.20" };
+  const high = { ...baseHost, ip_address: "192.168.1.100" };
+  const hosts = [high, low, middle];
+
+  assert.deepEqual(sortObservedHosts(hosts, "ip_address", "asc"), [low, middle, high]);
+  assert.deepEqual(sortObservedHosts(hosts, "ip_address", "desc"), [high, middle, low]);
+});
+
+test("sorting applies to the collection produced by existing search and filters", () => {
+  const zulu = { ...baseHost, ip_address: "192.168.1.100", netbios_name: "Zulu-PC" };
+  const alpha = { ...baseHost, ip_address: "192.168.1.20", network_nodes: { name: "Alpha Printer" } };
+  const stale = { ...baseHost, ip_address: "192.168.1.3", netbios_name: "Alpha Old", status: "stale" as const };
+  const visible = filterObservedHosts([zulu, stale, alpha], "alpha", "fresh");
+
+  assert.deepEqual(sortObservedHosts(visible, "device", "asc"), [alpha]);
 });
 
 test("observed host search is case-insensitive across inventory, NetBIOS, IP, and MAC", () => {
@@ -141,6 +172,9 @@ test("dedicated workspace exposes search and all five requested filters", () => 
   assert.match(component, /Legacy IP neighbor/);
   assert.match(component, /Observed hosts: \{displayed\.length\} \/ \{hosts\.length\}/);
   assert.match(component, /filterCounts\[option\.value\]/);
+  assert.match(component, /label="Device" sortKey="device"/);
+  assert.match(component, /label="IP address" sortKey="ip_address"/);
+  assert.match(component, /aria-sort=/);
 });
 
 function source(relativePath: string): string {

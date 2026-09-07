@@ -11,8 +11,11 @@ import {
   observedHostInventoryName,
   observedHostMacLabel,
   observedHostFilterCounts,
+  sortObservedHosts,
   type ManagedObservedHostLatest,
   type ObservedHostFilter,
+  type ObservedHostSortDirection,
+  type ObservedHostSortKey,
 } from "@/lib/managed-telemetry";
 
 type ObservationStatus = "available" | "empty" | "partial" | "unsupported" | null | undefined;
@@ -57,14 +60,22 @@ export function ObservedLanHostsSummary({ targetId, hosts, status, lastPolledAt 
 export function ObservedLanHostsWorkspace({ hosts, status }: WorkspaceProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ObservedHostFilter>("all");
+  const [sort, setSort] = useState<{ key: ObservedHostSortKey; direction: ObservedHostSortDirection } | null>(null);
   const displayed = useMemo(
-    () => filterObservedHosts(hosts, query, filter).sort((left, right) => left.status === right.status
-      ? right.last_seen_at.localeCompare(left.last_seen_at)
-      : left.status === "current" ? -1 : 1),
-    [filter, hosts, query],
+    () => {
+      const visible = filterObservedHosts(hosts, query, filter);
+      return sort ? sortObservedHosts(visible, sort.key, sort.direction) : visible.sort((left, right) => left.status === right.status
+        ? right.last_seen_at.localeCompare(left.last_seen_at)
+        : left.status === "current" ? -1 : 1);
+    },
+    [filter, hosts, query, sort],
   );
   const filterCounts = useMemo(() => observedHostFilterCounts(hosts), [hosts]);
   const currentCount = hosts.filter((host) => host.status === "current").length;
+  const toggleSort = (key: ObservedHostSortKey) => setSort((current) => ({
+    key,
+    direction: current?.key === key && current.direction === "asc" ? "desc" : "asc",
+  }));
 
   return <section className="mt-6" aria-label="Observed LAN Hosts">
     <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -104,7 +115,7 @@ export function ObservedLanHostsWorkspace({ hosts, status }: WorkspaceProps) {
         {displayed.length === 0 ? <StateMessage>No observed hosts match the current search and filter.</StateMessage>
           : <div className="mt-3 overflow-x-auto rounded-control border border-border">
             <table className="w-full min-w-[1040px] text-left text-meta">
-              <thead className="bg-bg-surface text-text-secondary"><tr><th className="p-3">Device</th><th className="p-3">IP address</th><th className="p-3">MAC address</th><th className="p-3">NetBIOS name</th><th className="p-3">Observation evidence</th><th className="p-3">Freshness</th><th className="p-3">First / last seen</th></tr></thead>
+              <thead className="bg-bg-surface text-text-secondary"><tr><SortableHeader activeSort={sort} label="Device" sortKey="device" onSort={toggleSort} /><SortableHeader activeSort={sort} label="IP address" sortKey="ip_address" onSort={toggleSort} /><th className="p-3">MAC address</th><th className="p-3">NetBIOS name</th><th className="p-3">Observation evidence</th><th className="p-3">Freshness</th><th className="p-3">First / last seen</th></tr></thead>
               <tbody>{displayed.map((host) => <ObservedHostRow host={host} key={`${host.target_id}-${host.ip_address}`} />)}</tbody>
             </table>
           </div>}
@@ -119,11 +130,26 @@ function ObservedHostRow({ host }: { host: ManagedObservedHostLatest }) {
     <td className="p-3"><p className="font-medium">{inventoryName && host.node_id ? <Link className="text-accent hover:underline" href="/devices" title="Open reusable Network Node inventory">{deviceLabel}</Link> : deviceLabel}</p>{inventoryName ? <span className="mt-1 block text-text-muted">Linked Network Node</span> : null}</td>
     <td className="p-3 font-data">{host.ip_address}</td>
     <td className="p-3 font-data">{observedHostMacLabel(host)}</td>
-    <td className="p-3">{host.netbios_name ?? "—"}{host.enrichment_status !== "resolved" ? <span className="mt-1 block text-text-muted">Name unavailable</span> : null}</td>
+    <td className="p-3">{host.netbios_name ?? "-"}{host.enrichment_status !== "resolved" ? <span className="mt-1 block text-text-muted">Name unavailable</span> : null}</td>
     <td className="p-3">{host.observation_source === "ip_net_to_physical" ? "IP-MIB neighbor" : "Legacy IP neighbor"}</td>
     <td className="p-3"><span className={host.status === "current" ? "text-severity-low" : "text-text-muted"}>{host.status === "current" ? "Fresh" : "Stale"}</span></td>
     <td className="p-3 font-data"><span className="block" suppressHydrationWarning>{formatDateTime(host.first_seen_at)}</span><span className="mt-1 block text-text-muted" suppressHydrationWarning>{formatDateTime(host.last_seen_at)}</span></td>
   </tr>;
+}
+
+function SortableHeader({ activeSort, label, sortKey, onSort }: {
+  activeSort: { key: ObservedHostSortKey; direction: ObservedHostSortDirection } | null;
+  label: string;
+  sortKey: ObservedHostSortKey;
+  onSort: (key: ObservedHostSortKey) => void;
+}) {
+  const active = activeSort?.key === sortKey;
+  const direction = active ? activeSort.direction : null;
+  return <th className="p-3" aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
+    <button className="inline-flex items-center gap-1.5 font-medium hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent" type="button" onClick={() => onSort(sortKey)}>
+      {label}<span className="w-3 text-accent" aria-hidden="true">{direction === "asc" ? "↑" : direction === "desc" ? "↓" : ""}</span>
+    </button>
+  </th>;
 }
 
 function SummaryMetric({ label, value, data = false }: { label: string; value: string; data?: boolean }) {

@@ -336,4 +336,4 @@ function PanelMessage({ children }: { children: React.ReactNode }) {
 function option(value: string) { return { value, label: value }; }
 function optionValues(values: string[], selected: string) { return Array.from(new Set([...values, ...(selected === "all" ? [] : [selected])])).sort(); }
 function formatDateInput(date: Date) { const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 10); }
-function formatMbps(value: number | null) { return value === null ? "—" : `${value.toFixed(2)} Mbps`; }
+function formatMbps(value: number | null) { return value === null ? "-" : `${value.toFixed(2)} Mbps`; }
