@@ -1,4 +1,5 @@
 import type { NormalizedRunnerHeartbeat } from "./contract.js";
+import { firstRow, SupabaseRestClient } from "../supabase-rest.js";
 
 export type RunnerHeartbeatRow = Readonly<{
   id: string;
@@ -21,45 +22,38 @@ export interface RunnerHeartbeatRepository {
 }
 
 export class SupabaseRunnerHeartbeatRepository implements RunnerHeartbeatRepository {
-  readonly #baseUrl: string;
-  readonly #headers: Readonly<Record<string, string>>;
+  readonly #client: SupabaseRestClient;
 
   constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.#baseUrl = supabaseUrl.replace(/\/$/, "");
-    this.#headers = Object.freeze({
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      "Content-Type": "application/json",
-    });
+    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey);
   }
 
   async upsertHeartbeat(row: RunnerHeartbeatRow, signal: AbortSignal): Promise<StoredRunnerHeartbeat> {
-    const response = await fetch(
-      `${this.#baseUrl}/rest/v1/diagnostic_runners?on_conflict=id&select=id,last_seen_at,health_status,health_error_code`,
-      {
+    try {
+      const payload = await this.#client.table<unknown>("diagnostic_runners", {
         method: "POST",
-        headers: { ...this.#headers, Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(row),
+        query: { on_conflict: "id", select: "id,last_seen_at,health_status,health_error_code" },
+        prefer: "resolution=merge-duplicates,return=representation",
+        body: row,
         signal,
-      },
-    );
-    if (!response.ok) throw new RunnerHeartbeatPersistenceError("RUNNER_HEARTBEAT_STORE_FAILED");
-    const payload: unknown = await response.json();
-    const stored = Array.isArray(payload) ? payload[0] : payload;
-    if (!isStoredHeartbeat(stored)) {
+      });
+      const stored = firstRow<StoredRunnerHeartbeat>(payload);
+      if (!isStoredHeartbeat(stored)) {
+        throw new RunnerHeartbeatPersistenceError("RUNNER_HEARTBEAT_STORE_FAILED");
+      }
+      return stored;
+    } catch (error) {
+      if (error instanceof RunnerHeartbeatPersistenceError) throw error;
       throw new RunnerHeartbeatPersistenceError("RUNNER_HEARTBEAT_STORE_FAILED");
     }
-    return stored;
   }
 
   async expireStaleTrafficSessions(runnerId: string, signal: AbortSignal): Promise<void> {
-    const response = await fetch(`${this.#baseUrl}/rest/v1/rpc/expire_stale_traffic_sessions`, {
-      method: "POST",
-      headers: this.#headers,
-      body: JSON.stringify({ p_runner_id: runnerId }),
-      signal,
-    });
-    if (!response.ok) throw new RunnerHeartbeatPersistenceError("RUNNER_HEARTBEAT_RECOVERY_FAILED");
+    try {
+      await this.#client.rpc("expire_stale_traffic_sessions", { p_runner_id: runnerId }, signal);
+    } catch {
+      throw new RunnerHeartbeatPersistenceError("RUNNER_HEARTBEAT_RECOVERY_FAILED");
+    }
   }
 }
 

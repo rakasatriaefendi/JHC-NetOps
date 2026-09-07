@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -82,19 +83,32 @@ class DiagnosticsSettings:
 
 @dataclass(frozen=True)
 class TrafficSettings:
-    supabase_url: str
-    service_role_key: str
+    backend_url: str
+    backend_token: str
+    local_backend: bool
     request_timeout_seconds: float
     buffer_path: Path
 
     @classmethod
     def from_env(cls) -> "TrafficSettings":
         load_dotenv()
+        local_url = os.getenv("LOCAL_BACKEND_URL", "").strip().rstrip("/")
+        local_token = os.getenv("LOCAL_BACKEND_TOKEN", "")
         url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        if local_url or local_token:
+            parsed = urlparse(local_url)
+            if (parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+                    or parsed.username or parsed.password or parsed.query or parsed.fragment
+                    or parsed.path not in {"", "/"} or not 32 <= len(local_token) <= 512
+                    or any(character.isspace() for character in local_token)):
+                raise ValueError("Local Traffic backend configuration is invalid")
+            return cls(local_url, local_token, True,
+                       _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
+                       Path(os.getenv("TRAFFIC_BUFFER_PATH", "data/traffic-buffer.sqlite3")).expanduser())
         if not url.startswith(("http://", "https://")) or not key:
             raise ValueError("Traffic backend credentials are required")
-        return cls(url, key, _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
+        return cls(url, key, False, _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
                    Path(os.getenv("TRAFFIC_BUFFER_PATH", "data/traffic-buffer.sqlite3")).expanduser())
 
 

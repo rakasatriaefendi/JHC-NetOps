@@ -25,9 +25,11 @@ Hermes AI Agent masih berupa endpoint stub dan belum menjalankan analisis LLM.
 ```mermaid
 flowchart LR
     Browser[Next.js dashboard] --> Supabase[Supabase Auth, Database, Realtime, Edge Functions]
-    Runner[Local Runner: Windows or Linux] <--> Supabase
+    Runner[Local Runner: Windows or Linux] --> Backend[Loopback Fastify backend]
+    Backend -->|REST and RPC| Supabase
     Runner -->|WSL or native structured command| Agent[Same Python agent]
-    Agent -->|metrics and diagnostic results| Supabase
+    Agent -->|recurring Traffic snapshots and flows| Backend
+    Agent -->|on-demand diagnostic results| Supabase
     Agent --> Tools[iperf3 / mtr / Scapy]
     Hermes[Hermes Flask agent - stub] -. event-based .-> Supabase
 ```
@@ -46,7 +48,7 @@ atau diaktifkan pada Mini PC. Lihat
 | Folder | Fungsi |
 |---|---|
 | [`agent`](agent/README.md) | Agent Python, metrik, diagnostics, dan capture traffic header-only. |
-| [`backend`](backend/README.md) | Backend lokal Fastify; P10A menangani heartbeat runner melalui bridge Supabase yang terbatas. |
+| [`backend`](backend/README.md) | Backend lokal Fastify; P10B menangani heartbeat dan recurring runner data plane melalui repository Supabase. |
 | [`frontend`](frontend/README.md) | Dashboard Next.js App Router. |
 | [`runner`](runner/README.md) | Orkestrasi Windows/Linux, heartbeat, Health Watch, dan job lokal. |
 | [`supabase`](supabase/README.md) | Migration, RLS, dan Edge Functions. |

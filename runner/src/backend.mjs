@@ -1,5 +1,5 @@
 export class BackendClient {
-  constructor(url, serviceRoleKey, localHeartbeat = null) {
+  constructor(url, serviceRoleKey, localBackend = null) {
     if (!url || !serviceRoleKey) throw new Error("Backend credentials are unavailable");
     this.endpoint = `${url.replace(/\/$/, "")}/functions/v1/diagnostic-jobs`;
     this.trafficEndpoint = `${url.replace(/\/$/, "")}/functions/v1/traffic-live`;
@@ -12,11 +12,14 @@ export class BackendClient {
       apikey: serviceRoleKey,
       "Content-Type": "application/json",
     };
-    this.localHeartbeatEndpoint = localHeartbeat
-      ? `${localHeartbeat.url}/api/runner/heartbeat`
+    this.localHeartbeatEndpoint = localBackend
+      ? `${localBackend.url}/api/runner/heartbeat`
       : null;
-    this.localHeartbeatHeaders = localHeartbeat ? {
-      Authorization: `Bearer ${localHeartbeat.token}`,
+    this.localHealthEndpoint = localBackend ? `${localBackend.url}/api/runner/network-health` : null;
+    this.localTrafficEndpoint = localBackend ? `${localBackend.url}/api/runner/traffic` : null;
+    this.localTelemetryEndpoint = localBackend ? `${localBackend.url}/api/runner/managed-telemetry` : null;
+    this.localBackendHeaders = localBackend ? {
+      Authorization: `Bearer ${localBackend.token}`,
       "Content-Type": "application/json",
     } : null;
   }
@@ -44,11 +47,11 @@ export class BackendClient {
   fail(runnerId, jobId, errorCode, errorMessage) {
     return this.#post({ action: "fail_job", runner_id: runnerId, job_id: jobId, error_code: errorCode, error_message: errorMessage });
   }
-  claimTraffic(runnerId) { return this.#postTraffic({ action: "claim_session", runner_id: runnerId }); }
-  trafficProgress(runnerId, sessionId, stage) { return this.#postTraffic({ action: "update_session", runner_id: runnerId, session_id: sessionId, stage }); }
-  completeTraffic(runnerId, sessionId) { return this.#postTraffic({ action: "complete_session", runner_id: runnerId, session_id: sessionId }); }
-  failTraffic(runnerId, sessionId, code, message) { return this.#postTraffic({ action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: code, error_message: message }); }
-  healthTargets(runnerId) { return this.#postHealth({ action: "list_targets", runner_id: runnerId }); }
+  claimTraffic(runnerId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "claim_session", runner_id: runnerId }); }
+  trafficProgress(runnerId, sessionId, stage) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "update_session", runner_id: runnerId, session_id: sessionId, stage }); }
+  completeTraffic(runnerId, sessionId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "complete_session", runner_id: runnerId, session_id: sessionId }); }
+  failTraffic(runnerId, sessionId, code, message) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: code, error_message: message }); }
+  healthTargets(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "list_targets", runner_id: runnerId }); }
   claimManualPing(runnerId) { return this.#postHealth({ action: "claim_manual_ping", runner_id: runnerId }); }
   completeManualPing(runnerId, pingId, result) {
     return this.#postHealth({ action: "complete_manual_ping", runner_id: runnerId, ping_id: pingId, result });
@@ -57,7 +60,7 @@ export class BackendClient {
     return this.#postHealth({ action: "fail_manual_ping", runner_id: runnerId, ping_id: pingId, error_code: errorCode });
   }
   publishHealth(runnerId, states, transitions) {
-    return this.#postHealth({ action: "publish", runner_id: runnerId, states, transitions });
+    return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "publish", runner_id: runnerId, states, transitions });
   }
   claimDiscovery(runnerId) { return this.#postDiscovery({ action: "claim_session", runner_id: runnerId }); }
   discoveryContextReady(runnerId, sessionId, context) {
@@ -82,9 +85,9 @@ export class BackendClient {
   failInspection(runnerId, inspectionId, errorCode) {
     return this.#postInspection({ action: "fail_session", runner_id: runnerId, inspection_id: inspectionId, error_code: errorCode });
   }
-  managedTelemetryTargets(runnerId) { return this.#postTelemetry({ action: "list_targets", runner_id: runnerId }); }
+  managedTelemetryTargets(runnerId) { return this.#postRecurring("Managed telemetry", this.localTelemetryEndpoint, this.telemetryEndpoint, { action: "list_targets", runner_id: runnerId }); }
   publishManagedTelemetry(runnerId, device, interfaces, transitions, observedHosts = []) {
-    return this.#postTelemetry({ action: "publish", runner_id: runnerId, device, interfaces, transitions, observed_hosts: observedHosts });
+    return this.#postRecurring("Managed telemetry", this.localTelemetryEndpoint, this.telemetryEndpoint, { action: "publish", runner_id: runnerId, device, interfaces, transitions, observed_hosts: observedHosts }, true);
   }
 
   async #post(body) {
@@ -96,7 +99,7 @@ export class BackendClient {
   async #postLocalHeartbeat(body) {
     const response = await fetch(this.localHeartbeatEndpoint, {
       method: "POST",
-      headers: this.localHeartbeatHeaders,
+      headers: this.localBackendHeaders,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     });
@@ -104,10 +107,19 @@ export class BackendClient {
     if (!response.ok) throw new Error(`Local heartbeat request failed with HTTP ${response.status}`);
     return payload.data;
   }
-  async #postTraffic(body) {
-    const response = await fetch(this.trafficEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+  async #postRecurring(label, localEndpoint, edgeEndpoint, body, managedTelemetryPublish = false) {
+    const local = Boolean(localEndpoint);
+    const response = await fetch(localEndpoint ?? edgeEndpoint, {
+      method: "POST",
+      headers: local ? this.localBackendHeaders : this.headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(backendFailureMessage("Traffic backend", response.status, payload));
+    if (!response.ok) {
+      if (managedTelemetryPublish) throw managedTelemetryPublishError(response.status, payload);
+      throw new Error(backendFailureMessage(`${local ? "Local " : ""}${label} backend`, response.status, payload));
+    }
     return payload.data;
   }
   async #postHealth(body) {
@@ -126,15 +138,6 @@ export class BackendClient {
     const response = await fetch(this.inspectionEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(backendFailureMessage("Device inspection backend", response.status, payload));
-    return payload.data;
-  }
-  async #postTelemetry(body) {
-    const response = await fetch(this.telemetryEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if (body.action === "publish") throw managedTelemetryPublishError(response.status, payload);
-      throw new Error(backendFailureMessage("Managed telemetry backend", response.status, payload));
-    }
     return payload.data;
   }
 }
@@ -158,10 +161,25 @@ export function loadLocalHeartbeatConfig(environment = process.env) {
   }
 }
 
+export const loadLocalBackendConfig = loadLocalHeartbeatConfig;
+
+export function exposeLocalBackendToWsl(localBackend, environment = process.env, platform = process.platform) {
+  if (!localBackend || platform !== "win32") return;
+  const entries = String(environment.WSLENV ?? "").split(":").filter(Boolean);
+  const names = new Set(entries.map((entry) => entry.split("/")[0]));
+  for (const name of ["LOCAL_BACKEND_URL", "LOCAL_BACKEND_TOKEN"]) {
+    if (!names.has(name)) entries.push(name);
+  }
+  environment.LOCAL_BACKEND_URL = localBackend.url;
+  environment.LOCAL_BACKEND_TOKEN = localBackend.token;
+  environment.WSLENV = entries.join(":");
+}
+
 const MANAGED_TELEMETRY_PUBLISH_CODE = "MANAGED_TELEMETRY_PUBLISH_FAILED";
 const SAFE_BACKEND_CODE = /^[a-z][a-z0-9_-]{0,63}$/i;
 const SECRET_SHAPED = /(?:authorization|bearer|token|password|passwd|secret|community|auth_password|priv_password|service_role|apikey|sb_[a-z0-9_-]+)/i;
 const SAFE_MANAGED_TELEMETRY_MESSAGES = new Set([
+  "Managed telemetry request failed",
   "Managed telemetry device payload is invalid",
   "Managed telemetry interface payload is invalid",
   "Managed telemetry event payload is invalid",
@@ -212,14 +230,15 @@ export function managedTelemetryPublishDiagnostic(error) {
 }
 
 function safeBackendCode(payload) {
-  for (const candidate of [payload?.code, payload?.error_code, payload?.category]) {
+  for (const candidate of [payload?.code, payload?.error_code, payload?.category, payload?.error?.code]) {
     if (typeof candidate === "string" && SAFE_BACKEND_CODE.test(candidate) && !SECRET_SHAPED.test(candidate)) return candidate;
   }
   return null;
 }
 
 function safeBackendMessage(payload) {
-  return typeof payload?.error === "string" && SAFE_MANAGED_TELEMETRY_MESSAGES.has(payload.error) ? payload.error : null;
+  const candidate = typeof payload?.error === "string" ? payload.error : payload?.error?.message;
+  return typeof candidate === "string" && SAFE_MANAGED_TELEMETRY_MESSAGES.has(candidate) ? candidate : null;
 }
 
 export function backendFailureMessage(label, status, payload) {

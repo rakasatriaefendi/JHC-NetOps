@@ -568,9 +568,10 @@ service shared lainnya sebagai bagian build/review repository.
 
 Mental model deployment: `build-frontend.sh` hanya untuk build; runtime existing
 tetap memakai `run-runner.sh` dan `run-frontend.sh`. Ecosystem PM2 juga memuat
-`run-backend.sh`; P10A dapat mengarahkan heartbeat saja ke backend loopback dengan
-pasangan `LOCAL_BACKEND_URL`/`LOCAL_BACKEND_TOKEN`. Operasi runner lain tetap
-memakai Supabase Edge Function. systemd dan PM2 tidak boleh menjalankan proses NetOps
-yang sama secara bersamaan.
+`run-backend.sh`; P10B mengarahkan heartbeat serta recurring Health Watch,
+Traffic, dan Managed Telemetry ke backend loopback dengan pasangan
+`LOCAL_BACKEND_URL`/`LOCAL_BACKEND_TOKEN`. Manual Ping, Discovery, Device
+Inspector, dan diagnostics tetap memakai Supabase Edge Function. systemd dan PM2
+tidak boleh menjalankan proses NetOps yang sama secara bersamaan.
 
 Hasil sementara berada di satu `device_inspection_sessions` row per runner dan expired 10 menit. Menutup drawer unknown tanpa Save tidak membuat `network_nodes`. `Save identity` menyimpan operator name/location/type/notes secara eksplisit; `Save detected evidence` menyimpan fingerprint terstruktur. Reinspection hanya boleh memperbarui `detected_fingerprint` dan `last_inspected_at` tanpa mengubah identity atau Health Watch. Bila evidence `This Device` bertentangan dengan kategori operator, perbaiki inventory secara eksplisit melalui form—warning tidak melakukan overwrite otomatis. Jangan menulis raw tool stdout, HTML/XML/body, token, atau credential ke Supabase/log.

@@ -54,9 +54,12 @@ Untuk native Ubuntu, mental model prosesnya adalah:
   PM2 terpisah, mengubah system Node/default NVM, atau melakukan `pm2 save`
   otomatis.
 
-Backend P9 hanya menyediakan health endpoint lokal di `127.0.0.1:3402`.
-Supabase Auth, Realtime, database, dan seluruh Edge Function masih authoritative;
-frontend dan runner belum mengirim traffic aplikasi ke backend lokal.
+Backend P10B terikat di `127.0.0.1:3402`. Heartbeat dan seluruh recurring runner
+data plane (Health Watch, Traffic, Managed Telemetry) melewati backend ini lalu
+repository REST/RPC Supabase. Supabase database, Auth, RLS, dan Realtime tetap
+authoritative; PostgreSQL/Auth lokal belum diperkenalkan. Manual Ping, Discovery,
+Device Inspector, LAN Diagnostics, dan control-plane berfrekuensi rendah masih
+memakai Edge Function.
 
 ## Current architecture
 
@@ -64,10 +67,10 @@ frontend dan runner belum mengirim traffic aplikasi ke backend lokal.
 Browser / Next.js
         |
         v
-Supabase Auth + Database + Realtime + Edge Functions
+Supabase Auth + Database + Realtime + control-plane Edge Functions
         ^
         |
-Local Runner (Node.js)
+Loopback Fastify backend <--- Local Runner (Node.js)
         |-- Windows: PowerShell context + PING.EXE + wsl.exe --exec
         `-- Linux: ip -j context + ping + native child process
                  |
@@ -79,7 +82,8 @@ Local Runner (Node.js)
 | Layer | Responsibility |
 |---|---|
 | Frontend | Authenticated UI, read models, Realtime subscriptions, and structured admin actions. It never runs local shell commands. |
-| Supabase | Authentication, RLS, persistent latest state/history, temporary job/session coordination, and validated Edge Function contracts. |
+| Supabase | Authentication, RLS, persistent latest state/history, temporary job/session coordination, Realtime, and retained control-plane Edge contracts. |
+| Local backend | Timing-safe runner auth and bounded persistence bridge for heartbeat plus recurring Health, Traffic, and Managed Telemetry. |
 | Local runner | Heartbeat, allow-list enforcement, scheduling, platform context, relocatable local state/logs, and structured WSL/native process orchestration. |
 | Python agent | Network measurement, bounded inspection/capture, SNMP collection, and normalized protocol output. |
 
@@ -323,7 +327,7 @@ or SNMP secrets into the frontend or cloud database.
 | Symptom | Current Windows/WSL check | Interpretation / next safe action |
 |---|---|---|
 | Runner preflight fails | Run `npm run preflight` in `runner`; inspect the safe code and `runner/logs/runner.log`. | Verify configured distro/path, project venv, exact `iperf3`/MTR paths, Scapy, and local environment. Do not fall back to an arbitrary Python. |
-| Supabase/backend unreachable | Run `node runner/scripts/backend-status.mjs`; verify Internet/DNS and the configured project URL without printing keys. | Local coalesced state should remain for retry. Do not manually insert operational rows. |
+| Supabase/backend unreachable | Check `http://127.0.0.1:3402/healthz`, then run `node runner/scripts/backend-status.mjs`; verify the project URL without printing keys. | Health/telemetry caches and Traffic flow buffer retain existing retry semantics. No operation falls back to Edge automatically. Do not manually insert rows. |
 | Discovery context invalid | Run the fixed context helper only as documented in `AGENT_SETUP.md`; validate structured addresses/prefix/routes. | Windows PowerShell context must serialize to the normalized contract; never replace it with a browser CIDR. |
 | Discovery finds fewer hosts | Check interface selection, actual prefix, ICMP policy, neighbor cache, and the 254-host bounded window. | Silent hosts, a large subnet window, or filtering can reduce results. It is not a full inventory scan. |
 | Wi-Fi clients cannot see each other | Check AP/client isolation with the network administrator. | Isolation can block lateral ICMP even when Internet access works. Do not weaken scope controls. |
@@ -353,6 +357,36 @@ still be recorded during P8 validation; Windows commands do not apply to Linux.
 - [ ] `PORTABLE_DEV_MODE` is OFF for normal operation.
 - [ ] Frontend tests, lint, typecheck, and production build pass.
 - [ ] Safe stop/restart and local-state recovery procedure is known.
+- [ ] P10B rollback is known: stop runner, remove both `LOCAL_BACKEND_*`, restart
+  into Edge rollback mode, verify recurring loops, then stop local backend if desired.
+
+### P10B Local Backend Rollback (PM2 — executable)
+
+Gunakan nama proses PM2 aktual:
+
+```bash
+# 1. Hentikan hanya runner
+pm2 stop jhc-netops-runner
+
+# 2. Cadangkan environment runner
+cp /var/www/jhc/jhc_noc/shared/runner/.env /var/www/jhc/jhc_noc/shared/runner/.env.p10b-backup
+
+# 3. Hapus KEDUANYA dari /var/www/jhc/jhc_noc/shared/runner/.env:
+#    LOCAL_BACKEND_URL
+#    LOCAL_BACKEND_TOKEN
+
+# 4. Restart runner (kembali ke Edge recurring transport)
+pm2 restart jhc-netops-runner
+
+# 5. Verifikasi: Health Watch, Traffic, Managed Telemetry via Edge Function
+
+# 6. Opsional: hentikan backend lokal jika diinginkan
+pm2 stop jhc-netops-backend
+```
+
+**JANGAN:** `pm2 restart all`, `pm2 stop all`, `pm2 delete all`, `pm2 kill`.
+**JANGAN** ganti mode saat operasi recurring in-flight — tidak ada fallback otomatis, tidak ada dual-write.
+**Normal P10B operation:** kedua `LOCAL_BACKEND_URL` dan `LOCAL_BACKEND_TOKEN` **wajib** terpasang; konfigurasi parsial ditolak.
 - [ ] Maintainer understands that Windows + WSL is validated and P8A Linux is
   application-compatible and Mini-PC staging-validated; systemd always-on
   installation and power-loss/rollback validation remain pending.

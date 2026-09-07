@@ -9,6 +9,8 @@ menjalankan diagnostics on-demand, dan melakukan bounded header-only traffic cap
 - Loop `traffic_metrics` independen dengan interval default 10 detik.
 - Health check gateway dan DNS.
 - Buffer SQLite lokal ketika Supabase tidak dapat dijangkau.
+- Ketika kedua `LOCAL_BACKEND_*` tersedia, snapshot dan flow Traffic memakai route
+  runner backend loopback; tidak fallback ke Edge dalam request yang sama.
 - `iperf3` dan `mtr` melalui subprocess dengan output JSON.
 - Live Traffic berbasis metadata IPv4 TCP/UDP/ICMP tanpa payload atau PCAP.
 

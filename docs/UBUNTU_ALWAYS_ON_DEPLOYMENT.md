@@ -56,9 +56,9 @@ diotorisasi dan tidak menerima IP atau parameter ping dari browser. Nilai
 Jangan menyimpan config nyata, community, username SNMPv3, auth password, privacy
 password, service-role key, atau token di release maupun Git.
 
-## Environment heartbeat lokal P10A
+## Environment recurring data plane lokal P10B
 
-Saat rollout P10A direview, isi `/var/www/jhc/jhc_noc/shared/backend/.env` dengan
+Saat rollout P10B direview, isi `/var/www/jhc/jhc_noc/shared/backend/.env` dengan
 `HOST=127.0.0.1`, `PORT=3402`, `RUNNER_API_TOKEN`, `SUPABASE_URL`, dan
 `SUPABASE_SERVICE_ROLE_KEY`. Isi `/var/www/jhc/jhc_noc/shared/runner/.env` tetap
 memerlukan credential Supabase untuk operasi lama, lalu tambahkan:
@@ -70,9 +70,11 @@ LOCAL_BACKEND_TOKEN=<same value as RUNNER_API_TOKEN>
 
 Gunakan token acak minimal 32 karakter dan izin file yang hanya dapat dibaca
 account service. Jangan menaruh nilai nyata di release, Git, log, atau frontend.
-Kedua variabel runner harus dipasang atau dikosongkan bersama. Mengosongkan
-keduanya mengembalikan heartbeat ke `diagnostic-jobs` Edge Function; operasi
-runner lain tetap melalui Edge Function meskipun heartbeat lokal aktif.
+Kedua variabel runner harus dipasang atau dikosongkan bersama. Ketika terpasang,
+heartbeat serta recurring Health Watch, Traffic, dan Managed Telemetry memakai
+backend loopback. Mengosongkan keduanya saat runner dihentikan mengembalikan
+seluruh recurring path tersebut ke Edge Function sebagai rollback. Manual Ping,
+Discovery, Device Inspector, dan diagnostics tetap melalui Edge Function.
 
 ## Review dan instalasi manual systemd
 
@@ -163,6 +165,61 @@ State, logs, config, dan environment tetap berada di `shared`, sehingga rollback
 kode tidak menghapus state runtime. Bila kontrak state berubah pada masa depan,
 compatibility harus direview sebelum switch.
 
+## P10B Local Backend Rollback (PM2)
+
+Prosedur ini khusus untuk mengganti mode recurring data plane dari backend lokal
+(loopback `127.0.0.1:3402`) kembali ke Supabase Edge Function yang ditahan, **tanpa**
+mengaruhi release kode atau symlink `current`. Gunakan hanya ketika runner aktif
+dan backend lokal dalam mode P10B (`LOCAL_BACKEND_URL` + `LOCAL_BACKEND_TOKEN`
+terpasang).
+
+**Nama proses PM2 aktual:**
+- `jhc-netops-runner`
+- `jhc-netops-backend`
+- `jhc-netops-frontend`
+
+**Langkah rollback:**
+
+1. Hentikan hanya NetOps runner:
+   ```bash
+   pm2 stop jhc-netops-runner
+   ```
+
+2. Cadangkan environment runner sebelum diedit:
+   ```bash
+   cp /var/www/jhc/jhc_noc/shared/runner/.env /var/www/jhc/jhc_noc/shared/runner/.env.p10b-backup
+   ```
+
+3. Hapus **KEDUANYA** dari `/var/www/jhc/jhc_noc/shared/runner/.env`:
+   ```
+   LOCAL_BACKEND_URL
+   LOCAL_BACKEND_TOKEN
+   ```
+   (Biarkan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` tetap ada.)
+
+4. Restart hanya runner:
+   ```bash
+   pm2 restart jhc-netops-runner
+   ```
+
+5. Verifikasi recurring path telah kembali ke Edge:
+   - Health Watch: log "Health targets refreshed" tanpa error lokal
+   - Traffic: session claim/progress/snapshot/flows via Edge `traffic-live`
+   - Managed Telemetry: target list/publish via Edge `managed-telemetry`
+   - Heartbeat: tetap lewat lokal (P10A) atau Edge jika `LOCAL_BACKEND_*` kedua kosong
+
+6. Backend lokal boleh tetap jalan (tidak merusak), atau dihentikan opsional:
+   ```bash
+   pm2 stop jhc-netops-backend
+   ```
+
+**LARANGAN:**
+- JANGAN gunakan `pm2 restart all`, `pm2 stop all`, `pm2 delete all`, atau `pm2 kill`.
+- JANGAN ganti mode lokal/Edge saat operasi recurring (Health Watch probe, Traffic capture, SNMP poll) masih in-flight — P10B sengaja **tidak punya fallback otomatis** dan **tidak dual-write**.
+- Operasi normal P10B **wajib** kedua `LOCAL_BACKEND_URL` dan `LOCAL_BACKEND_TOKEN` terpasang; konfigurasi parsial ditolak.
+
+## Batas keamanan
+
 ## Batas keamanan
 
 - Service berjalan sebagai `mini-pc`, bukan root, dan launcher tidak memakai
@@ -210,9 +267,9 @@ Role hanya berlaku bagi akun Aktif.
 ## Ringkasan runtime
 
 Aplikasi tetap process-manager-neutral. P9 menambahkan backend Node.js mandiri
-sebagai proses ketiga di ecosystem PM2; P10A menambahkan `POST
-/api/runner/heartbeat` sebagai satu-satunya jalur runner yang dapat dialihkan ke
-backend lokal. Jika mentor memilih PM2 di masa depan,
+sebagai proses ketiga di ecosystem PM2; P10B menambahkan route heartbeat,
+Network Health, Traffic, dan Managed Telemetry melalui backend lokal. Jika mentor
+memilih PM2 di masa depan,
 entrypoint runner tetap `deploy/run-runner.sh`; jangan menjalankan service systemd
 runner dan proses PM2 runner bersamaan. Frontend tetap proses terpisah. Python
 agent bukan service keempat—runner hanya memanggilnya on demand untuk operation
