@@ -20,5 +20,15 @@ module.exports = {
       autorestart: true,
       watch: false,
     },
+    {
+      name: "jhc-netops-backend",
+      script: "deploy/run-backend.sh",
+      cwd: "/var/www/jhc/jhc_noc/current",
+      interpreter: "/usr/bin/bash",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+    },
   ],
 };

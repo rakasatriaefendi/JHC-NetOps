@@ -39,7 +39,8 @@ user/akses. Hanya status Aktif (`approved`) yang dapat memakai izin role; Menung
 Untuk native Ubuntu, mental model prosesnya adalah:
 
 - build: `deploy/build-frontend.sh`;
-- runtime: `deploy/run-runner.sh` dan `deploy/run-frontend.sh`;
+- runtime: `deploy/run-runner.sh`, `deploy/run-frontend.sh`, dan fondasi P9
+  `deploy/run-backend.sh`;
 - process manager: systemd atau PM2, tidak bersamaan. Jika memilih PM2, hentikan
   service systemd NetOps terlebih dahulu lalu jalankan dari release aktif:
 
@@ -48,10 +49,14 @@ Untuk native Ubuntu, mental model prosesnya adalah:
   pm2 start deploy/ecosystem.config.cjs
   ```
 
-  Ecosystem menjalankan tepat dua aplikasi fork melalui launcher Bash tersebut,
+  Ecosystem menjalankan tepat tiga aplikasi fork melalui launcher Bash tersebut,
   masing-masing satu instance. Jangan menjalankan npm atau Python sebagai app
   PM2 terpisah, mengubah system Node/default NVM, atau melakukan `pm2 save`
   otomatis.
+
+Backend P9 hanya menyediakan health endpoint lokal di `127.0.0.1:3402`.
+Supabase Auth, Realtime, database, dan seluruh Edge Function masih authoritative;
+frontend dan runner belum mengirim traffic aplikasi ke backend lokal.
 
 ## Current architecture
 

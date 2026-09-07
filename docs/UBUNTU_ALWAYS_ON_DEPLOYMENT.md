@@ -12,6 +12,7 @@ enable, start, dan restart pada Mini PC harus dilakukan manual setelah review.
 - konfigurasi runner: `/var/www/jhc/jhc_noc/shared/runner/config.json`;
 - environment runner: `/var/www/jhc/jhc_noc/shared/runner/.env`;
 - environment frontend: `/var/www/jhc/jhc_noc/shared/frontend/.env`;
+- environment backend: `/var/www/jhc/jhc_noc/shared/backend/.env`;
 - state runner: `/var/www/jhc/jhc_noc/shared/state`;
 - log aplikasi runner: `/var/www/jhc/jhc_noc/shared/logs`;
 - Node: `/home/mini-pc/.nvm/versions/node/v22.23.2/bin/node`.
@@ -25,6 +26,7 @@ hanya ke `192.168.1.130:3401`, bukan `0.0.0.0` atau IPv6 `::`.
 - `deploy/systemd/jhc-netops-frontend.service`
 - `deploy/run-runner.sh`
 - `deploy/run-frontend.sh`
+- `deploy/run-backend.sh`
 - `deploy/ecosystem.config.cjs`
 - `deploy/build-frontend.sh`
 - `deploy/check-frontend-port.mjs`
@@ -168,9 +170,10 @@ cd /var/www/jhc/jhc_noc/current
 pm2 start deploy/ecosystem.config.cjs
 ```
 
-Ecosystem tersebut mendefinisikan tepat dua proses fork, masing-masing satu
+Ecosystem tersebut mendefinisikan tepat tiga proses fork, masing-masing satu
 instance: `jhc-netops-runner` melalui `deploy/run-runner.sh` dan
-`jhc-netops-frontend` melalui `deploy/run-frontend.sh`. Keduanya memakai
+`jhc-netops-frontend` melalui `deploy/run-frontend.sh`, serta fondasi P9
+`jhc-netops-backend` melalui `deploy/run-backend.sh`. Ketiganya memakai
 `/usr/bin/bash`, berjalan dari release `current`, dan dapat direstart oleh PM2.
 Konfigurasi tidak menyimpan secret serta tidak mengubah system Node atau default
 NVM. Jangan memakai `pm2 start npm`, menjalankan Python sebagai aplikasi PM2
@@ -188,11 +191,12 @@ Role hanya berlaku bagi akun Aktif.
 
 ## Ringkasan runtime
 
-Aplikasi tetap process-manager-neutral. Hanya dua proses yang long-running:
-frontend Next.js dan runner Node.js. Jika mentor memilih PM2 di masa depan,
+Aplikasi tetap process-manager-neutral. P9 menambahkan backend Node.js mandiri
+sebagai proses ketiga di ecosystem PM2, tetapi backend baru hanya menyediakan
+`GET /healthz` dan belum menggantikan jalur Supabase mana pun. Jika mentor memilih PM2 di masa depan,
 entrypoint runner tetap `deploy/run-runner.sh`; jangan menjalankan service systemd
 runner dan proses PM2 runner bersamaan. Frontend tetap proses terpisah. Python
-agent bukan service ketiga—runner hanya memanggilnya on demand untuk operation
+agent bukan service keempat—runner hanya memanggilnya on demand untuk operation
 yang memerlukannya. Entrypoint PM2 yang direview adalah
 `deploy/ecosystem.config.cjs`; file ini tidak menambah dependency PM2 ke
 repository dan tidak menjalankan `pm2 save`.

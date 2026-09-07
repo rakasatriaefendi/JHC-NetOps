@@ -45,35 +45,48 @@ test("frontend runtime launcher is bounded, foreground, and pinned to Node 22", 
   assert.doesNotMatch(script, /nohup|pm2|sudo|systemctl|--port 3402|&\s*$/im);
 });
 
+test("backend launcher loads the shared environment and starts only compiled output", () => {
+  const script = read("deploy/run-backend.sh");
+  assert.match(script, /^#!\/usr\/bin\/env bash\nset -Eeuo pipefail/m);
+  assert.match(script, /NODE_BIN="\/home\/mini-pc\/\.nvm\/versions\/node\/v22\.23\.2\/bin\/node"/);
+  assert.match(script, /PROJECT_ROOT="\/var\/www\/jhc\/jhc_noc\/current"/);
+  assert.match(script, /BACKEND_ENV="\/var\/www\/jhc\/jhc_noc\/shared\/backend\/\.env"/);
+  assert.match(script, /BACKEND_MAIN="\$\{BACKEND_ROOT\}\/dist\/main\.js"/);
+  assert.match(script, /\. "\$BACKEND_ENV"/);
+  assert.match(script, /exec "\$NODE_BIN" "\$BACKEND_MAIN"/);
+  assert.doesNotMatch(script, /npm|npx|tsx|python|supabase|nohup|pm2|sudo|systemctl|&\s*$/im);
+});
+
 test("Linux deployment text is protected from CRLF", () => {
   const attributes = read(".gitattributes");
   assert.match(attributes, /^\*\.sh text eol=lf$/m);
   assert.match(attributes, /^\*\.service text eol=lf$/m);
-  for (const path of ["deploy/run-runner.sh", "deploy/build-frontend.sh", "deploy/run-frontend.sh"]) {
+  for (const path of ["deploy/run-runner.sh", "deploy/build-frontend.sh", "deploy/run-frontend.sh", "deploy/run-backend.sh"]) {
     assert.equal(read(path).includes("\r\n"), false, `${path} must use LF`);
   }
 });
 
 test("deployment launchers have valid Bash syntax on a native Linux test host", { skip: process.platform !== "linux" }, () => {
-  for (const relativePath of ["deploy/run-runner.sh", "deploy/build-frontend.sh", "deploy/run-frontend.sh"]) {
+  for (const relativePath of ["deploy/run-runner.sh", "deploy/build-frontend.sh", "deploy/run-frontend.sh", "deploy/run-backend.sh"]) {
     const filePath = new URL(relativePath, rootUrl);
     const result = spawnSync("/usr/bin/bash", ["-n", filePath.pathname], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
   }
 });
 
-test("PM2 ecosystem delegates exactly two fork processes to the reviewed Bash launchers", async () => {
+test("PM2 ecosystem delegates exactly three fork processes to the reviewed Bash launchers", async () => {
   const configUrl = new URL(`deploy/ecosystem.config.cjs?test=${Date.now()}`, rootUrl);
   const imported = await import(configUrl.href);
   const config = imported.default;
 
   assert.deepEqual(Object.keys(config), ["apps"]);
-  assert.equal(config.apps.length, 2);
+  assert.equal(config.apps.length, 3);
   assert.deepEqual(
     config.apps.map(({ name, script }) => ({ name, script })),
     [
       { name: "jhc-netops-runner", script: "deploy/run-runner.sh" },
       { name: "jhc-netops-frontend", script: "deploy/run-frontend.sh" },
+      { name: "jhc-netops-backend", script: "deploy/run-backend.sh" },
     ],
   );
 
@@ -100,4 +113,5 @@ test("deployment guide documents the reviewed PM2 start path and systemd exclusi
   );
   assert.match(guide, /Jangan memakai `pm2 start npm`/);
   assert.match(guide, /`pm2 save` secara otomatis/);
+  assert.match(guide, /jhc-netops-backend/);
 });

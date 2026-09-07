@@ -566,8 +566,10 @@ Build release frontend memakai `deploy/build-frontend.sh` agar seluruh
 dipasang otomatis; jangan menjalankan `sudo`, `daemon-reload`, atau mengubah
 service shared lainnya sebagai bagian build/review repository.
 
-Mental model deployment: `build-frontend.sh` hanya untuk build; runtime hanya
-`run-runner.sh` dan `run-frontend.sh`. Keduanya dapat dimiliki systemd atau PM2,
-tetapi dua process manager tidak boleh menjalankan NetOps bersamaan.
+Mental model deployment: `build-frontend.sh` hanya untuk build; runtime existing
+tetap memakai `run-runner.sh` dan `run-frontend.sh`. Ecosystem PM2 P9 juga memuat
+`run-backend.sh` untuk health-only local backend foundation. Backend tersebut
+belum menggantikan Supabase. systemd dan PM2 tidak boleh menjalankan proses NetOps
+yang sama secara bersamaan.
 
 Hasil sementara berada di satu `device_inspection_sessions` row per runner dan expired 10 menit. Menutup drawer unknown tanpa Save tidak membuat `network_nodes`. `Save identity` menyimpan operator name/location/type/notes secara eksplisit; `Save detected evidence` menyimpan fingerprint terstruktur. Reinspection hanya boleh memperbarui `detected_fingerprint` dan `last_inspected_at` tanpa mengubah identity atau Health Watch. Bila evidence `This Device` bertentangan dengan kategori operator, perbaiki inventory secara eksplisit melalui form—warning tidak melakukan overwrite otomatis. Jangan menulis raw tool stdout, HTML/XML/body, token, atau credential ke Supabase/log.
