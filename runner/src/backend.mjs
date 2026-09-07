@@ -1,5 +1,5 @@
 export class BackendClient {
-  constructor(url, serviceRoleKey) {
+  constructor(url, serviceRoleKey, localHeartbeat = null) {
     if (!url || !serviceRoleKey) throw new Error("Backend credentials are unavailable");
     this.endpoint = `${url.replace(/\/$/, "")}/functions/v1/diagnostic-jobs`;
     this.trafficEndpoint = `${url.replace(/\/$/, "")}/functions/v1/traffic-live`;
@@ -12,9 +12,20 @@ export class BackendClient {
       apikey: serviceRoleKey,
       "Content-Type": "application/json",
     };
+    this.localHeartbeatEndpoint = localHeartbeat
+      ? `${localHeartbeat.url}/api/runner/heartbeat`
+      : null;
+    this.localHeartbeatHeaders = localHeartbeat ? {
+      Authorization: `Bearer ${localHeartbeat.token}`,
+      "Content-Type": "application/json",
+    } : null;
   }
 
-  heartbeat(runner) { return this.#post({ action: "runner_heartbeat", runner }); }
+  heartbeat(runner) {
+    return this.localHeartbeatEndpoint
+      ? this.#postLocalHeartbeat({ runner })
+      : this.#post({ action: "runner_heartbeat", runner });
+  }
   claimPreflight(runnerId) { return this.#post({ action: "claim_preflight", runner_id: runnerId }); }
   completePreflight(runnerId, requestId, targetId, context) {
     return this.#post({ action: "complete_preflight", runner_id: runnerId, request_id: requestId, target_id: targetId, ...context });
@@ -82,6 +93,17 @@ export class BackendClient {
     if (!response.ok) throw new Error(backendFailureMessage("Backend", response.status, payload));
     return payload.data;
   }
+  async #postLocalHeartbeat(body) {
+    const response = await fetch(this.localHeartbeatEndpoint, {
+      method: "POST",
+      headers: this.localHeartbeatHeaders,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`Local heartbeat request failed with HTTP ${response.status}`);
+    return payload.data;
+  }
   async #postTraffic(body) {
     const response = await fetch(this.trafficEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
@@ -114,6 +136,25 @@ export class BackendClient {
       throw new Error(backendFailureMessage("Managed telemetry backend", response.status, payload));
     }
     return payload.data;
+  }
+}
+
+export function loadLocalHeartbeatConfig(environment = process.env) {
+  const rawUrl = environment.LOCAL_BACKEND_URL?.trim();
+  const token = environment.LOCAL_BACKEND_TOKEN;
+  if (!rawUrl && !token) return null;
+  if (!rawUrl || typeof token !== "string" || token.length < 32 || token.length > 512 || /\s/.test(token)) {
+    throw new Error("Local heartbeat configuration is invalid");
+  }
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+        url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
+      throw new Error("invalid");
+    }
+    return Object.freeze({ url: url.origin, token });
+  } catch {
+    throw new Error("Local heartbeat configuration is invalid");
   }
 }
 

@@ -56,6 +56,24 @@ diotorisasi dan tidak menerima IP atau parameter ping dari browser. Nilai
 Jangan menyimpan config nyata, community, username SNMPv3, auth password, privacy
 password, service-role key, atau token di release maupun Git.
 
+## Environment heartbeat lokal P10A
+
+Saat rollout P10A direview, isi `/var/www/jhc/jhc_noc/shared/backend/.env` dengan
+`HOST=127.0.0.1`, `PORT=3402`, `RUNNER_API_TOKEN`, `SUPABASE_URL`, dan
+`SUPABASE_SERVICE_ROLE_KEY`. Isi `/var/www/jhc/jhc_noc/shared/runner/.env` tetap
+memerlukan credential Supabase untuk operasi lama, lalu tambahkan:
+
+```text
+LOCAL_BACKEND_URL=http://127.0.0.1:3402
+LOCAL_BACKEND_TOKEN=<same value as RUNNER_API_TOKEN>
+```
+
+Gunakan token acak minimal 32 karakter dan izin file yang hanya dapat dibaca
+account service. Jangan menaruh nilai nyata di release, Git, log, atau frontend.
+Kedua variabel runner harus dipasang atau dikosongkan bersama. Mengosongkan
+keduanya mengembalikan heartbeat ke `diagnostic-jobs` Edge Function; operasi
+runner lain tetap melalui Edge Function meskipun heartbeat lokal aktif.
+
 ## Review dan instalasi manual systemd
 
 Sebelum pemasangan, reviewer harus memeriksa path, user/group, Node version,
@@ -192,8 +210,9 @@ Role hanya berlaku bagi akun Aktif.
 ## Ringkasan runtime
 
 Aplikasi tetap process-manager-neutral. P9 menambahkan backend Node.js mandiri
-sebagai proses ketiga di ecosystem PM2, tetapi backend baru hanya menyediakan
-`GET /healthz` dan belum menggantikan jalur Supabase mana pun. Jika mentor memilih PM2 di masa depan,
+sebagai proses ketiga di ecosystem PM2; P10A menambahkan `POST
+/api/runner/heartbeat` sebagai satu-satunya jalur runner yang dapat dialihkan ke
+backend lokal. Jika mentor memilih PM2 di masa depan,
 entrypoint runner tetap `deploy/run-runner.sh`; jangan menjalankan service systemd
 runner dan proses PM2 runner bersamaan. Frontend tetap proses terpisah. Python
 agent bukan service keempat—runner hanya memanggilnya on demand untuk operation

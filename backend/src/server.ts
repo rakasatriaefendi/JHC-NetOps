@@ -1,10 +1,12 @@
 import Fastify, { LogController, type FastifyInstance } from "fastify";
+import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 
 type BuildServerOptions = Readonly<{
   logger?: boolean;
+  runnerHeartbeat?: RunnerHeartbeatRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -42,6 +44,10 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     status: "ok",
     service: BACKEND_SERVICE_NAME,
   }));
+
+  if (options.runnerHeartbeat) {
+    registerRunnerHeartbeatRoute(server, options.runnerHeartbeat);
+  }
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {

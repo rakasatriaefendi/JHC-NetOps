@@ -46,7 +46,7 @@ atau diaktifkan pada Mini PC. Lihat
 | Folder | Fungsi |
 |---|---|
 | [`agent`](agent/README.md) | Agent Python, metrik, diagnostics, dan capture traffic header-only. |
-| [`backend`](backend/README.md) | Fondasi backend lokal Fastify P9; saat ini hanya health endpoint dan belum menggantikan Supabase. |
+| [`backend`](backend/README.md) | Backend lokal Fastify; P10A menangani heartbeat runner melalui bridge Supabase yang terbatas. |
 | [`frontend`](frontend/README.md) | Dashboard Next.js App Router. |
 | [`runner`](runner/README.md) | Orkestrasi Windows/Linux, heartbeat, Health Watch, dan job lokal. |
 | [`supabase`](supabase/README.md) | Migration, RLS, dan Edge Functions. |
