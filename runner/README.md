@@ -1,6 +1,6 @@
 # Local Runner (Windows/WSL and native Linux)
 
-Runner menghubungkan Supabase dengan runtime lokal. Windows tetap memakai context
+Runner menghubungkan backend/Supabase dengan runtime lokal. Windows tetap memakai context
 PowerShell dan agent Ubuntu WSL; Linux memakai context `ip -j` dan menjalankan
 executable Python agent yang sama secara native.
 
@@ -24,7 +24,11 @@ Parsing `iperf3`, `mtr`, serta traffic capture tetap menjadi tanggung jawab
 2. Di Windows isi distro dan project root WSL. Di Linux isi absolute
    `native_project_root`. Isi juga source location, interface capture, duration,
    serta target yang sudah diizinkan.
-3. Salin `.env.example` menjadi `.env` dan isi credential backend.
+3. Salin `.env.example` menjadi `.env` dan isi credential Supabase. Untuk P10A,
+   isi juga `LOCAL_BACKEND_URL=http://127.0.0.1:3402` dan
+   `LOCAL_BACKEND_TOKEN` agar heartbeat saja memakai backend lokal. Token harus
+   sama dengan `RUNNER_API_TOKEN` backend. Kosongkan keduanya untuk rollback ke
+   heartbeat Edge Function; konfigurasi parsial akan ditolak.
 4. Pastikan persistent virtualenv agent tersedia. `iperf3`/MTR dibutuhkan untuk
    LAN Diagnostics; jika tidak ada pada Linux, preflight menandai capability itu
    unavailable tanpa mematikan fitur runner lain.

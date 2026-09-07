@@ -9,6 +9,12 @@ import {
   createGracefulShutdown,
 } from "../src/server.js";
 
+const VALID_ENVIRONMENT = {
+  RUNNER_API_TOKEN: "r".repeat(32),
+  SUPABASE_URL: "https://project.example.invalid",
+  SUPABASE_SERVICE_ROLE_KEY: "s".repeat(32),
+};
+
 test("GET /healthz returns the bounded service health response", async () => {
   const server = buildServer({ logger: false });
   const response = await server.inject({ method: "GET", url: "/healthz" });
@@ -31,16 +37,28 @@ test("unsupported routes return a bounded 404 without implementation details", a
 });
 
 test("configuration defaults to the private loopback endpoint", () => {
-  assert.deepEqual(loadBackendConfig({}), { host: "127.0.0.1", port: 3402 });
+  assert.deepEqual(loadBackendConfig(VALID_ENVIRONMENT), {
+    host: "127.0.0.1",
+    port: 3402,
+    runnerApiToken: VALID_ENVIRONMENT.RUNNER_API_TOKEN,
+    supabaseUrl: VALID_ENVIRONMENT.SUPABASE_URL,
+    supabaseServiceRoleKey: VALID_ENVIRONMENT.SUPABASE_SERVICE_ROLE_KEY,
+  });
 });
 
 test("invalid or publicly exposed configuration is rejected safely", () => {
+  assert.throws(() => loadBackendConfig({}), BackendConfigurationError);
   for (const environment of [
-    { HOST: "0.0.0.0" },
-    { HOST: "example.internal" },
-    { PORT: "0" },
-    { PORT: "65536" },
-    { PORT: "3402x" },
+    { ...VALID_ENVIRONMENT, HOST: "0.0.0.0" },
+    { ...VALID_ENVIRONMENT, HOST: "example.internal" },
+    { ...VALID_ENVIRONMENT, PORT: "0" },
+    { ...VALID_ENVIRONMENT, PORT: "65536" },
+    { ...VALID_ENVIRONMENT, PORT: "3402x" },
+    { ...VALID_ENVIRONMENT, RUNNER_API_TOKEN: "short" },
+    { ...VALID_ENVIRONMENT, SUPABASE_URL: "file:///private/database" },
+    { ...VALID_ENVIRONMENT, SUPABASE_URL: "http://public.example.invalid" },
+    { ...VALID_ENVIRONMENT, SUPABASE_SERVICE_ROLE_KEY: "short" },
+    { ...VALID_ENVIRONMENT, RUNNER_API_TOKEN: "REPLACE_WITH_A_RANDOM_SHARED_TOKEN_OF_AT_LEAST_32_CHARACTERS" },
   ]) {
     assert.throws(
       () => loadBackendConfig(environment),
@@ -53,15 +71,16 @@ test("invalid or publicly exposed configuration is rejected safely", () => {
 
 test("health output never reflects configuration or secret-shaped environment values", async () => {
   const environment = {
+    ...VALID_ENVIRONMENT,
     HOST: "127.0.0.1",
     PORT: "3402",
-    SUPABASE_SERVICE_ROLE_KEY: "test-secret-that-must-not-appear",
   };
   const config = loadBackendConfig(environment);
   const server = buildServer({ logger: false });
   const response = await server.inject({ method: "GET", url: "/healthz" });
 
-  assert.deepEqual(config, { host: "127.0.0.1", port: 3402 });
+  assert.equal(config.host, "127.0.0.1");
+  assert.equal(config.port, 3402);
   assert.doesNotMatch(response.body, /127\.0\.0\.1|3402|supabase|secret|key/i);
   await server.close();
 });

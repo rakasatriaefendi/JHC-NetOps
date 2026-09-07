@@ -1,9 +1,16 @@
 import { BackendConfigurationError, loadBackendConfig } from "./config.js";
 import { buildServer, createGracefulShutdown } from "./server.js";
+import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
-  const server = buildServer();
+  const repository = new SupabaseRunnerHeartbeatRepository(
+    config.supabaseUrl,
+    config.supabaseServiceRoleKey,
+  );
+  const server = buildServer({
+    runnerHeartbeat: { token: config.runnerApiToken, repository },
+  });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {
     void shutdown(signal).catch(() => {

@@ -3,11 +3,99 @@ import test from "node:test";
 
 import {
   BackendClient,
+  loadLocalHeartbeatConfig,
   managedTelemetryPublishDiagnostic,
   managedTelemetryPublishError,
 } from "../src/backend.mjs";
 
 const DEVICE = { target_id: "11111111-1111-4111-8111-111111111111", status: "connected" };
+const LOCAL_TOKEN = "local-runner-token-for-tests-only";
+const HEARTBEAT = { id: "runner-test", display_name: "Runner Test" };
+
+test("local heartbeat config sends heartbeat only to the authenticated loopback route", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify({ data: { id: "runner-test" } }), { status: 200 });
+  });
+  const local = loadLocalHeartbeatConfig({
+    LOCAL_BACKEND_URL: "http://127.0.0.1:3402/",
+    LOCAL_BACKEND_TOKEN: LOCAL_TOKEN,
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", local);
+  assert.deepEqual(await client.heartbeat(HEARTBEAT), { id: "runner-test" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "http://127.0.0.1:3402/api/runner/heartbeat");
+  assert.equal(requests[0].options.headers.Authorization, `Bearer ${LOCAL_TOKEN}`);
+  assert.equal("apikey" in requests[0].options.headers, false);
+  assert.deepEqual(JSON.parse(requests[0].options.body), { runner: HEARTBEAT });
+});
+
+test("missing local config preserves the existing Supabase Edge heartbeat", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify({ data: { id: "runner-test" } }), { status: 200 });
+  });
+  assert.equal(loadLocalHeartbeatConfig({}), null);
+  const client = new BackendClient("https://example.invalid", "test-service-key");
+  await client.heartbeat(HEARTBEAT);
+  assert.equal(requests[0].url, "https://example.invalid/functions/v1/diagnostic-jobs");
+  assert.equal(requests[0].options.headers.apikey, "test-service-key");
+  assert.deepEqual(JSON.parse(requests[0].options.body), { action: "runner_heartbeat", runner: HEARTBEAT });
+});
+
+test("local heartbeat failure does not fall back to a duplicate Supabase write", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ error: { code: "HEARTBEAT_PERSISTENCE_FAILED" } }), { status: 500 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", {
+    url: "http://127.0.0.1:3402",
+    token: LOCAL_TOKEN,
+  });
+  await assert.rejects(client.heartbeat(HEARTBEAT), /Local heartbeat request failed with HTTP 500/);
+  assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/heartbeat"]);
+});
+
+test("non-heartbeat operations remain on their existing Supabase Edge endpoints", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", {
+    url: "http://127.0.0.1:3402",
+    token: LOCAL_TOKEN,
+  });
+  await client.claim("runner-test");
+  await client.claimManualPing("runner-test");
+  await client.claimTraffic("runner-test");
+  await client.claimDiscovery("runner-test");
+  await client.claimInspection("runner-test");
+  await client.managedTelemetryTargets("runner-test");
+  assert.deepEqual(requests.map(({ url }) => url), [
+    "https://example.invalid/functions/v1/diagnostic-jobs",
+    "https://example.invalid/functions/v1/network-health",
+    "https://example.invalid/functions/v1/traffic-live",
+    "https://example.invalid/functions/v1/network-discovery",
+    "https://example.invalid/functions/v1/device-inspector",
+    "https://example.invalid/functions/v1/managed-telemetry",
+  ]);
+});
+
+test("local heartbeat configuration rejects partial, unsafe, and public endpoints", () => {
+  for (const environment of [
+    { LOCAL_BACKEND_URL: "http://127.0.0.1:3402" },
+    { LOCAL_BACKEND_TOKEN: LOCAL_TOKEN },
+    { LOCAL_BACKEND_URL: "https://public.example", LOCAL_BACKEND_TOKEN: LOCAL_TOKEN },
+    { LOCAL_BACKEND_URL: "http://127.0.0.1:3402/path", LOCAL_BACKEND_TOKEN: LOCAL_TOKEN },
+    { LOCAL_BACKEND_URL: "http://127.0.0.1:3402", LOCAL_BACKEND_TOKEN: "short" },
+  ]) {
+    assert.throws(() => loadLocalHeartbeatConfig(environment), /Local heartbeat configuration is invalid/);
+  }
+});
 
 test("managed telemetry publish success remains unchanged", async (t) => {
   let request = null;
