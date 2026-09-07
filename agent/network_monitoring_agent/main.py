@@ -292,8 +292,9 @@ def _run_traffic_live(args: argparse.Namespace) -> None:
     emit = lambda event: print(json.dumps(event, separators=(",", ":")), flush=True)
     run_traffic_capture(runner_id=args.runner_id, session_id=args.session_id,
                         duration_seconds=args.duration, interface=args.interface,
-                        client=TrafficClient(settings.supabase_url, settings.service_role_key,
-                                             settings.request_timeout_seconds),
+                        client=TrafficClient(settings.backend_url, settings.backend_token,
+                                             settings.request_timeout_seconds,
+                                             local_backend=settings.local_backend),
                         buffer_path=settings.buffer_path, emit=emit)
 
 

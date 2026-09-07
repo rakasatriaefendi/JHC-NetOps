@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   BackendClient,
+  exposeLocalBackendToWsl,
+  loadLocalBackendConfig,
   loadLocalHeartbeatConfig,
   managedTelemetryPublishDiagnostic,
   managedTelemetryPublishError,
@@ -59,10 +61,10 @@ test("local heartbeat failure does not fall back to a duplicate Supabase write",
   assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/heartbeat"]);
 });
 
-test("non-heartbeat operations remain on their existing Supabase Edge endpoints", async (t) => {
+test("local backend moves only recurring operations and retains low-frequency Edge paths", async (t) => {
   const requests = [];
   t.mock.method(globalThis, "fetch", async (url, options) => {
-    requests.push({ url: String(url), body: JSON.parse(options.body) });
+    requests.push({ url: String(url), body: JSON.parse(options.body), headers: options.headers });
     return new Response(JSON.stringify({ data: null }), { status: 200 });
   });
   const client = new BackendClient("https://example.invalid", "test-service-key", {
@@ -72,17 +74,66 @@ test("non-heartbeat operations remain on their existing Supabase Edge endpoints"
   await client.claim("runner-test");
   await client.claimManualPing("runner-test");
   await client.claimTraffic("runner-test");
+  await client.healthTargets("runner-test");
+  await client.publishHealth("runner-test", [], []);
   await client.claimDiscovery("runner-test");
   await client.claimInspection("runner-test");
   await client.managedTelemetryTargets("runner-test");
+  await client.publishManagedTelemetry("runner-test", DEVICE, [], []);
   assert.deepEqual(requests.map(({ url }) => url), [
     "https://example.invalid/functions/v1/diagnostic-jobs",
     "https://example.invalid/functions/v1/network-health",
-    "https://example.invalid/functions/v1/traffic-live",
+    "http://127.0.0.1:3402/api/runner/traffic",
+    "http://127.0.0.1:3402/api/runner/network-health",
+    "http://127.0.0.1:3402/api/runner/network-health",
     "https://example.invalid/functions/v1/network-discovery",
     "https://example.invalid/functions/v1/device-inspector",
+    "http://127.0.0.1:3402/api/runner/managed-telemetry",
+    "http://127.0.0.1:3402/api/runner/managed-telemetry",
+  ]);
+  for (const request of requests.slice(2, 5).concat(requests.slice(7))) {
+    assert.equal("apikey" in request.headers, false);
+    assert.equal(request.headers.Authorization, `Bearer ${LOCAL_TOKEN}`);
+  }
+});
+
+test("empty local config is a controlled recurring-data-plane Edge rollback mode", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key");
+  await client.healthTargets("runner-test");
+  await client.claimTraffic("runner-test");
+  await client.managedTelemetryTargets("runner-test");
+  assert.deepEqual(urls, [
+    "https://example.invalid/functions/v1/network-health",
+    "https://example.invalid/functions/v1/traffic-live",
     "https://example.invalid/functions/v1/managed-telemetry",
   ]);
+});
+
+test("local recurring failure never falls back to the Edge Function", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ error: { code: "TRAFFIC_PERSISTENCE_FAILED", message: "Traffic request failed" } }), { status: 500 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", { url: "http://127.0.0.1:3402", token: LOCAL_TOKEN });
+  await assert.rejects(client.claimTraffic("runner-test"), /Local Traffic backend request failed with HTTP 500/);
+  assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/traffic"]);
+});
+
+test("Windows runner exposes local Traffic settings to WSL without replacing existing WSLENV", () => {
+  const environment = { WSLENV: "EXISTING/u" };
+  const config = loadLocalBackendConfig({ LOCAL_BACKEND_URL: "http://localhost:3402", LOCAL_BACKEND_TOKEN: LOCAL_TOKEN });
+  exposeLocalBackendToWsl(config, environment, "win32");
+  assert.equal(environment.LOCAL_BACKEND_URL, "http://localhost:3402");
+  assert.equal(environment.LOCAL_BACKEND_TOKEN, LOCAL_TOKEN);
+  assert.equal(environment.WSLENV, "EXISTING/u:LOCAL_BACKEND_URL:LOCAL_BACKEND_TOKEN");
+  exposeLocalBackendToWsl(config, environment, "win32");
+  assert.equal(environment.WSLENV, "EXISTING/u:LOCAL_BACKEND_URL:LOCAL_BACKEND_TOKEN");
 });
 
 test("local heartbeat configuration rejects partial, unsafe, and public endpoints", () => {

@@ -1,15 +1,24 @@
 import { BackendConfigurationError, loadBackendConfig } from "./config.js";
+import { SupabaseManagedTelemetryRepository } from "./managed-telemetry/repository.js";
+import { SupabaseNetworkHealthRepository } from "./network-health/repository.js";
+import { SupabaseTrafficRepository } from "./traffic/repository.js";
 import { buildServer, createGracefulShutdown } from "./server.js";
 import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
-  const repository = new SupabaseRunnerHeartbeatRepository(
+  const heartbeatRepository = new SupabaseRunnerHeartbeatRepository(
     config.supabaseUrl,
     config.supabaseServiceRoleKey,
   );
+  const healthRepository = new SupabaseNetworkHealthRepository(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const trafficRepository = new SupabaseTrafficRepository(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const telemetryRepository = new SupabaseManagedTelemetryRepository(config.supabaseUrl, config.supabaseServiceRoleKey);
   const server = buildServer({
-    runnerHeartbeat: { token: config.runnerApiToken, repository },
+    runnerHeartbeat: { token: config.runnerApiToken, repository: heartbeatRepository },
+    networkHealth: { token: config.runnerApiToken, repository: healthRepository },
+    traffic: { token: config.runnerApiToken, repository: trafficRepository },
+    managedTelemetry: { token: config.runnerApiToken, repository: telemetryRepository },
   });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {

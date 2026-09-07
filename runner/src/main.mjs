@@ -1,7 +1,7 @@
 import path from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { BackendClient, loadLocalHeartbeatConfig } from "./backend.mjs";
+import { BackendClient, exposeLocalBackendToWsl, loadLocalBackendConfig } from "./backend.mjs";
 import { loadRunnerConfig, publicCapabilities, safeError, safeMessage, validateDiscoverySession, validateInspectionSession, validateJob, validateManualPingJob, validatePreflightRequest, validateTrafficSession } from "./config.mjs";
 import { collectNetworkContext } from "./network-context.mjs";
 import { collectDiscoveryContext, publicDiscoveryContext, runNetworkDiscovery } from "./network-discovery.mjs";
@@ -24,10 +24,12 @@ let backend;
 try {
   config = loadRunnerConfig(configPath);
   logDirectory = config.log_directory;
+  const localBackend = loadLocalBackendConfig(process.env);
+  exposeLocalBackendToWsl(localBackend, process.env, config.runtime_platform);
   backend = new BackendClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
-    loadLocalHeartbeatConfig(process.env),
+    localBackend,
   );
 } catch {
   log("Runner configuration is invalid");

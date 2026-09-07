@@ -24,11 +24,13 @@ Parsing `iperf3`, `mtr`, serta traffic capture tetap menjadi tanggung jawab
 2. Di Windows isi distro dan project root WSL. Di Linux isi absolute
    `native_project_root`. Isi juga source location, interface capture, duration,
    serta target yang sudah diizinkan.
-3. Salin `.env.example` menjadi `.env` dan isi credential Supabase. Untuk P10A,
+3. Salin `.env.example` menjadi `.env` dan isi credential Supabase. Untuk P10B,
    isi juga `LOCAL_BACKEND_URL=http://127.0.0.1:3402` dan
-   `LOCAL_BACKEND_TOKEN` agar heartbeat saja memakai backend lokal. Token harus
-   sama dengan `RUNNER_API_TOKEN` backend. Kosongkan keduanya untuk rollback ke
-   heartbeat Edge Function; konfigurasi parsial akan ditolak.
+   `LOCAL_BACKEND_TOKEN` agar heartbeat, Health Watch, recurring Traffic, dan
+   Managed Telemetry memakai backend lokal. Token harus sama dengan
+   `RUNNER_API_TOKEN` backend. Pada Windows, runner meneruskan dua nilai ini ke
+   agent WSL melalui `WSLENV` untuk snapshot/flow Traffic. Kosongkan keduanya
+   untuk rollback terkontrol ke Edge Function; konfigurasi parsial akan ditolak.
 4. Pastikan persistent virtualenv agent tersedia. `iperf3`/MTR dibutuhkan untuk
    LAN Diagnostics; jika tidak ada pada Linux, preflight menandai capability itu
    unavailable tanpa mematikan fitur runner lain.
@@ -66,6 +68,11 @@ Launcher memakai Node 22 absolut, memuat environment dan config dari path
 `shared`, lalu memakai `exec`. Systemd dan process manager lain harus menunjuk ke
 launcher yang sama. Python agent tetap dipanggil oleh runner hanya ketika job
 membutuhkannya; jangan menjalankannya sebagai daemon terpisah.
+
+Manual Ping, Discovery, Device Inspector, dan LAN Diagnostics tetap berada pada
+jalur Edge Function. Jika backend lokal gagal ketika mode P10B aktif, runner
+mempertahankan cache/retry subsistem yang sudah ada dan tidak fallback dalam
+operasi yang sama.
 
 ## Troubleshooting
 

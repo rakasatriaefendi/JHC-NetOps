@@ -28,3 +28,16 @@ class TrafficDeliveryTest(TestCase):
         client = TrafficClient("https://example.supabase.co", "service-key")
         client.session.post = Mock(return_value=response)
         self.assertEqual(client.snapshot("runner", "session", {}), {"stop_requested": True})
+
+    def test_local_backend_uses_runner_route_without_supabase_api_key(self):
+        client = TrafficClient(
+            "http://127.0.0.1:3402",
+            "local-runner-token-for-tests-only",
+            local_backend=True,
+        )
+        self.assertEqual(client.endpoint, "http://127.0.0.1:3402/api/runner/traffic")
+        self.assertNotIn("apikey", client.session.headers)
+        self.assertEqual(
+            client.session.headers["Authorization"],
+            "Bearer local-runner-token-for-tests-only",
+        )

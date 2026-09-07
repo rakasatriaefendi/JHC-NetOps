@@ -38,18 +38,24 @@ deployment mendatang, environment berada di luar release pada
 `/var/www/jhc/jhc_noc/shared/backend/.env`; jangan membuat atau menyimpan file
 production tersebut di repository.
 
-## P10A: Runner heartbeat
+## P10B: Runner recurring data plane
 
 Endpoint lokal yang tersedia:
 
 - `GET /healthz`, tanpa data konfigurasi;
 - `POST /api/runner/heartbeat`, khusus Local Runner dengan header
-  `Authorization: Bearer <RUNNER_API_TOKEN>`.
+  `Authorization: Bearer <RUNNER_API_TOKEN>`;
+- `POST /api/runner/network-health`, untuk target, state, minute sample, dan
+  event transisi Health Watch;
+- `POST /api/runner/traffic`, untuk session, snapshot, flow batch, storage guard,
+  dan lease Traffic;
+- `POST /api/runner/managed-telemetry`, untuk target, device/interface state,
+  alert transition, dan Observed LAN Hosts.
 
-Backend memakai service-role key hanya di sisi server untuk menjembatani heartbeat
-ke tabel Supabase yang sudah ada. Route tetap menjalankan recovery stale Traffic
-session seperti implementasi Edge Function. Tidak ada credential ini yang dikirim
-ke browser atau dikembalikan oleh API.
+Backend memakai service-role key hanya di sisi server untuk menjembatani recurring
+runner data plane ke tabel/RPC Supabase yang sudah ada. Kontrak, bounds, recovery,
+deduplication, dan state-transition semantics mengikuti Edge Function sebelumnya.
+Credential tidak dikirim ke browser atau dikembalikan oleh API.
 
 Aktifkan jalur lokal pada environment runner dengan kedua nilai berikut:
 
@@ -58,11 +64,15 @@ LOCAL_BACKEND_URL=http://127.0.0.1:3402
 LOCAL_BACKEND_TOKEN=<same shared token>
 ```
 
-Jika keduanya kosong, heartbeat tetap memakai `diagnostic-jobs` Edge Function
-sebagai rollback path. Konfigurasi parsial ditolak. Setelah jalur lokal dipilih,
+Jika keduanya kosong, seluruh recurring data plane memakai Edge Function lama
+sebagai rollback mode. Konfigurasi parsial ditolak. Setelah jalur lokal dipilih,
 kegagalan request tidak otomatis jatuh kembali ke Edge Function agar tidak terjadi
-double write. Seluruh operasi runner selain heartbeat masih memakai Edge Function
-Supabase yang lama.
+dual-write atau event ganda. Manual Ping, Discovery, Device Inspector, LAN
+Diagnostics, dan control-plane lain tetap memakai Edge Function.
 
-P11 baru akan mengganti implementasi `RunnerHeartbeatRepository` dengan PostgreSQL
-lokal; P10A belum memperkenalkan PostgreSQL lokal, ORM, user auth, atau browser API.
+Rollback terkontrol: hentikan runner, kosongkan kedua `LOCAL_BACKEND_*`, mulai
+runner kembali, verifikasi loop recurring sehat lewat Edge, lalu backend lokal
+boleh dihentikan. Jangan mengganti mode ketika operasi masih berjalan.
+
+P11 baru akan mengganti repository Supabase dengan PostgreSQL lokal. P10B belum
+memigrasikan database, Auth, Realtime, frontend, admin, atau browser API.
