@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
+import { localeForLanguage } from "@/i18n/config";
 import {
   groupHopMeasurementSessions,
   type DiagnosticSortOrder,
@@ -36,6 +38,8 @@ export function HopLatencyTable({
   sourceIp,
   collapsible = false,
 }: HopLatencyTableProps) {
+  const { t, i18n } = useTranslation("diagnostics");
+  const locale = localeForLanguage(i18n.resolvedLanguage ?? i18n.language);
   const { loadError } = useNetworkNodes();
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const sessions = groupHopMeasurementSessions(measurements, sortOrder).slice(0, MAX_SESSIONS);
@@ -43,9 +47,9 @@ export function HopLatencyTable({
   if (sessions.length === 0) {
     return (
       <div className="rounded-control border border-border bg-bg-base p-4">
-        <p className="font-medium">Belum ada pengukuran path</p>
+        <p className="font-medium">{t("hop.empty")}</p>
         <p className="mt-2 text-text-secondary">
-          Jalankan command <span className="font-data">path-test</span> secara on-demand.
+          {t("hop.emptyPrefix")} <span className="font-data">path-test</span> {t("hop.emptySuffix")}
         </p>
       </div>
     );
@@ -55,7 +59,7 @@ export function HopLatencyTable({
     <div className="grid gap-4">
       {loadError ? (
         <div className="rounded-control border border-severity-medium bg-bg-base p-4 text-body text-text-secondary">
-          Label network node gagal dimuat; hop faktual tetap ditampilkan berdasarkan hasil MTR.
+          {t("hop.nodeLoadError")}
         </div>
       ) : null}
       {sessions.map((session) => (
@@ -67,27 +71,27 @@ export function HopLatencyTable({
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
                 <h3 className="text-body font-medium">
-                  {session.sourceLabel ?? "Source legacy"} → {session.targetLabel ?? "Target legacy"}
+                  {session.sourceLabel ?? t("hop.legacySource")} → {session.targetLabel ?? t("hop.legacyTarget")}
                 </h3>
                 <p className="mt-1 text-meta text-text-secondary">
-                  {formatConnection(session.connectionType)} ·{" "}
+                  {formatConnection(session.connectionType, t("hop.legacyConnection"))} ·{" "}
                   <span className="font-data">
-                    {session.targetHost ?? "target asli tidak tercatat"}
+                    {session.targetHost ?? t("hop.originalTargetMissing")}
                   </span>
-                  {session.environment === "localhost_demo" ? " · TEST ENVIRONMENT" : ""}
+                  {session.environment === "localhost_demo" ? ` · ${t("hop.testEnvironment")}` : ""}
                 </p>
                 <p className="mt-1 font-data text-meta text-text-muted">
-                  sesi {session.sessionId.slice(0, 8)}
+                  {t("hop.session", { id: session.sessionId.slice(0, 8) })}
                 </p>
               </div>
-              <div className="flex shrink-0 flex-col items-start gap-3 md:items-end"><time className="font-data text-meta text-text-muted">{formatTimestamp(session.measuredAt)}</time>{collapsible ? <Button variant="secondary" onClick={() => setExpandedSessionId((current) => current === session.sessionId ? null : session.sessionId)}>{expandedSessionId === session.sessionId ? "Tutup detail" : "Lihat path"}</Button> : null}</div>
+              <div className="flex shrink-0 flex-col items-start gap-3 md:items-end"><time className="font-data text-meta text-text-muted">{formatTimestamp(session.measuredAt, locale)}</time>{collapsible ? <Button variant="secondary" onClick={() => setExpandedSessionId((current) => current === session.sessionId ? null : session.sessionId)}>{expandedSessionId === session.sessionId ? t("hop.closeDetails") : t("hop.viewPath")}</Button> : null}</div>
             </div>
           </header>
 
           {!collapsible || expandedSessionId === session.sessionId ? <div className="grid p-4 md:p-6">
             <EndpointCard
-              eyebrow="Source"
-              name={session.sourceLabel ?? "Source legacy"}
+              eyebrow={t("comparison.source")}
+              name={session.sourceLabel ?? t("hop.legacySource")}
               address={sourceIp ?? null}
             />
             <PathArrow />
@@ -106,14 +110,14 @@ export function HopLatencyTable({
             })}
             {!session.hops.some((hop) => sameIp(hop.hop_ip, session.targetHost)) ? (
               <EndpointCard
-                eyebrow="Target"
-                name={session.targetLabel ?? "Target legacy"}
+                eyebrow={t("comparison.target")}
+                name={session.targetLabel ?? t("hop.legacyTarget")}
                 address={session.targetHost}
-                note="Configured target; tidak tampil sebagai responding Layer-3 hop pada sesi ini."
+                note={t("hop.configuredTargetNote")}
               />
             ) : (
               <p className="text-meta text-text-muted">
-                Target cocok dengan responding hop di atas; tidak ada hop tambahan yang dibuat oleh UI.
+                {t("hop.targetMatched")}
               </p>
             )}
           </div> : null}
@@ -132,13 +136,14 @@ function ObservedHop({
   isTarget: boolean;
   targetLabel: string | null;
 }) {
+  const { t } = useTranslation("diagnostics");
   const { nodes, canManage } = useNetworkNodes();
   const { openDeviceProfile } = useDeviceProfile();
   const [editing, setEditing] = useState(false);
   const node = findNetworkNode(nodes, hop.hop_ip);
   const primaryName = networkNodeDisplayName(
     node,
-    isTarget ? targetLabel ?? "Target" : null,
+    isTarget ? targetLabel ?? t("comparison.target") : null,
   );
 
   return (
@@ -149,27 +154,27 @@ function ObservedHop({
             {isTarget ? `Target · Hop ${hop.hop_number}` : `Hop ${hop.hop_number}`}
           </p>
           <h4 className="mt-2 text-body font-medium">{primaryName}</h4>
-          <p className="mt-1 font-data text-body text-text-secondary">{hop.hop_ip ?? "No responding IP"}</p>
+          <p className="mt-1 font-data text-body text-text-secondary">{hop.hop_ip ?? t("hop.noRespondingIp")}</p>
           {isTarget && node && node.name !== primaryName ? (
-            <p className="mt-2 text-meta text-text-muted">Inventory label: {node.name}</p>
+            <p className="mt-2 text-meta text-text-muted">{t("hop.inventoryLabel", { name: node.name })}</p>
           ) : null}
           {node ? <NodeMetadata node={node} /> : null}
-          {node?.detected_fingerprint ? <p className="mt-2 text-meta text-text-secondary">Detected: {node.detected_fingerprint.detected_identity.likely_label ?? node.detected_fingerprint.likely_device_type} · {node.detected_fingerprint.confidence.toUpperCase()}</p> : null}
+          {node?.detected_fingerprint ? <p className="mt-2 text-meta text-text-secondary">{t("hop.detected", { identity: node.detected_fingerprint.detected_identity.likely_label ?? node.detected_fingerprint.likely_device_type, confidence: node.detected_fingerprint.confidence.toUpperCase() })}</p> : null}
         </div>
         <dl className="grid shrink-0 grid-cols-2 gap-4 text-meta sm:min-w-56">
-          <Metric label="Avg latency" value={formatLatency(hop.avg_latency_ms)} />
-          <Metric label="Loss" value={`${hop.loss_percent.toFixed(1)}%`} />
+          <Metric label={t("hop.avgLatency")} value={formatLatency(hop.avg_latency_ms)} />
+          <Metric label={t("hop.loss")} value={`${hop.loss_percent.toFixed(1)}%`} />
         </dl>
       </div>
 
-      {node && hop.hop_ip ? <button className="mt-4 mr-4 text-meta font-medium text-accent hover:underline" onClick={() => openDeviceProfile({ ipAddress: hop.hop_ip! })} type="button">View device</button> : null}
+      {node && hop.hop_ip ? <button className="mt-4 mr-4 text-meta font-medium text-accent hover:underline" onClick={() => openDeviceProfile({ ipAddress: hop.hop_ip! })} type="button">{t("hop.viewDevice")}</button> : null}
       {canManage && hop.hop_ip ? (
         <button
           className="mt-4 text-meta font-medium text-accent hover:underline"
           onClick={() => setEditing((value) => !value)}
           type="button"
         >
-          {editing ? "Tutup editor" : node ? "Edit node" : "+ Beri nama"}
+          {editing ? t("hop.closeEditor") : node ? t("hop.editNode") : t("hop.addName")}
         </button>
       ) : null}
 
@@ -194,6 +199,7 @@ function NodeEditor({
   node: NetworkNode | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("diagnostics");
   const { saveNode, deleteNode } = useNetworkNodes();
   const [name, setName] = useState(node?.name ?? "");
   const [deviceType, setDeviceType] = useState<NetworkNodeType | "">(node?.device_type ?? "");
@@ -220,7 +226,7 @@ function NodeEditor({
   }
 
   async function remove() {
-    if (!node || !window.confirm(`Hapus label ${node.name} untuk ${node.ip_address}?`)) return;
+    if (!node || !window.confirm(t("hop.deleteConfirm", { name: node.name, ip: node.ip_address }))) return;
     setBusy(true);
     setError(null);
     const failure = await deleteNode(node);
@@ -239,7 +245,7 @@ function NodeEditor({
             value={ipAddress}
           />
         </Field>
-        <Field label="Name">
+        <Field label={t("hop.name")}>
           <input
             className="w-full rounded-control border border-border bg-bg-base px-3 py-2 text-body outline-none focus:border-accent"
             maxLength={200}
@@ -248,19 +254,19 @@ function NodeEditor({
             value={name}
           />
         </Field>
-        <Field label="Device type">
+        <Field label={t("hop.deviceType")}>
           <select
             className="w-full rounded-control border border-border bg-bg-base px-3 py-2 text-body outline-none focus:border-accent"
             onChange={(event) => setDeviceType(event.target.value as NetworkNodeType | "")}
             value={deviceType}
           >
-            <option value="">Tidak dicatat</option>
+            <option value="">{t("hop.notRecorded")}</option>
             {NETWORK_NODE_TYPES.map((value) => (
               <option key={value} value={value}>{networkNodeTypeLabel(value)}</option>
             ))}
           </select>
         </Field>
-        <Field label="Location">
+        <Field label={t("hop.location")}>
           <input
             className="w-full rounded-control border border-border bg-bg-base px-3 py-2 text-body outline-none focus:border-accent"
             maxLength={200}
@@ -269,7 +275,7 @@ function NodeEditor({
           />
         </Field>
       </div>
-      <Field label="Notes">
+      <Field label={t("hop.notes")}>
         <textarea
           className="min-h-24 w-full rounded-control border border-border bg-bg-base px-3 py-2 text-body outline-none focus:border-accent"
           maxLength={2000}
@@ -277,14 +283,14 @@ function NodeEditor({
           value={notes}
         />
       </Field>
-      <p className="text-meta text-text-muted">Inventory metadata only—jangan simpan credential, secret, atau SNMP community string.</p>
+      <p className="text-meta text-text-muted">{t("hop.metadataNotice")}</p>
       {error ? <p className="text-meta text-severity-critical">{error}</p> : null}
       <div className="flex flex-col gap-3 sm:flex-row">
-        <Button disabled={busy} type="submit">{busy ? "Menyimpan..." : "Simpan label"}</Button>
-        <Button disabled={busy} onClick={onClose} type="button" variant="secondary">Batal</Button>
+        <Button disabled={busy} type="submit">{busy ? t("hop.saving") : t("hop.saveLabel")}</Button>
+        <Button disabled={busy} onClick={onClose} type="button" variant="secondary">{t("hop.cancel")}</Button>
         {node ? (
           <Button className="sm:ml-auto" disabled={busy} onClick={remove} type="button" variant="destructive">
-            Hapus label
+            {t("hop.deleteLabel")}
           </Button>
         ) : null}
       </div>
@@ -298,11 +304,12 @@ function EndpointCard({
   address,
   note,
 }: {
-  eyebrow: "Source" | "Target";
+  eyebrow: string;
   name: string;
   address: string | null;
   note?: string;
 }) {
+  const { t } = useTranslation("diagnostics");
   const { nodes } = useNetworkNodes();
   const node = findNetworkNode(nodes, address);
   return (
@@ -310,7 +317,7 @@ function EndpointCard({
       <p className="text-meta font-medium uppercase tracking-wide text-accent">{eyebrow}</p>
       <p className="mt-2 font-medium">{name}</p>
       {address ? <p className="mt-1 font-data text-body text-text-secondary">{address}</p> : null}
-      {node && node.name !== name ? <p className="mt-2 text-meta text-text-muted">Inventory label: {node.name}</p> : null}
+      {node && node.name !== name ? <p className="mt-2 text-meta text-text-muted">{t("hop.inventoryLabel", { name: node.name })}</p> : null}
       {note ? <p className="mt-2 text-meta text-text-muted">{note}</p> : null}
     </div>
   );
@@ -348,18 +355,18 @@ function sameIp(left: string | null, right: string | null) {
   return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
 }
 
-function formatConnection(value: HopMeasurement["connection_type"]) {
+function formatConnection(value: HopMeasurement["connection_type"], legacyLabel: string) {
   if (value === "wifi") return "WiFi";
   if (value === "ethernet") return "Ethernet";
-  return "Legacy / belum dicatat";
+  return legacyLabel;
 }
 
 function formatLatency(value: number | null) {
   return value === null ? "-" : `${value.toFixed(2)} ms`;
 }
 
-function formatTimestamp(timestamp: string) {
-  return new Intl.DateTimeFormat("id-ID", {
+function formatTimestamp(timestamp: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(new Date(timestamp));

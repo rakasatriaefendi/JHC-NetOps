@@ -1,0 +1,3 @@
+{
+  "page": { "eyebrow": "Peringatan", "title": "Peringatan kesehatan jaringan aktif", "description": "Hanya transisi status known-target yang masih aktif. Status offline berarti tidak ada respons ICMP setelah threshold dan bukan bukti tunggal bahwa perangkat mati.", "loadError": "Peringatan gagal dimuat.", "empty": "Tidak ada peringatan kesehatan jaringan aktif." }
+}

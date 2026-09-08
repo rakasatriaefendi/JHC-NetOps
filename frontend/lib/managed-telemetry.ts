@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { localeForLanguage } from "../i18n/config.ts";
 
 export type ManagedTelemetryStatus =
   | "connected"
@@ -204,11 +205,11 @@ export function formatUptime(seconds: number | null): string {
   return `${minutes}m`;
 }
 
-export function formatDateTime(value: string | null): string {
+export function formatDateTime(value: string | null, language = "id"): string {
   if (!value) return "-";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
-  return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+  return new Intl.DateTimeFormat(localeForLanguage(language), { dateStyle: "medium", timeStyle: "short" }).format(parsed);
 }
 
 export function ifNameLabel(row: ManagedInterfaceLatest): string {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   LineChart,
@@ -43,6 +44,7 @@ function HealthTrendChart({ samples, targets, metric, range, onRangeChange }: {
   range: string;
   onRangeChange: (range: string) => void;
 }) {
+  const { t, i18n } = useTranslation("dashboard");
   const ranges = [
     { value: "1h", label: "1h" },
     { value: "6h", label: "6h" },
@@ -55,14 +57,14 @@ function HealthTrendChart({ samples, targets, metric, range, onRangeChange }: {
   const domain = isLatency ? [0, "auto"] : [0, 100];
 
   function formatTooltipTime(value: string) {
-    return new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
+    return new Intl.DateTimeFormat(i18n.language === "en" ? "en-US" : "id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
   }
 
   if (!samples.length) {
     return (
       <div className="rounded-control border border-border bg-bg-base p-6 text-center">
-        <p className="text-text-secondary">Tidak ada data historis untuk rentang ini.</p>
-        <p className="mt-2 text-meta text-text-muted">Data akan muncul setelah Health Watch mengumpulkan beberapa sampel.</p>
+        <p className="text-text-secondary">{t("trends.noHistory")}</p>
+        <p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
       </div>
     );
   }
@@ -96,8 +98,8 @@ function HealthTrendChart({ samples, targets, metric, range, onRangeChange }: {
   if (!hasData) {
     return (
       <div className="rounded-control border border-border bg-bg-base p-6 text-center">
-        <p className="text-text-secondary">Tidak ada data {isLatency ? "latency" : "packet loss"} untuk rentang ini.</p>
-        <p className="mt-2 text-meta text-text-muted">Data akan muncul setelah Health Watch mengumpulkan beberapa sampel.</p>
+        <p className="text-text-secondary">{t("trends.noMetric", { metric: t(isLatency ? "trends.latency" : "trends.packetLoss") })}</p>
+        <p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
       </div>
     );
   }
@@ -106,8 +108,8 @@ function HealthTrendChart({ samples, targets, metric, range, onRangeChange }: {
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-meta font-medium text-text-secondary">Target:</span>
-          <span className="font-data text-text-primary">All monitored targets ({targets.length})</span>
+          <span className="text-meta font-medium text-text-secondary">{t("trends.target")}</span>
+          <span className="font-data text-text-primary">{t("trends.allTargetsCount", { count: targets.length })}</span>
         </div>
         <div className="flex items-center gap-2">
           {ranges.map((r) => (
@@ -218,6 +220,7 @@ function SingleTargetChart({ samples, target, metric, range, onRangeChange }: {
   range: string;
   onRangeChange: (range: string) => void;
 }) {
+  const { t, i18n } = useTranslation("dashboard");
   const ranges = [
     { value: "1h", label: "1h" },
     { value: "6h", label: "6h" },
@@ -241,8 +244,8 @@ function SingleTargetChart({ samples, target, metric, range, onRangeChange }: {
   if (!data.length) {
     return (
       <div className="rounded-control border border-border bg-bg-base p-6 text-center">
-        <p className="text-text-secondary">Tidak ada data historis untuk rentang ini.</p>
-        <p className="mt-2 text-meta text-text-muted">Data akan muncul setelah Health Watch mengumpulkan beberapa sampel.</p>
+        <p className="text-text-secondary">{t("trends.noHistory")}</p>
+        <p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
       </div>
     );
   }
@@ -252,15 +255,15 @@ function SingleTargetChart({ samples, target, metric, range, onRangeChange }: {
   const domain = isLatency ? [0, "auto"] : [0, 100];
 
   function formatTooltipTime(value: string) {
-    return new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
+    return new Intl.DateTimeFormat(i18n.language === "en" ? "en-US" : "id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-meta font-medium text-text-secondary">Target:</span>
-          <span className="font-data text-text-primary">{target?.name ?? "Unknown"} ({target?.ip_address})</span>
+          <span className="text-meta font-medium text-text-secondary">{t("trends.target")}</span>
+          <span className="font-data text-text-primary">{target?.name ?? t("trends.unknown")} ({target?.ip_address})</span>
         </div>
         <div className="flex items-center gap-2">
           {ranges.map((r) => (
@@ -371,14 +374,15 @@ interface TargetOption {
 }
 
 export function NetworkHealthTrends({ targets, samples }: HealthTrendsProps) {
+  const { t } = useTranslation("dashboard");
   const [selectedTargetId, setSelectedTargetId] = useState<string>("__all__");
   const [range, setRange] = useState<"1h" | "6h" | "24h" | "7d">("1h");
   const [metric, setMetric] = useState<"latency" | "loss">("latency");
 
   const targetOptions = useMemo<TargetOption[]>(() => [
-    { id: "__all__", name: "All monitored targets", ip_address: "" },
+    { id: "__all__", name: t("trends.allTargets"), ip_address: "" },
     ...targets.map((t) => ({ id: t.id, name: t.node.name, ip_address: t.node.ip_address })),
-  ], [targets]);
+  ], [targets, t]);
 
   const selectedTarget = targetOptions.find((t) => t.id === selectedTargetId) ?? targetOptions[0];
   const isAllTargets = selectedTargetId === "__all__";
@@ -387,13 +391,13 @@ export function NetworkHealthTrends({ targets, samples }: HealthTrendsProps) {
   const targetListForChart = isAllTargets ? targets.map(t => ({ id: t.id, name: t.node.name, ip_address: t.node.ip_address })) : [selectedTarget];
 
   return (
-    <Section title="Network health trends">
-      <p className="mt-2 text-text-secondary">Latency dan packet loss historis untuk target yang dimonitor. Data diambil dari sampel Health Watch (interval 60 detik, retensi 7 hari).</p>
+    <Section title={t("trends.title")}>
+      <p className="mt-2 text-text-secondary">{t("trends.description")}</p>
 
       <div className="mt-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <label className="text-meta text-text-secondary">Target:</label>
+            <label className="text-meta text-text-secondary">{t("trends.target")}</label>
             <select
               className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
               value={selectedTargetId}
@@ -401,13 +405,13 @@ export function NetworkHealthTrends({ targets, samples }: HealthTrendsProps) {
             >
               {targetOptions.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.id === "__all__" ? "All monitored targets" : `${t.name} (${t.ip_address})`}
+                  {t.id === "__all__" ? t.name : `${t.name} (${t.ip_address})`}
                 </option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-meta text-text-secondary">Metrik:</label>
+            <label className="text-meta text-text-secondary">{t("trends.metric")}</label>
             <div className="flex gap-2">
               {["latency", "loss"].map((m) => (
                 <Button
@@ -416,22 +420,22 @@ export function NetworkHealthTrends({ targets, samples }: HealthTrendsProps) {
                   onClick={() => setMetric(m as "latency" | "loss")}
                   className="px-2 py-1 text-sm"
                 >
-                  {m === "latency" ? "Latency" : "Packet Loss"}
+                  {t(m === "latency" ? "trends.latency" : "trends.packetLoss")}
                 </Button>
               ))}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-meta text-text-secondary">Rentang:</label>
+            <label className="text-meta text-text-secondary">{t("trends.range")}</label>
             <select
               className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
               value={range}
               onChange={(e) => setRange(e.target.value as "1h" | "6h" | "24h" | "7d")}
             >
-              <option value="1h">1 jam</option>
-              <option value="6h">6 jam</option>
-              <option value="24h">24 jam</option>
-              <option value="7d">7 hari</option>
+              <option value="1h">{t("trends.oneHour")}</option>
+              <option value="6h">{t("trends.hours", { count: 6 })}</option>
+              <option value="24h">{t("trends.hours", { count: 24 })}</option>
+              <option value="7d">{t("trends.days", { count: 7 })}</option>
             </select>
           </div>
         </div>

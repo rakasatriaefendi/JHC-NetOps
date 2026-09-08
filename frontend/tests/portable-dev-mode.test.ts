@@ -169,9 +169,9 @@ test("fixtures remain secret-free and within existing host and payload bounds", 
 test("portable fixture UI is explicitly labelled and non-public environment variables are used", () => {
   const banner = readFileSync(new URL("../components/portable-fixture-banner.tsx", import.meta.url), "utf8");
   const mode = readFileSync(new URL("../lib/portable-dev-mode.ts", import.meta.url), "utf8");
-  assert.match(banner, /Portable fixture data/);
-  assert.match(banner, /not live SNMP telemetry/);
-  assert.match(banner, /Normalized fixture events/);
+  assert.match(banner, /t\("portable\.title"\)/);
+  assert.match(banner, /t\("portable\.description"/);
+  assert.match(banner, /t\("portable\.events"/);
   assert.match(mode, /PORTABLE_DEV_MODE/);
   assert.doesNotMatch(mode, /NEXT_PUBLIC/);
 });

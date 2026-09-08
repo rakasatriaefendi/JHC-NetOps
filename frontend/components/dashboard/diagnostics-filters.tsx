@@ -1,3 +1,7 @@
+"use client";
+
+import { useTranslation } from "react-i18next";
+
 import type {
   ConnectionType,
   DiagnosticsFilters,
@@ -21,22 +25,23 @@ export function DiagnosticsFilterControls({
   onChange,
   onSortOrderChange,
 }: DiagnosticsFiltersProps) {
+  const { t } = useTranslation("diagnostics");
   return (
     <div className="grid gap-4 rounded-control border border-border bg-bg-base p-4 md:grid-cols-4">
       <FilterSelect
-        label="Source"
+        label={t("filters.source", { defaultValue: t("workspace.source") })}
         value={filters.source}
         options={sources}
         onChange={(source) => onChange({ ...filters, source })}
       />
       <FilterSelect
-        label="Target"
+        label={t("workspace.target")}
         value={filters.target}
         options={targets}
         onChange={(target) => onChange({ ...filters, target })}
       />
       <label className="grid gap-2 text-meta font-medium text-text-secondary">
-        Connection type
+        {t("filters.connection")}
         <select
           className="rounded-control border border-border bg-bg-surface px-3 py-2 text-body text-text-primary outline-none focus:border-accent"
           value={filters.connectionType}
@@ -47,13 +52,13 @@ export function DiagnosticsFilterControls({
             })
           }
         >
-          <option value="all">All</option>
+          <option value="all">{t("filters.all")}</option>
           <option value="wifi">WiFi</option>
           <option value="ethernet">Ethernet</option>
         </select>
       </label>
       <label className="grid gap-2 text-meta font-medium text-text-secondary">
-        Urutan waktu
+        {t("filters.sort")}
         <select
           className="rounded-control border border-border bg-bg-surface px-3 py-2 text-body text-text-primary outline-none focus:border-accent"
           value={sortOrder}
@@ -61,8 +66,8 @@ export function DiagnosticsFilterControls({
             onSortOrderChange(event.target.value as DiagnosticSortOrder)
           }
         >
-          <option value="newest">Terbaru → terlama</option>
-          <option value="oldest">Terlama → terbaru</option>
+          <option value="newest">{t("filters.newest")}</option>
+          <option value="oldest">{t("filters.oldest")}</option>
         </select>
       </label>
     </div>
@@ -80,6 +85,7 @@ function FilterSelect({
   options: string[];
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation("diagnostics");
   return (
     <label className="grid gap-2 text-meta font-medium text-text-secondary">
       {label}
@@ -88,7 +94,7 @@ function FilterSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        <option value="all">All</option>
+        <option value="all">{t("filters.all")}</option>
         {options.map((option) => (
           <option key={option} value={option}>
             {option}

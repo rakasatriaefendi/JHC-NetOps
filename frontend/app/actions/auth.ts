@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { logAuthFailure } from "@/lib/auth-logging";
 import { createClient } from "@/lib/supabase/server";
+import { getServerTranslation } from "@/i18n/server";
 
 export type AuthActionState = {
   error: string | null;
@@ -15,13 +16,14 @@ export async function loginAction(
   _previousState: AuthActionState,
   formData: FormData,
 ): Promise<AuthActionState> {
+  const { t } = await getServerTranslation("auth");
   const email = String(formData.get("email") ?? "")
     .trim()
     .toLowerCase();
   const password = String(formData.get("password") ?? "");
 
   if (!email || !password) {
-    return { error: "Email dan password wajib diisi.", message: null };
+    return { error: t("errors.required"), message: null };
   }
 
   const supabase = await createClient();
@@ -29,7 +31,7 @@ export async function loginAction(
 
   if (error) {
     logAuthFailure("login", error);
-    return { error: "Email atau password tidak valid.", message: null };
+    return { error: t("errors.invalid"), message: null };
   }
 
   redirect("/auth/resolve");
@@ -39,6 +41,7 @@ export async function registerAction(
   _previousState: AuthActionState,
   formData: FormData,
 ): Promise<AuthActionState> {
+  const { t } = await getServerTranslation("auth");
   const fullName = String(formData.get("full_name") ?? "").trim();
   const email = String(formData.get("email") ?? "")
     .trim()
@@ -47,7 +50,7 @@ export async function registerAction(
 
   if (fullName.length < 2 || !email || password.length < 8) {
     return {
-      error: "Isi nama, email, dan password minimal 8 karakter.",
+      error: t("errors.registerValidation"),
       message: null,
     };
   }
@@ -71,7 +74,7 @@ export async function registerAction(
   if (error) {
     logAuthFailure("register", error);
     return {
-      error: "Registrasi gagal. Periksa data atau coba beberapa saat lagi.",
+      error: t("errors.registerFailed"),
       message: null,
     };
   }
@@ -82,7 +85,7 @@ export async function registerAction(
 
   return {
     error: null,
-    message: "Registrasi berhasil. Periksa email untuk konfirmasi akun.",
+    message: t("messages.registered"),
   };
 }
 

@@ -1,0 +1,14 @@
+{
+  "appName": "NetOps Monitor",
+  "networkVisibility": "Network visibility",
+  "language": { "label": "Language" },
+  "nav": { "dashboard": "Dashboard", "traffic": "Traffic", "history": "History", "alerts": "Alerts", "devices": "Devices", "snmp": "SNMP", "diagnostics": "LAN Diagnostics", "admin": "Admin", "main": "Main navigation", "open": "Open navigation", "close": "Close navigation" },
+  "actions": { "signIn": "Sign in", "register": "Register", "signOut": "Sign out", "close": "Close", "cancel": "Cancel", "save": "Save", "edit": "Edit", "delete": "Delete", "retry": "Try again", "previous": "Previous", "next": "Next", "view": "View", "open": "Open" },
+  "status": { "pending": "Awaiting approval", "approved": "Active", "rejected": "Suspended", "online": "Online", "offline": "Offline", "degraded": "Degraded", "unknown": "Unknown", "available": "Available", "unavailable": "Unavailable", "active": "Active", "resolved": "Resolved", "enabled": "Enabled", "disabled": "Disabled" },
+  "roles": { "admin": "Admin", "operator": "Operator", "viewer": "Viewer" },
+  "emptyValue": "-",
+  "technicalCode": "Technical code: {{code}}",
+  "portable": { "title": "Portable fixture data", "description": "Local development scenario: {{scenario}}. This is sanitized synthetic data, not live SNMP telemetry.", "events": "Normalized fixture events ({{count}})", "resolved": "resolved" },
+  "healthEvents": { "empty": "No network health events yet.", "resolvedAt": "Resolved {{date}}", "stillActive": "Still active" },
+  "telemetryStatus": { "connected": "Connected", "partial": "Partial", "auth_failed": "Auth failed", "timeout": "Timeout", "unreachable": "Unreachable", "unsupported": "Unsupported", "poll_failed": "Poll failed", "not_configured": "Not configured" }
+}

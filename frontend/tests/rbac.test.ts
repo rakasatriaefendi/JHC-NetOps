@@ -71,10 +71,10 @@ test("Admin UI exposes independent role and access selectors", () => {
   const control = source("../components/admin/user-access-control.tsx");
   for (const value of ["admin", "operator", "viewer"]) assert.match(control, new RegExp(`value="${value}"`));
   for (const value of ["pending", "active", "suspended"]) assert.match(control, new RegExp(`value="${value}"`));
-  assert.match(control, /Menunggu persetujuan/);
-  assert.match(control, /Aktif/);
-  assert.match(control, /Ditangguhkan/);
-  assert.match(control, /Menyimpan…/);
+  assert.match(control, /t\("common:status\.pending"\)/);
+  assert.match(control, /t\("common:status\.approved"\)/);
+  assert.match(control, /t\("common:status\.rejected"\)/);
+  assert.match(control, /t\("access\.saving"\)/);
   assert.doesNotMatch(control, /Menyimpanâ€¦/);
 });
 

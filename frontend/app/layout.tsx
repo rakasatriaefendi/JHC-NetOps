@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 
+import { AppI18nProvider } from "@/i18n/provider";
+import { getRequestLanguage } from "@/i18n/server";
+
 import "./globals.css";
 
 const inter = Inter({
@@ -19,17 +22,18 @@ export const metadata: Metadata = {
   description: "Network traffic monitoring dashboard",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const language = await getRequestLanguage();
+
   return (
-    <html lang="id">
+    <html lang={language}>
       <body className={`${inter.variable} ${jetBrainsMono.variable}`}>
-        {children}
+        <AppI18nProvider language={language}>{children}</AppI18nProvider>
       </body>
     </html>
   );
 }
-

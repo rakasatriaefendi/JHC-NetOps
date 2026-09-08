@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslation } from "react-i18next";
 import type { ProfileStatus } from "@/lib/auth";
 
 const statusStyles: Record<ProfileStatus, string> = {
@@ -6,19 +9,14 @@ const statusStyles: Record<ProfileStatus, string> = {
   rejected: "bg-severity-critical/10 text-severity-critical",
 };
 
-const statusLabels: Record<ProfileStatus, string> = {
-  pending: "Menunggu persetujuan",
-  approved: "Aktif",
-  rejected: "Ditangguhkan",
-};
-
 export function StatusBadge({ status }: { status: ProfileStatus }) {
+  const { t } = useTranslation("common");
   return (
     <span
       className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-meta font-medium ${statusStyles[status]}`}
     >
       <span aria-hidden="true">●</span>
-      {statusLabels[status]}
+      {t(`status.${status}`)}
     </span>
   );
 }
