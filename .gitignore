@@ -82,3 +82,9 @@ Desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# Manual Book working assets
+docs/manual-book/resources/screenshots/
+docs/manual-book/resources/*.zip
+docs/manual-book/draft/
+docs/manual-book/working/
