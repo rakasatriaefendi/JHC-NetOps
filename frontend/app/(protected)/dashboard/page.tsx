@@ -10,10 +10,12 @@ import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
 import { loadNetworkNodes } from "@/lib/network-nodes";
 import { loadTrafficState } from "@/lib/traffic";
 import { canOperateNetwork } from "@/lib/authorization";
+import { getServerTranslation } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const { t } = await getServerTranslation("dashboard");
   const { supabase, profile } = await requireApprovedProfile();
   const canOperate = canOperateNetwork(profile.role);
   const health = await loadNetworkHealth(supabase);
@@ -28,11 +30,11 @@ export default async function DashboardPage() {
   return (
     <main className="p-4 md:p-6">
       <p className="text-meta font-medium uppercase tracking-wide text-accent">
-        Network operations
+        {t("page.eyebrow")}
       </p>
-      <h1 className="mt-2 text-heading font-semibold">Dashboard</h1>
+      <h1 className="mt-2 text-heading font-semibold">{t("page.title")}</h1>
       <p className="mt-2 text-text-secondary">
-        Reachability target yang dikenal, perubahan status, dan konteks diagnostik.
+        {t("page.description")}
       </p>
 
       <NetworkNodesProvider initialNodes={nodes.data} loadError={nodes.error} role={profile.role}>

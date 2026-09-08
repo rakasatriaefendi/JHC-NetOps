@@ -1,16 +1,17 @@
 import { AuthCard } from "@/components/auth/auth-card";
 import { RegisterForm } from "@/components/auth/register-form";
+import { getServerTranslation } from "@/i18n/server";
 
-export default function RegisterPage() {
+export default async function RegisterPage() {
+  const { t } = await getServerTranslation("auth");
   return (
     <AuthCard
-      title="Daftar akun"
-      description="Akun baru harus disetujui admin sebelum dapat membaca data jaringan."
+      title={t("register.title")}
+      description={t("register.description")}
       alternateHref="/login"
-      alternateLabel="Sudah punya akun? Masuk"
+      alternateLabel={t("register.alternate")}
     >
       <RegisterForm />
     </AuthCard>
   );
 }
-

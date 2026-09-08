@@ -33,7 +33,7 @@ test("auth actions keep generic user messages and never pass request payloads to
   const action = readFileSync(new URL("../app/actions/auth.ts", import.meta.url), "utf8");
   assert.match(action, /logAuthFailure\("login", error\)/);
   assert.match(action, /logAuthFailure\("register", error\)/);
-  assert.match(action, /Email atau password tidak valid/);
-  assert.match(action, /Registrasi gagal\. Periksa data atau coba beberapa saat lagi/);
+  assert.match(action, /t\("errors\.invalid"\)/);
+  assert.match(action, /t\("errors\.registerFailed"\)/);
   assert.doesNotMatch(action, /logAuthFailure\([^,]+,\s*(?:formData|password|email|data)\)/);
 });

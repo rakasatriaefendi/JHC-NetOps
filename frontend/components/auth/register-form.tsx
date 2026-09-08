@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { registerAction, type AuthActionState } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ const inputClasses =
 const initialAuthState: AuthActionState = { error: null, message: null };
 
 export function RegisterForm() {
+  const { t } = useTranslation("auth");
   const [state, formAction, pending] = useActionState(
     registerAction,
     initialAuthState,
@@ -18,7 +20,7 @@ export function RegisterForm() {
   return (
     <form action={formAction} className="space-y-4">
       <label className="block text-body font-medium">
-        Nama lengkap
+        {t("register.name")}
         <input
           className={inputClasses}
           name="full_name"
@@ -30,7 +32,7 @@ export function RegisterForm() {
       </label>
 
       <label className="block text-body font-medium">
-        Email
+        {t("fields.email")}
         <input
           className={inputClasses}
           name="email"
@@ -41,7 +43,7 @@ export function RegisterForm() {
       </label>
 
       <label className="block text-body font-medium">
-        Password
+        {t("fields.password")}
         <input
           className={inputClasses}
           name="password"
@@ -51,7 +53,7 @@ export function RegisterForm() {
           required
         />
         <span className="mt-1 block text-meta font-normal text-text-muted">
-          Minimal 8 karakter.
+          {t("register.passwordHint")}
         </span>
       </label>
 
@@ -68,7 +70,7 @@ export function RegisterForm() {
       ) : null}
 
       <Button className="w-full" disabled={pending} type="submit">
-        {pending ? "Mendaftarkan..." : "Daftar"}
+        {pending ? t("register.submitting") : t("register.submit")}
       </Button>
     </form>
   );

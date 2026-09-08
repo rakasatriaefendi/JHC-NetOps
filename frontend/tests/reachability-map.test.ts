@@ -41,8 +41,8 @@ test("scheduled and manual activity are transient without mutating persisted sta
 test("admin always sees manual ping with capability-aware disabled and loading states", () => {
   assert.match(source, /\{manualPing\.isAdmin \? \(/);
   assert.match(source, /disabled=\{!target\.manual_ping_available \|\| pingState\?\.phase === "loading"\}/);
-  assert.match(source, /Manual ping unavailable/);
-  assert.match(source, /pingState\?\.phase === "loading" \? "Pinging…" : "PING"/);
+  assert.match(source, /t\("map\.pingUnavailable"\)/);
+  assert.match(source, /t\(pingState\?\.phase === "loading" \? "map\.pinging" : "map\.ping"\)/);
 });
 
 test("viewer has no manual ping action and enabled admin requests remain one-shot", () => {

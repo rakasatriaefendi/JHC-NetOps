@@ -114,9 +114,8 @@ test("observed host inventory names reuse an exact joined network node", () => {
 
 test("Observed LAN Hosts UI states NetBIOS is enrichment and not physical attachment proof", () => {
   const component = readFileSync(new URL("../components/snmp/observed-lan-hosts.tsx", import.meta.url), "utf8");
-  assert.match(component, /Observed LAN Hosts/);
-  assert.match(component, /NetBIOS is (?:optional )?naming enrichment only/);
-  assert.match(component, /not proof of physical attachment|does not|neither signal proves a physical switch-port attachment/i);
+  assert.match(component, /t\("observed\.workspaceTitle"\)/);
+  assert.match(component, /t\("observed\.workspaceDescription"\)/);
   assert.doesNotMatch(component, /fetch\(|scan|subnet/i);
   assert.match(component, /overflow-x-auto/);
 });

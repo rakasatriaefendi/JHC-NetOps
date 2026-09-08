@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BaseEdge,
   Background,
@@ -63,6 +64,7 @@ function getStrokeDashArray(status: HealthStatus): string {
 }
 
 function RunnerNode({ data }: { data: RunnerNodeData }) {
+  const { t } = useTranslation("dashboard");
   const { runner } = data;
   const isOnline = runner.health_status === "online";
 
@@ -73,12 +75,12 @@ function RunnerNode({ data }: { data: RunnerNodeData }) {
         <div className="w-3 h-3 rounded-full bg-current" />
         <div className="text-left w-full">
           <p className="font-medium text-text-primary whitespace-nowrap truncate">{runner.display_name}</p>
-          <p className="text-xs text-text-secondary">Local Runner</p>
-          <p className="text-xs text-text-muted">Monitoring source</p>
+          <p className="text-xs text-text-secondary">{t("map.localRunner")}</p>
+          <p className="text-xs text-text-muted">{t("map.source")}</p>
         </div>
         <div className="flex items-center gap-1.5 mt-2">
           <span className={`w-2 h-2 rounded-full ${isOnline ? "bg-severity-low" : "bg-severity-critical"}`} />
-          <span className="text-xs font-medium text-text-secondary">{isOnline ? "Online" : "Offline"}</span>
+          <span className="text-xs font-medium text-text-secondary">{t(isOnline ? "common:status.online" : "common:status.offline")}</span>
         </div>
       </div>
     </div>
@@ -86,6 +88,7 @@ function RunnerNode({ data }: { data: RunnerNodeData }) {
 }
 
 function TargetNode({ data }: { data: TargetNodeData }) {
+  const { t } = useTranslation("dashboard");
   const { target } = data;
   const manualPing = useManualPing();
   const pingState = manualPing.states[target.id];
@@ -100,7 +103,7 @@ function TargetNode({ data }: { data: TargetNodeData }) {
     ? "border-severity-medium bg-severity-medium/10 text-severity-medium"
     : "border-severity-critical bg-severity-critical/10 text-severity-critical";
 
-  const statusLabel = status === "online" ? "Online" : status === "degraded" ? "Degraded" : "Offline";
+  const statusLabel = t(`common:status.${status}`);
   const statusDotColor = isOnline ? "bg-severity-low" : isDegraded ? "bg-severity-medium" : "bg-severity-critical";
   const transientClass = pingState?.phase === "loading"
     ? "ring-2 ring-accent"
@@ -140,10 +143,10 @@ function TargetNode({ data }: { data: TargetNodeData }) {
                 manualPing.run(target.id);
               }}
             >
-              {pingState?.phase === "loading" ? "Pinging…" : "PING"}
+              {t(pingState?.phase === "loading" ? "map.pinging" : "map.ping")}
             </Button>
             {!target.manual_ping_available ? (
-              <span className="text-meta text-text-muted">Manual ping unavailable</span>
+              <span className="text-meta text-text-muted">{t("map.pingUnavailable")}</span>
             ) : pingState ? (
               <span className={`inline-flex min-w-0 items-center gap-2 text-meta ${
                 pingState.phase === "error" ? "text-severity-critical" : pingState.phase === "success" ? "text-severity-low" : "text-accent"
@@ -151,7 +154,7 @@ function TargetNode({ data }: { data: TargetNodeData }) {
                 <span className={pingState.phase === "loading" ? "animate-pulse" : ""}>●</span>
                 <span className="truncate font-data">{pingState.message}</span>
               </span>
-            ) : <span className="text-meta text-text-muted">One-shot ICMP</span>}
+            ) : <span className="text-meta text-text-muted">{t("map.oneShot")}</span>}
           </div>
         ) : null}
       </div>
@@ -646,6 +649,7 @@ function layoutReachabilityGraph(nodes: Node[], edges: Edge[]) {
 }
 
 export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
+  const { t, i18n } = useTranslation("dashboard");
   const initialState = useMemo(() => buildReachabilityGraph(targets, runnerId), [targets, runnerId]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialState.edges);
@@ -752,8 +756,8 @@ export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
   if (targets.length === 0) {
     return (
       <div className="mt-6 rounded-panel border border-border bg-bg-surface p-6 text-center">
-        <p className="font-medium">Belum ada target health yang aktif.</p>
-        <p className="mt-2 text-text-secondary">Monitoring tidak memindai subnet. Admin harus memilih node inventory dan runner secara eksplisit.</p>
+        <p className="font-medium">{t("map.emptyTitle")}</p>
+        <p className="mt-2 text-text-secondary">{t("map.emptyHelp")}</p>
       </div>
     );
   }
@@ -763,19 +767,19 @@ export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
       {!isFullscreen && (
         <div className="flex flex-col gap-6 border-b border-border px-5 py-4 md:px-6 md:py-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="text-meta font-medium uppercase tracking-wide text-accent">Reachability Map</p>
-            <h2 className="mt-2 text-section font-semibold">Monitoring relationships from Local Runner</h2>
-            <p className="mt-2 max-w-3xl text-text-secondary">Connections show monitoring relationships from this Local Runner, not physical network topology.</p>
+            <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("map.eyebrow")}</p>
+            <h2 className="mt-2 text-section font-semibold">{t("map.title")}</h2>
+            <p className="mt-2 max-w-3xl text-text-secondary">{t("map.description")}</p>
           </div>
           <div className="flex shrink-0 flex-col gap-4 lg:items-end">
             <div className="flex flex-col lg:items-end gap-1">
-              <span className="text-meta text-text-secondary">Runner:</span>
-              <span className="font-data text-text-primary">Local Runner</span>
+              <span className="text-meta text-text-secondary">{t("map.runner")}</span>
+              <span className="font-data text-text-primary">{t("map.localRunner")}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={fitView}>Fit View</Button>
-              <Button variant="secondary" onClick={resetLayout}>Reset Layout</Button>
-              <Button onClick={() => setIsFullscreen(true)}>Expand</Button>
+              <Button variant="secondary" onClick={fitView}>{t("map.fit")}</Button>
+              <Button variant="secondary" onClick={resetLayout}>{t("map.reset")}</Button>
+              <Button onClick={() => setIsFullscreen(true)}>{t("map.expand")}</Button>
             </div>
           </div>
         </div>
@@ -811,13 +815,13 @@ export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
         </ReactFlow>
 
         {isFullscreen && (
-          <div className="absolute top-4 right-4 z-10" role="button" tabIndex={0} aria-label="Close fullscreen">
+          <div className="absolute top-4 right-4 z-10" role="button" tabIndex={0} aria-label={t("map.closeFullscreen")}>
             <Button
               variant="secondary"
               onClick={() => setIsFullscreen(false)}
               className="shadow-lg px-3 py-1.5 text-sm"
             >
-              Close
+              {t("map.close")}
             </Button>
           </div>
         )}
@@ -827,12 +831,12 @@ export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
         <div className={`fixed ${isFullscreen ? "z-50" : "z-50"} right-0 top-1/2 -translate-y-1/2 w-80 md:w-96 bg-bg-surface border-l border-border p-4 shadow-xl`} role="dialog" aria-modal="true">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
-              <p className="text-meta uppercase tracking-wide text-accent">Node Detail</p>
+              <p className="text-meta uppercase tracking-wide text-accent">{t("map.nodeDetail")}</p>
               <h3 className="mt-1 text-heading font-semibold">
                 {selectedNode.type === "runner" ? (selectedNode.data as { runner: { display_name: string } }).runner.display_name : (selectedNode.data as { target: NetworkHealthTarget }).target.node.name}
               </h3>
             </div>
-            <button onClick={() => setSelectedNode(null)} className="text-text-muted hover:text-text-primary" aria-label="Close detail">×</button>
+            <button onClick={() => setSelectedNode(null)} className="text-text-muted hover:text-text-primary" aria-label={t("map.closeDetail")}>×</button>
           </div>
           <div className="space-y-3">
             {selectedNode.type === "target" && (() => {
@@ -842,27 +846,27 @@ export function ReachabilityMap({ targets, runnerId }: ReachabilityMapProps) {
                 <>
                   <dl className="grid gap-2 sm:grid-cols-2 text-meta">
                     <div><dt className="text-text-secondary">IP</dt><dd className="font-data">{target.node.ip_address}</dd></div>
-                    <div><dt className="text-text-secondary">Location</dt><dd>{target.node.location ?? "-"}</dd></div>
-                    <div><dt className="text-text-secondary">Status</dt><dd>
+                    <div><dt className="text-text-secondary">{t("map.location")}</dt><dd>{target.node.location ?? "-"}</dd></div>
+                    <div><dt className="text-text-secondary">{t("map.status")}</dt><dd>
                       <span className={latest?.status === "online" ? "text-severity-low" : latest?.status === "degraded" ? "text-severity-medium" : "text-severity-critical"}>
-                        ● {latest?.status ?? "offline"}
+                        ● {t(`common:status.${latest?.status ?? "offline"}`)}
                       </span>
                     </dd></div>
-                    <div><dt className="text-text-secondary">Latency</dt><dd className="font-data">{formatLatency(latest?.latency_ms)}</dd></div>
-                    <div><dt className="text-text-secondary">Packet Loss</dt><dd className="font-data">{latest ? `${Number(latest.packet_loss_percent).toFixed(1)}%` : "-"}</dd></div>
-                    <div><dt className="text-text-secondary">Last Checked</dt><dd>{latest ? new Intl.DateTimeFormat("id-ID", { dateStyle: "short", timeStyle: "medium" }).format(new Date(latest.last_checked_at)) : "-"}</dd></div>
-                    <div><dt className="text-text-secondary">Monitoring State</dt><dd>{target.enabled ? "Active" : "Paused"}</dd></div>
+                    <div><dt className="text-text-secondary">{t("map.latency")}</dt><dd className="font-data">{formatLatency(latest?.latency_ms)}</dd></div>
+                    <div><dt className="text-text-secondary">{t("map.packetLoss")}</dt><dd className="font-data">{latest ? `${Number(latest.packet_loss_percent).toFixed(1)}%` : "-"}</dd></div>
+                    <div><dt className="text-text-secondary">{t("map.lastChecked")}</dt><dd>{latest ? new Intl.DateTimeFormat(i18n.language === "en" ? "en-US" : "id-ID", { dateStyle: "short", timeStyle: "medium" }).format(new Date(latest.last_checked_at)) : "-"}</dd></div>
+                    <div><dt className="text-text-secondary">{t("map.monitoringState")}</dt><dd>{t(target.enabled ? "map.active" : "map.paused")}</dd></div>
                   </dl>
                   <Button variant="secondary" className="w-full" onClick={() => openDeviceProfile({ ipAddress: target.node.ip_address, runnerId: target.runner_id, observedStatus: latest?.status ?? "unknown" })}>
-                    Open Device Profile
+                    {t("map.openProfile")}
                   </Button>
                 </>
               );
             })()}
             {selectedNode.type === "runner" && (
               <div className="space-y-2">
-                <p className="text-meta text-text-secondary">Runner node — monitoring source</p>
-                <p className="text-sm text-text-muted">Click a target to see details</p>
+                <p className="text-meta text-text-secondary">{t("map.runnerHelp")}</p>
+                <p className="text-sm text-text-muted">{t("map.clickHelp")}</p>
               </div>
             )}
           </div>

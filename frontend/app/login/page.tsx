@@ -1,16 +1,17 @@
 import { AuthCard } from "@/components/auth/auth-card";
 import { LoginForm } from "@/components/auth/login-form";
+import { getServerTranslation } from "@/i18n/server";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const { t } = await getServerTranslation("auth");
   return (
     <AuthCard
-      title="Masuk"
-      description="Gunakan akun yang sudah terdaftar untuk membuka dashboard."
+      title={t("login.title")}
+      description={t("login.description")}
       alternateHref="/register"
-      alternateLabel="Belum punya akun? Daftar"
+      alternateLabel={t("login.alternate")}
     >
       <LoginForm />
     </AuthCard>
   );
 }
-

@@ -5,12 +5,14 @@ import { requireApprovedProfile } from "@/lib/auth";
 import type { RunnerCapabilities } from "@/lib/diagnostic-jobs";
 import { loadSnmpWorkspaceData } from "@/lib/managed-telemetry-source";
 import { canOperateNetwork } from "@/lib/authorization";
+import { getServerTranslation } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
 
 type SnmpPageProps = { searchParams: Promise<{ telemetry_notice?: string; telemetry_error?: string }> };
 
 export default async function SnmpPage({ searchParams }: SnmpPageProps) {
+  const { t } = await getServerTranslation("snmp");
   const { supabase, profile } = await requireApprovedProfile();
   const params = await searchParams;
   const { inventory, runnersResult, telemetry, portable } = await loadSnmpWorkspaceData(supabase);
@@ -23,17 +25,17 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
 
   return <main className="p-4 md:p-6">
     <div>
-      <p className="text-meta font-medium uppercase tracking-wide text-accent">Read-only management</p>
-      <h1 className="mt-2 text-heading font-semibold">SNMP</h1>
-      <p className="mt-2 max-w-3xl text-text-secondary">Managed infrastructure telemetry menggunakan target inventory dan profile reference lokal runner. Tidak tersedia arbitrary OID, walk, SET, atau credential input.</p>
+      <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("page.eyebrow")}</p>
+      <h1 className="mt-2 text-heading font-semibold">{t("page.title")}</h1>
+      <p className="mt-2 max-w-3xl text-text-secondary">{t("page.description")}</p>
     </div>
     {portable.enabled ? <PortableFixtureBanner scenario={portable.scenario} events={telemetry.events} /> : null}
-    {loadFailed ? <p className="mt-4 text-severity-critical" role="alert">Sebagian data SNMP tidak dapat dimuat.</p> : null}
-    <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Managed telemetry summary">
-      <Summary label="Managed devices" value={telemetry.data.length} />
-      <Summary label="Connected latest" value={connected} />
-      <Summary label="Poll errors" value={pollErrors} />
-      <Summary label="Interfaces" value={interfaceCount} />
+    {loadFailed ? <p className="mt-4 text-severity-critical" role="alert">{t("page.loadError")}</p> : null}
+    <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label={t("page.summaryLabel")}>
+      <Summary label={t("page.summary.managedDevices")} value={telemetry.data.length} />
+      <Summary label={t("page.summary.connected")} value={connected} />
+      <Summary label={t("page.summary.pollErrors")} value={pollErrors} />
+      <Summary label={t("page.summary.interfaces")} value={interfaceCount} />
     </section>
     <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} observedHosts={telemetry.observedHosts} />
     <ManagedTelemetryTargets

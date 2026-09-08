@@ -10,8 +10,8 @@ const manualPing = readFileSync(new URL("../components/dashboard/manual-ping-pro
 
 test("Other known targets reuses the single Manual Ping provider and target-id-only request", () => {
   assert.match(dashboard, /<ManualPingProvider targets=\{targets\} isAdmin=\{isAdmin\}>/);
-  assert.match(dashboard, /Other known targets[\s\S]*paginate showManualPing=\{isAdmin\}/);
-  assert.match(dashboard, /<th className="p-3">Action<\/th>/);
+  assert.match(dashboard, /title=\{t\("health\.otherTargets"\)\}[\s\S]*paginate showManualPing=\{isAdmin\}/);
+  assert.match(dashboard, /<th className="p-3">\{t\("health\.columns\.action"\)\}<\/th>/);
   assert.match(dashboard, /manualPing\.run\(target\.id\)/);
   assert.match(map, /useManualPing\(\)/);
   assert.match(manualPing, /client\.functions\.invoke\("network-health"/);
@@ -28,8 +28,8 @@ test("manual Ping blocks duplicate and unavailable requests before creating tran
   assert.ok(lookup >= 0 && guard > lookup);
   assert.ok(lock > guard && loading > guard && request > guard);
   assert.match(dashboard, /disabled=\{!target\.manual_ping_available \|\| state\?\.phase === "loading"\}/);
-  assert.match(dashboard, /state\?\.phase === "loading" \? "Pinging…" : "Ping"/);
-  assert.match(dashboard, /Manual ping unavailable/);
+  assert.match(dashboard, /t\(state\?\.phase === "loading" \? "health\.pinging" : "health\.ping"\)/);
+  assert.match(dashboard, /t\("health\.pingUnavailable"\)/);
 });
 
 test("ten or fewer targets fit one page and eleven targets paginate", () => {

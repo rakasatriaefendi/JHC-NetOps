@@ -136,7 +136,7 @@ test("SNMP detail uses only the compact observed-host summary and dedicated rout
   assert.match(deviceProfile, /ObservedLanHostsSummary/);
   assert.doesNotMatch(deviceProfile, /ObservedLanHostsWorkspace/);
   const component = source("../components/snmp/observed-lan-hosts.tsx");
-  assert.match(component, /View Observed LAN Hosts/);
+  assert.match(component, /t\("observed\.view"\)/);
   assert.match(component, /href={`\/snmp\/\$\{targetId\}\/hosts`}/);
 });
 
@@ -150,13 +150,14 @@ test("dedicated observed-host workspace is approved-viewer read-only and handles
   assert.match(route, /ObservedLanHostsWorkspace/);
   assert.doesNotMatch(route, /requireAdmin|profile\.role/);
   assert.match(route, /href="\/snmp"/);
-  assert.match(route, /Back to SNMP workspace/);
-  assert.match(route, /Managed SNMP target unavailable/);
-  assert.match(route, /Observed hosts unavailable/);
-  assert.match(component, /unsupported by this managed device/i);
-  assert.match(component, /optional NetBIOS naming enrichment is partial/i);
-  assert.match(component, /No hosts are currently observed/i);
-  assert.match(component, /Stale observations are retained/i);
+  assert.match(route, /t\("observed\.back"\)/);
+  assert.match(route, /t\("observed\.targetErrorTitle"\)/);
+  assert.match(route, /t\("observed\.targetError"\)/);
+  assert.match(route, /t\("observed\.loadError"\)/);
+  assert.match(component, /t\("observed\.unsupportedState"\)/);
+  assert.match(component, /t\("observed\.partialNotice"\)/);
+  assert.match(component, /t\("observed\.emptyState"\)/);
+  assert.match(component, /t\("observed\.noFresh"\)/);
   assert.doesNotMatch(`${route}\n${component}`, /<form|type="password"|credential_profile_ref|auth_password|priv_password|community_string/i);
   assert.doesNotMatch(`${route}\n${component}`, /fetch\(|invoke\(|startScan|runDiscovery|snmpwalk|arbitrary OID/i);
 });
@@ -164,16 +165,17 @@ test("dedicated observed-host workspace is approved-viewer read-only and handles
 test("dedicated workspace exposes search and all five requested filters", () => {
   const component = source("../components/snmp/observed-lan-hosts.tsx");
   assert.match(component, /type="search"/);
-  for (const label of ["All", "Named", "Unnamed", "Fresh", "Stale"]) {
-    assert.match(component, new RegExp(`label: "${label}"`));
+  for (const filter of ["all", "named", "unnamed", "fresh", "stale"]) {
+    assert.match(component, new RegExp(`t\\(\`observed\\.filters\\.\\$\\{option\\}\`\\)`));
+    assert.match(source("../i18n/en/snmp.json"), new RegExp(`"${filter}"\\s*:`));
   }
   assert.match(component, /overflow-x-auto/);
-  assert.match(component, /IP-MIB neighbor/);
-  assert.match(component, /Legacy IP neighbor/);
-  assert.match(component, /Observed hosts: \{displayed\.length\} \/ \{hosts\.length\}/);
-  assert.match(component, /filterCounts\[option\.value\]/);
-  assert.match(component, /label="Device" sortKey="device"/);
-  assert.match(component, /label="IP address" sortKey="ip_address"/);
+  assert.match(component, /t\("observed\.ipMib"\)/);
+  assert.match(component, /t\("observed\.legacy"\)/);
+  assert.match(component, /t\("observed\.count", \{ visible: displayed\.length, total: hosts\.length \}\)/);
+  assert.match(component, /filterCounts\[option\]/);
+  assert.match(component, /label=\{t\("observed\.columns\.device"\)\} sortKey="device"/);
+  assert.match(component, /label=\{t\("observed\.columns\.ip"\)\} sortKey="ip_address"/);
   assert.match(component, /aria-sort=/);
 });
 

@@ -11,20 +11,20 @@ test("Devices uses one inventory-driven list with consolidated Health Watch stat
   assert.match(page, /<DeviceInventory/);
   assert.doesNotMatch(page, /NetworkHealthTargets/);
   assert.equal((inventory.match(/<table/g) ?? []).length, 1);
-  assert.match(inventory, /Not monitored/);
-  assert.match(inventory, /Latest: \{latest\.status\}/);
+  assert.match(inventory, /t\("health\.notMonitored"\)/);
+  assert.match(inventory, /t\("health\.latest", \{ status:/);
   assert.match(inventory, /runner\?\.display_name[\s\S]*probe_interval_seconds/);
   assert.doesNotMatch(inventory, /Known inventory|Known monitoring targets/);
 });
 
 test("Devices exposes contextual edit, Health Watch management, and confirmed deletes to admins", () => {
   const component = source("../components/devices/device-inventory.tsx");
-  assert.match(component, /Edit device/);
-  assert.match(component, /Configure Health Watch/);
-  assert.match(component, /Remove Health Watch/);
-  assert.match(component, /Delete device/);
-  assert.match(component, /window\.confirm\(`Delete inventory device \$\{confirmationLabel\(node\)\}/);
-  assert.match(component, /window\.confirm\(`Remove Health Watch configuration for \$\{confirmationLabel\(node\)\}/);
+  assert.match(component, /t\("list\.edit"\)/);
+  assert.match(component, /t\("list\.configureHealth"\)/);
+  assert.match(component, /t\("health\.remove"\)/);
+  assert.match(component, /t\("list\.delete"\)/);
+  assert.match(component, /window\.confirm\(t\("list\.deleteConfirm", \{ device: confirmationLabel\(node\) \}\)\)/);
+  assert.match(component, /window\.confirm\(t\("health\.removeConfirm", \{ device: confirmationLabel\(node\) \}\)\)/);
   assert.match(component, /canManage \? <td/);
 });
 
@@ -62,10 +62,9 @@ test("SNMP page renders telemetry information before management configuration", 
 test("SNMP managed target delete is confirmed and deletes no inventory or Health Watch rows", () => {
   const component = source("../components/admin/managed-telemetry-targets.tsx");
   const action = source("../app/actions/snmp.ts");
-  assert.match(component, />Edit<|>Edit<\/Button>/);
-  assert.match(component, />Delete<\/Button>/);
-  assert.match(component, /window\.confirm\(`Delete Managed SNMP target/);
-  assert.match(component, /inventory device, Health Watch configuration, and unrelated history will remain/);
+  assert.match(component, /t\("telemetry\.edit"\)/);
+  assert.match(component, /t\("telemetry\.delete"\)/);
+  assert.match(component, /window\.confirm\(t\("telemetry\.deleteConfirm"/);
   const section = action.slice(action.indexOf("export async function deleteManagedTelemetryTargetAction"));
   assert.match(section, /from\("managed_telemetry_targets"\)\.delete\(\)\.eq\("id", targetId\)/);
   assert.doesNotMatch(section, /from\("network_nodes"\)\.delete|from\("network_targets"\)\.delete/);

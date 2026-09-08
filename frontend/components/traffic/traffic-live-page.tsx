@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { Button } from "@/components/ui/button";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
@@ -30,6 +32,7 @@ export function TrafficLivePage({
   loadError: boolean;
   initialSearch?: string;
 }) {
+  const { t, i18n } = useTranslation("traffic");
   const [state, setState] = useState(initialState);
   const [runnerId, setRunnerId] = useState(initialState.runners[0]?.id ?? "");
   const [now, setNow] = useState(() => Date.now());
@@ -121,7 +124,7 @@ export function TrafficLivePage({
       "traffic-live",
       { body },
     );
-    if (error || !data?.data) setError(await functionError(error));
+    if (error || !data?.data) setError(await functionError(error, t("requestFailed")));
     const latest = await supabase.functions.invoke<{ data: TrafficState }>("traffic-live", {
       method: "GET",
     });
@@ -133,7 +136,7 @@ export function TrafficLivePage({
     <div className="grid min-w-0 gap-6">
       {loadError ? (
         <Notice tone="critical">
-          Traffic state gagal dimuat. Pastikan migration dan Edge Function sudah dideploy.
+          {t("capture.loadError")}
         </Notice>
       ) : null}
 
@@ -141,27 +144,26 @@ export function TrafficLivePage({
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-meta font-medium uppercase tracking-wide text-accent">
-              Traffic capture
+              {t("capture.eyebrow")}
             </p>
-            <h2 className="mt-2 text-section font-semibold">Capture scope: This Device</h2>
+            <h2 className="mt-2 text-section font-semibold">{t("capture.title")}</h2>
             <p className="mt-2 max-w-3xl text-text-secondary">
-              Hanya traffic yang terlihat oleh interface perangkat runner ini. Ini bukan
-              seluruh LAN dan bukan pengukuran available bandwidth.
+              {t("capture.description")}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 md:justify-end">
-            <StatePill active={online} label={online ? "RUNNER ONLINE" : "RUNNER OFFLINE"} />
+            <StatePill active={online} label={t(online ? "capture.runnerOnline" : "capture.runnerOffline")} />
             <StatePill
               active={Boolean(active && active.status !== "stopping")}
-              label={active ? (active.status === "stopping" ? "STOPPING" : "CAPTURE LIVE") : "CAPTURE STOPPED"}
+              label={t(active ? (active.status === "stopping" ? "capture.stopping" : "capture.live") : "capture.stopped")}
             />
           </div>
         </div>
 
         <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-          <StatusValue label="Runner" value={runner?.display_name ?? "Tidak tersedia"} />
-          <StatusValue label="Started" value={active?.started_at ? formatTime(active.started_at) : "-"} data />
-          <StatusValue label="Elapsed" value={active?.started_at ? formatDuration(elapsedSeconds) : "-"} data />
+          <StatusValue label="Runner" value={runner?.display_name ?? t("capture.unavailable")} />
+          <StatusValue label={t("capture.started")} value={active?.started_at ? formatTime(active.started_at, i18n.language) : "-"} data />
+          <StatusValue label={t("capture.elapsed")} value={active?.started_at ? formatDuration(elapsedSeconds) : "-"} data />
         </dl>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -173,19 +175,18 @@ export function TrafficLivePage({
             options={state.runners.map((item) => ({ value: item.id, label: item.display_name }))}
           />
           <Select
-            label="Batas waktu capture"
+            label={t("capture.duration")}
             value={String(duration)}
             onChange={(value) => setDuration(Number(value))}
             disabled={Boolean(active)}
             options={durations.map((value) => ({
               value: String(value),
-              label: `${value / 60} menit`,
+              label: t("capture.minutes", { count: value / 60 }),
             }))}
           />
         </div>
         <p className="mt-3 text-meta text-text-muted">
-          Capture otomatis berhenti maksimal 30 menit. Browser tidak dapat mengirim shell
-          command atau packet filter.
+          {t("capture.safety")}
         </p>
 
         {canOperateNetwork(state.role) ? (
@@ -196,7 +197,7 @@ export function TrafficLivePage({
                 disabled={busy || active.status === "stopping"}
                 onClick={() => void runAction("stop_session")}
               >
-                {active.status === "stopping" ? "Menghentikan…" : "Stop capture"}
+                {t(active.status === "stopping" ? "capture.stoppingAction" : "capture.stop")}
               </Button>
             ) : (
               <Button
@@ -205,13 +206,13 @@ export function TrafficLivePage({
                 disabled={busy || !online || state.storage_status.status === "critical"}
                 onClick={() => void runAction("create_session")}
               >
-                {busy ? "Menyiapkan…" : "Start capture"}
+                {t(busy ? "capture.preparing" : "capture.start")}
               </Button>
             )}
           </div>
         ) : (
           <p className="mt-5 text-text-secondary">
-            Viewer bersifat read-only. Role Operator diperlukan untuk start/stop capture.
+            {t("capture.viewer")}
           </p>
         )}
         {error ? <p className="mt-4 text-severity-critical">{error}</p> : null}
@@ -223,29 +224,28 @@ export function TrafficLivePage({
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-meta font-medium uppercase tracking-wide text-accent">
-              Live observed traffic
+              {t("live.eyebrow")}
             </p>
-            <h2 className="mt-2 text-section font-semibold">Flow activity</h2>
+            <h2 className="mt-2 text-section font-semibold">{t("live.title")}</h2>
           </div>
           <div className="text-meta text-text-muted md:text-right">
-            <p>{realtime ? "● Realtime tersambung" : "○ Reconnecting · fallback polling"}</p>
+            <p>{t(realtime ? "live.connected" : "live.reconnecting")}</p>
             <p className="mt-1 font-data">
-              {snapshot ? formatTime(snapshot.captured_at) : "Belum ada snapshot"}
+              {snapshot ? formatTime(snapshot.captured_at, i18n.language) : t("live.noSnapshot")}
             </p>
           </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <Metric label="Observed RX" value={metric(snapshot?.summary.observed_rx_mbps, "Mbps")} />
-          <Metric label="Observed TX" value={metric(snapshot?.summary.observed_tx_mbps, "Mbps")} />
-          <Metric label="Packets/sec" value={formatNumber(snapshot?.summary.packets_per_second)} />
-          <Metric label="Active flows" value={formatNumber(snapshot?.summary.active_flows)} />
-          <Metric label="Top talker" value={snapshot?.top_talkers[0]?.ip ?? "-"} />
-          <Metric label="Dominant protocol" value={snapshot?.summary.dominant_protocol?.toUpperCase() ?? "-"} />
+          <Metric label={t("live.observedRx")} value={metric(snapshot?.summary.observed_rx_mbps, "Mbps")} />
+          <Metric label={t("live.observedTx")} value={metric(snapshot?.summary.observed_tx_mbps, "Mbps")} />
+          <Metric label={t("live.packetsSecond")} value={formatNumber(snapshot?.summary.packets_per_second, i18n.language)} />
+          <Metric label={t("live.activeFlows")} value={formatNumber(snapshot?.summary.active_flows, i18n.language)} />
+          <Metric label={t("live.topTalker")} value={snapshot?.top_talkers[0]?.ip ?? "-"} />
+          <Metric label={t("live.protocol")} value={snapshot?.summary.dominant_protocol?.toUpperCase() ?? "-"} />
         </div>
         <p className="mt-3 text-meta text-text-muted">
-          RX/TX adalah observed traffic rate selama interval snapshot, bukan kapasitas atau
-          available bandwidth link.
+          {t("live.footnote")}
         </p>
 
         <div className="mt-6 flex flex-wrap gap-2" role="tablist">
@@ -259,7 +259,7 @@ export function TrafficLivePage({
                 tab === value ? "border-accent text-accent" : "border-border text-text-secondary"
               }`}
             >
-              {value === "flows" ? "Live Flows" : value === "conversations" ? "Conversations" : "Top Talkers"}
+              {t(`live.tabs.${value}`)}
             </button>
           ))}
         </div>
@@ -312,6 +312,7 @@ function FlowExplorer({
   setStatus: (value: string) => void;
   onDetail: (flow: TrafficFlow) => void;
 }) {
+  const { t, i18n } = useTranslation("traffic");
   const { nodes } = useNetworkNodes();
   const { openDeviceProfile } = useDeviceProfile();
   const endpointCell = (ip: string, port: number | null) => {
@@ -323,16 +324,16 @@ function FlowExplorer({
     <div className="mt-5">
       <div className="grid gap-3 md:grid-cols-3">
         <label className="grid gap-2 text-meta text-text-secondary">
-          IP atau port
+          {t("flows.search")}
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
-            placeholder="10.0.0.1 atau 443"
+            placeholder={t("flows.placeholder")}
           />
         </label>
         <Select
-          label="Protocol"
+          label={t("flows.protocol")}
           value={protocol}
           onChange={setProtocol}
           options={["all", "tcp", "udp", "icmp"].map((value) => ({
@@ -341,13 +342,13 @@ function FlowExplorer({
           }))}
         />
         <Select
-          label="Status"
+          label={t("flows.status")}
           value={status}
           onChange={setStatus}
           options={[
-            { value: "all", label: "All" },
-            { value: "active", label: "Active ≤ 5s" },
-            { value: "idle", label: "Recently idle 5–30s" },
+            { value: "all", label: t("flows.all") },
+            { value: "active", label: t("flows.active") },
+            { value: "idle", label: t("flows.idle") },
           ]}
         />
       </div>
@@ -356,7 +357,7 @@ function FlowExplorer({
         <table className="w-full min-w-[1100px] border-collapse text-left">
           <thead>
             <tr className="border-y border-border text-meta text-text-secondary">
-              {["Last seen", "Source", "Destination", "Protocol / service", "Observed rate", "Transferred", "Packets", "Status", ""].map((heading) => (
+              {[t("flows.columns.lastSeen"), t("flows.columns.source"), t("flows.columns.destination"), t("flows.columns.service"), t("flows.columns.rate"), t("flows.columns.transferred"), t("flows.columns.packets"), t("flows.columns.status"), ""].map((heading) => (
                 <th className="px-3 py-3 font-medium" key={heading}>{heading}</th>
               ))}
             </tr>
@@ -364,22 +365,22 @@ function FlowExplorer({
           <tbody>
             {flows.map((flow) => (
               <tr className="border-b border-border" key={flow.flow_key}>
-                <td className="px-3 py-3 font-data text-meta">{formatTime(flow.last_seen)}</td>
+                <td className="px-3 py-3 font-data text-meta">{formatTime(flow.last_seen, i18n.language)}</td>
                 <td className="px-3 py-3">{endpointCell(flow.src_ip, flow.src_port)}</td>
                 <td className="px-3 py-3">{endpointCell(flow.dst_ip, flow.dst_port)}</td>
                 <td className="px-3 py-3">
                   {flow.protocol.toUpperCase()}
-                  <span className="block text-meta text-text-muted">{flow.service ?? "Unknown"}</span>
+                  <span className="block text-meta text-text-muted">{flow.service ?? t("flows.unknown")}</span>
                 </td>
                 <td className="px-3 py-3 font-data text-accent">
                   {(flow.rate_mbps ?? 0).toFixed(3)} Mbps
-                  <span className="block text-meta text-text-muted">{trendLabel(flow.rate_trend)}</span>
+                  <span className="block text-meta text-text-muted">{trendLabel(flow.rate_trend, t)}</span>
                 </td>
-                <td className="px-3 py-3 font-data">{bytes(flow.total_bytes)}</td>
-                <td className="px-3 py-3 font-data">{formatNumber(flow.packet_count)}</td>
+                <td className="px-3 py-3 font-data">{bytes(flow.total_bytes, i18n.language)}</td>
+                <td className="px-3 py-3 font-data">{formatNumber(flow.packet_count, i18n.language)}</td>
                 <td className="px-3 py-3">{flow.status}</td>
                 <td className="px-3 py-3">
-                  <button className="text-accent underline" onClick={() => onDetail(flow)}>Detail</button>
+                  <button className="text-accent underline" onClick={() => onDetail(flow)}>{t("flows.detail")}</button>
                 </td>
               </tr>
             ))}
@@ -396,18 +397,19 @@ function FlowExplorer({
           >
             <p className="font-data">{endpoint(flow.src_ip, flow.src_port)} → {endpoint(flow.dst_ip, flow.dst_port)}</p>
             <p className="mt-2 text-meta text-text-secondary">
-              {flow.protocol.toUpperCase()} · {(flow.rate_mbps ?? 0).toFixed(3)} Mbps · {bytes(flow.total_bytes)}
+              {flow.protocol.toUpperCase()} · {(flow.rate_mbps ?? 0).toFixed(3)} Mbps · {bytes(flow.total_bytes, i18n.language)}
             </p>
-            <p className="mt-1 font-data text-meta text-text-muted">{formatTime(flow.last_seen)} · {flow.status}</p>
+            <p className="mt-1 font-data text-meta text-text-muted">{formatTime(flow.last_seen, i18n.language)} · {flow.status}</p>
           </button>
         ))}
       </div>
-      {flows.length === 0 ? <p className="mt-5 text-text-secondary">Belum ada flow yang cocok.</p> : null}
+      {flows.length === 0 ? <p className="mt-5 text-text-secondary">{t("flows.empty")}</p> : null}
     </div>
   );
 }
 
 function Conversations({ snapshot }: { snapshot?: TrafficSnapshot }) {
+  const { t, i18n } = useTranslation("traffic");
   return (
     <div className="mt-5 grid gap-3">
       {snapshot?.conversations.map((conversation) => (
@@ -416,25 +418,26 @@ function Conversations({ snapshot }: { snapshot?: TrafficSnapshot }) {
             <div>
               <p className="font-data">{conversation.endpoint_a} ↔ {conversation.endpoint_b}</p>
               <p className="mt-2 text-meta text-text-secondary">
-                {(conversation.protocol ?? "unknown").toUpperCase()} · {conversation.service ?? "Unknown"} · {conversation.active_flows ?? 0} active flows
+                {(conversation.protocol ?? "unknown").toUpperCase()} · {conversation.service ?? t("flows.unknown")} · {t("flows.activeFlows", { count: conversation.active_flows ?? 0 })}
               </p>
             </div>
             <p className="font-data text-accent">{(conversation.rate_mbps ?? 0).toFixed(3)} Mbps</p>
           </div>
           <p className="mt-3 text-meta text-text-muted">
-            A→B {bytes(conversation.a_to_b_bytes)} · B→A {bytes(conversation.b_to_a_bytes)} · total {bytes(conversation.total_bytes)}
+            A→B {bytes(conversation.a_to_b_bytes, i18n.language)} · B→A {bytes(conversation.b_to_a_bytes, i18n.language)} · {t("flows.total")} {bytes(conversation.total_bytes, i18n.language)}
           </p>
           <p className="mt-1 font-data text-meta text-text-muted">
-            {formatTime(conversation.first_seen)} – {formatTime(conversation.last_seen)}
+            {formatTime(conversation.first_seen, i18n.language)} – {formatTime(conversation.last_seen, i18n.language)}
           </p>
         </article>
       ))}
-      {!snapshot?.conversations.length ? <p className="text-text-secondary">Belum ada conversation.</p> : null}
+      {!snapshot?.conversations.length ? <p className="text-text-secondary">{t("flows.conversationEmpty")}</p> : null}
     </div>
   );
 }
 
 function Talkers({ snapshot }: { snapshot?: TrafficSnapshot }) {
+  const { t } = useTranslation("traffic");
   const { nodes } = useNetworkNodes();
   const { openDeviceProfile } = useDeviceProfile();
   return (
@@ -444,12 +447,12 @@ function Talkers({ snapshot }: { snapshot?: TrafficSnapshot }) {
           <p>
             <span className="mr-3 font-data text-text-muted">#{index + 1}</span>
             {findNetworkNode(nodes, talker.ip) ? <button className="text-accent hover:underline" onClick={() => openDeviceProfile({ ipAddress: talker.ip })}><span className="font-medium">{findNetworkNode(nodes, talker.ip)?.name}</span><span className="ml-2 font-data text-meta">{talker.ip}</span></button> : <span className="font-data">{talker.ip}</span>}
-            <span className="ml-3 text-meta text-text-muted">{talker.active_flows ?? 0} active flows</span>
+            <span className="ml-3 text-meta text-text-muted">{t("flows.activeFlows", { count: talker.active_flows ?? 0 })}</span>
           </p>
           <p className="font-data text-accent">{(talker.rate_mbps ?? 0).toFixed(3)} Mbps</p>
         </article>
       ))}
-      {!snapshot?.top_talkers.length ? <p className="text-text-secondary">Belum ada top talker.</p> : null}
+      {!snapshot?.top_talkers.length ? <p className="text-text-secondary">{t("flows.talkerEmpty")}</p> : null}
     </div>
   );
 }
@@ -463,30 +466,31 @@ function FlowDetail({
   diagnostics: DiagnosticsData;
   close: () => void;
 }) {
+  const { t, i18n } = useTranslation("traffic");
   const related = latestMeasuredPath(diagnostics, flow.dst_ip);
   const durationSeconds = Math.max(0, Math.floor((Date.parse(flow.last_seen) - Date.parse(flow.first_seen)) / 1000));
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-bg-base/80" role="dialog" aria-modal="true">
       <aside className="h-full w-full max-w-lg overflow-y-auto border-l border-border bg-bg-surface p-6">
         <div className="flex justify-between">
-          <h2 className="text-section font-semibold">Flow detail</h2>
-          <button onClick={close} aria-label="Tutup" className="text-text-secondary">×</button>
+          <h2 className="text-section font-semibold">{t("detail.title")}</h2>
+          <button onClick={close} aria-label={t("detail.close")} className="text-text-secondary">×</button>
         </div>
         <dl className="mt-6 grid gap-4">
           {[
-            ["Source", endpoint(flow.src_ip, flow.src_port)],
-            ["Destination", endpoint(flow.dst_ip, flow.dst_port)],
-            ["Protocol", flow.protocol.toUpperCase()],
-            ["Service", flow.service ?? "Unknown / tidak diinferensikan"],
-            ["Current observed rate", `${(flow.rate_mbps ?? 0).toFixed(3)} Mbps (${trendLabel(flow.rate_trend)})`],
-            ["Peak observed rate", `${(flow.peak_rate_mbps ?? 0).toFixed(3)} Mbps`],
-            ["Packets/sec", formatNumber(flow.packets_per_second)],
-            ["Packets", formatNumber(flow.packet_count)],
-            ["Transferred", bytes(flow.total_bytes)],
-            ["First seen", formatTime(flow.first_seen)],
-            ["Last seen", formatTime(flow.last_seen)],
-            ["Duration", formatDuration(durationSeconds)],
-            ["Status", flow.status],
+            [t("detail.source"), endpoint(flow.src_ip, flow.src_port)],
+            [t("detail.destination"), endpoint(flow.dst_ip, flow.dst_port)],
+            [t("detail.protocol"), flow.protocol.toUpperCase()],
+            [t("detail.service"), flow.service ?? t("detail.unknownService")],
+            [t("detail.currentRate"), `${(flow.rate_mbps ?? 0).toFixed(3)} Mbps (${trendLabel(flow.rate_trend, t)})`],
+            [t("detail.peakRate"), `${(flow.peak_rate_mbps ?? 0).toFixed(3)} Mbps`],
+            [t("detail.packetsSecond"), formatNumber(flow.packets_per_second, i18n.language)],
+            [t("detail.packets"), formatNumber(flow.packet_count, i18n.language)],
+            [t("detail.transferred"), bytes(flow.total_bytes, i18n.language)],
+            [t("detail.firstSeen"), formatTime(flow.first_seen, i18n.language)],
+            [t("detail.lastSeen"), formatTime(flow.last_seen, i18n.language)],
+            [t("detail.duration"), formatDuration(durationSeconds)],
+            [t("detail.status"), flow.status],
           ].map(([key, value]) => (
             <div className="rounded-control border border-border bg-bg-base p-3" key={key}>
               <dt className="text-meta text-text-secondary">{key}</dt>
@@ -495,30 +499,30 @@ function FlowDetail({
           ))}
         </dl>
         <p className="mt-5 text-meta text-text-muted">
-          Service adalah inferensi port bila berlabel “inferred”; payload, content, dan PCAP tidak disimpan.
+          {t("detail.serviceNotice")}
         </p>
 
         <div className="mt-6 border-t border-border pt-6">
-          <p className="text-meta font-medium uppercase tracking-wide text-accent">Latest measured path</p>
+          <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("detail.pathTitle")}</p>
           {related ? (
             <div className="mt-3 rounded-control border border-border bg-bg-base p-4">
               <p className="font-medium">{related.targetLabel}</p>
-              <p className="mt-1 font-data text-meta text-text-muted">{formatTime(related.measuredAt)}</p>
+              <p className="mt-1 font-data text-meta text-text-muted">{formatTime(related.measuredAt, i18n.language)}</p>
               <div className="mt-3 grid grid-cols-2 gap-3 text-meta">
-                <span>Upload <strong className="font-data text-accent">{metric(related.upload, "Mbps")}</strong></span>
-                <span>Download <strong className="font-data text-accent">{metric(related.download, "Mbps")}</strong></span>
-                <span>Highest latency <strong className="font-data">{metric(related.highestLatency, "ms")}</strong></span>
-                <span>Highest loss <strong className="font-data">{metric(related.highestLoss, "%")}</strong></span>
+                <span>{t("detail.upload")} <strong className="font-data text-accent">{metric(related.upload, "Mbps")}</strong></span>
+                <span>{t("detail.download")} <strong className="font-data text-accent">{metric(related.download, "Mbps")}</strong></span>
+                <span>{t("detail.highestLatency")} <strong className="font-data">{metric(related.highestLatency, "ms")}</strong></span>
+                <span>{t("detail.highestLoss")} <strong className="font-data">{metric(related.highestLoss, "%")}</strong></span>
               </div>
               <p className="mt-3 text-meta text-text-muted">
-                Ini measurement terpisah menuju target, bukan bukti bahwa flow ini melewati setiap hop MTR tersebut.
+                {t("detail.pathNotice")}
               </p>
             </div>
           ) : (
-            <p className="mt-3 text-text-secondary">No recent path diagnostic untuk destination ini.</p>
+            <p className="mt-3 text-text-secondary">{t("detail.noPath")}</p>
           )}
           <Link className="mt-4 inline-block text-accent underline" href={`/diagnostics?target=${encodeURIComponent(flow.dst_ip)}`}>
-            Open LAN Diagnostics
+            {t("detail.openDiagnostics")}
           </Link>
         </div>
       </aside>
@@ -569,20 +573,21 @@ function Notice({ children, tone = "normal" }: { children: React.ReactNode; tone
 }
 
 function StorageNotice({ status, mb }: { status: string; mb: number }) {
+  const { t } = useTranslation("traffic");
   if (status === "healthy") return null;
-  return <Notice tone={status === "critical" ? "critical" : "normal"}>Storage flow {mb.toFixed(2)} MB — {status === "critical" ? "persistence dan capture baru dibatasi pada ambang 400 MB." : "mendekati ambang 300 MB; retention 48 jam tetap aktif."}</Notice>;
+  return <Notice tone={status === "critical" ? "critical" : "normal"}>{t(status === "critical" ? "storage.critical" : "storage.warning", { mb: mb.toFixed(2) })}</Notice>;
 }
 
 function endpoint(ip: string, port: number | null) { return port === null ? ip : `${ip}:${port}`; }
-function formatTime(value: string) { return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)); }
+function formatTime(value: string, language = "id") { return new Intl.DateTimeFormat(language === "en" ? "en-US" : "id-ID", { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)); }
 function formatDuration(totalSeconds: number) { const minutes = Math.floor(totalSeconds / 60); const seconds = totalSeconds % 60; return `${minutes}:${String(seconds).padStart(2, "0")}`; }
-function bytes(value: number) { return new Intl.NumberFormat("id-ID", { style: "unit", unit: "byte", unitDisplay: "short" }).format(value); }
-function formatNumber(value: number | null | undefined) { return value == null ? "-" : new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(value); }
+function bytes(value: number, language = "id") { return new Intl.NumberFormat(language === "en" ? "en-US" : "id-ID", { style: "unit", unit: "byte", unitDisplay: "short" }).format(value); }
+function formatNumber(value: number | null | undefined, language = "id") { return value == null ? "-" : new Intl.NumberFormat(language === "en" ? "en-US" : "id-ID", { maximumFractionDigits: 2 }).format(value); }
 function metric(value: number | null | undefined, unit: string) { return value == null ? "-" : `${value.toFixed(2)} ${unit}`; }
-function trendLabel(value: TrafficFlow["rate_trend"] | undefined) { return value === "increasing" ? "↑ increasing" : value === "decreasing" ? "↓ decreasing" : "→ stable"; }
+function trendLabel(value: TrafficFlow["rate_trend"] | undefined, t: TFunction) { return t(value === "increasing" ? "trend.increasing" : value === "decreasing" ? "trend.decreasing" : "trend.stable"); }
 function maxNullable(values: (number | null)[]) { const numbers = values.filter((value): value is number => value !== null); return numbers.length ? Math.max(...numbers) : null; }
 
-async function functionError(error: unknown) {
+async function functionError(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "context" in error) {
     const response = (error as { context?: unknown }).context;
     if (response instanceof Response) {
@@ -592,5 +597,5 @@ async function functionError(error: unknown) {
       } catch {}
     }
   }
-  return "Traffic request gagal. Pastikan runner online dan backend sudah dideploy.";
+  return fallback;
 }

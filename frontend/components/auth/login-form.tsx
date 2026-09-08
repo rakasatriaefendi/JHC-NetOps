@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { loginAction, type AuthActionState } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ const inputClasses =
 const initialAuthState: AuthActionState = { error: null, message: null };
 
 export function LoginForm() {
+  const { t } = useTranslation("auth");
   const [state, formAction, pending] = useActionState(
     loginAction,
     initialAuthState,
@@ -18,7 +20,7 @@ export function LoginForm() {
   return (
     <form action={formAction} className="space-y-4">
       <label className="block text-body font-medium">
-        Email
+        {t("fields.email")}
         <input
           className={inputClasses}
           name="email"
@@ -29,7 +31,7 @@ export function LoginForm() {
       </label>
 
       <label className="block text-body font-medium">
-        Password
+        {t("fields.password")}
         <input
           className={inputClasses}
           name="password"
@@ -46,7 +48,7 @@ export function LoginForm() {
       ) : null}
 
       <Button className="w-full" disabled={pending} type="submit">
-        {pending ? "Memproses..." : "Masuk"}
+        {pending ? t("login.submitting") : t("login.submit")}
       </Button>
     </form>
   );

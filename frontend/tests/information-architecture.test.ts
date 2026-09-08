@@ -60,6 +60,6 @@ test("viewer receives read-only inventory and telemetry controls", () => {
 
 test("Discovery remains an explicit on-demand helper", () => {
   const inventory = source("../components/devices/device-inventory.tsx");
-  assert.match(inventory, /Open on-demand Discovery/);
+  assert.match(inventory, /t\("import\.open"\)/);
   assert.doesNotMatch(inventory, /startDiscovery|createDiscovery|discoveryAction/);
 });

@@ -1,0 +1,3 @@
+{
+  "page": { "eyebrow": "Alerts", "title": "Active network health alerts", "description": "Only active known-target status transitions are shown. Offline means there was no ICMP response after the threshold; it is not proof by itself that a device is powered off.", "loadError": "Alerts could not be loaded.", "empty": "There are no active network health alerts." }
+}

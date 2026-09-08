@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DiagnosticHistoryTable } from "@/components/history/diagnostic-history-table";
 import { DiagnosticTrendChart } from "@/components/history/diagnostic-trend-chart";
@@ -21,6 +22,7 @@ import {
 import type { ConnectionType } from "@/lib/diagnostics";
 
 export function DiagnosticHistoryPanel() {
+  const { t } = useTranslation("history");
   const supabase = useMemo(() => createClient(), []);
   const today = useMemo(() => formatDateInput(new Date()), []);
   const [source, setSource] = useState("all");
@@ -88,10 +90,10 @@ export function DiagnosticHistoryPanel() {
   return (
     <div className="mt-6 grid gap-6">
       <section className="rounded-panel border border-border bg-bg-surface p-4 md:p-6">
-        <p className="text-meta font-medium uppercase tracking-wide text-accent">Diagnostic Tests</p>
-        <h2 className="mt-2 text-section font-semibold">Bandwidth trend history</h2>
+        <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("diagnostics.eyebrow")}</p>
+        <h2 className="mt-2 text-section font-semibold">{t("diagnostics.title")}</h2>
         <p className="mt-2 text-text-secondary">
-          Setiap titik mewakili satu job selesai, dengan upload dan download digabung melalui job ID.
+          {t("diagnostics.description")}
         </p>
 
         <HistoryFilters
@@ -114,23 +116,23 @@ export function DiagnosticHistoryPanel() {
         />
 
         {!query ? (
-          <Notice tone="warning">Tanggal awal custom harus sama dengan atau sebelum tanggal akhir.</Notice>
+          <Notice tone="warning">{t("diagnostics.invalidRange")}</Notice>
         ) : null}
         {includeDevelopment ? (
           <Notice tone="warning">
-            TEST ENVIRONMENT ditampilkan. Hasil localhost bukan performa LAN dan tidak membuktikan bottleneck jaringan.
+            {t("diagnostics.developmentWarning")}
           </Notice>
         ) : null}
         {loadError ? (
-          <Notice tone="critical">History diagnostik gagal dimuat. Periksa sesi login dan deployment fungsi diagnostics.</Notice>
+          <Notice tone="critical">{t("diagnostics.loadError")}</Notice>
         ) : null}
 
         <div className="mt-6">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <h3 className="text-section font-medium">Selected trend summary</h3>
+              <h3 className="text-section font-medium">{t("diagnostics.summaryTitle")}</h3>
               <p className="mt-1 text-meta text-text-muted">
-                Statistik hanya menghitung satu source, target, dan connection yang comparable.
+                {t("diagnostics.summaryHelp")}
               </p>
             </div>
             <TrendGroupSelect
@@ -143,13 +145,13 @@ export function DiagnosticHistoryPanel() {
         </div>
 
         <div className="mt-6 border-t border-border pt-6">
-          <h3 className="text-section font-medium">Upload / Download trend</h3>
+          <h3 className="text-section font-medium">{t("diagnostics.chartTitle")}</h3>
           <p className="mt-1 text-meta text-text-muted">
-            Waktu pada sumbu dan detail mengikuti timezone lokal browser.
+            {t("diagnostics.timezone")}
           </p>
           <div className="mt-4">
             {query && loading ? (
-              <PanelMessage>Memuat riwayat diagnostik…</PanelMessage>
+              <PanelMessage>{t("diagnostics.loadingHistory")}</PanelMessage>
             ) : activeTrendGroup ? (
               <DiagnosticTrendChart
                 period={period}
@@ -157,19 +159,19 @@ export function DiagnosticHistoryPanel() {
                 onOpenDetail={setSelectedDetail}
               />
             ) : (
-              <PanelMessage>Belum ada series diagnostik yang cocok dengan filter dan periode ini.</PanelMessage>
+              <PanelMessage>{t("diagnostics.emptySeries")}</PanelMessage>
             )}
           </div>
         </div>
 
         <div className="mt-6 border-t border-border pt-6">
-          <h3 className="text-section font-medium">Recent diagnostic tests</h3>
+          <h3 className="text-section font-medium">{t("diagnostics.recentTitle")}</h3>
           <p className="mt-1 text-meta text-text-muted">
-            Maksimal 100 job selesai dalam rentang terpilih; upload dan download tampil sebagai satu test.
+            {t("diagnostics.recentHelp")}
           </p>
           <div className="mt-4">
             {query && loading ? (
-              <PanelMessage>Memuat daftar test…</PanelMessage>
+              <PanelMessage>{t("diagnostics.loadingTests")}</PanelMessage>
             ) : (
               <DiagnosticHistoryTable
                 selectedTest={selectedDetail}
@@ -193,10 +195,11 @@ function TrendGroupSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation("history");
   if (!groups.length) return null;
   return (
     <label className="grid min-w-0 gap-2 text-meta font-medium text-text-secondary md:min-w-80">
-      Trend series
+      {t("diagnostics.trendSeries")}
       <select
         className="rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary outline-none focus:border-accent"
         onChange={(event) => onChange(event.target.value)}
@@ -245,28 +248,29 @@ function HistoryFilters({
   onCustomEndChange: (value: string) => void;
   onDevelopmentChange: (value: boolean) => void;
 }) {
+  const { t } = useTranslation("history");
   return (
     <div className="mt-6 rounded-control border border-border bg-bg-base p-4">
       <div className="grid gap-4 md:grid-cols-4">
-        <Select label="Source" value={source} options={[{ value: "all", label: "All" }, ...sources.map(option)]} onChange={onSourceChange} />
-        <Select label="Target" value={target} options={[{ value: "all", label: "All" }, ...targets.map(option)]} onChange={onTargetChange} />
+        <Select label={t("diagnostics.source")} value={source} options={[{ value: "all", label: t("diagnostics.all") }, ...sources.map(option)]} onChange={onSourceChange} />
+        <Select label={t("diagnostics.target")} value={target} options={[{ value: "all", label: t("diagnostics.all") }, ...targets.map(option)]} onChange={onTargetChange} />
         <Select
-          label="Connection"
+          label={t("diagnostics.connection")}
           value={connectionType}
-          options={[{ value: "all", label: "All" }, { value: "wifi", label: "WiFi" }, { value: "ethernet", label: "Ethernet" }]}
+          options={[{ value: "all", label: t("diagnostics.all") }, { value: "wifi", label: "WiFi" }, { value: "ethernet", label: "Ethernet" }]}
           onChange={(value) => onConnectionChange(value as "all" | ConnectionType)}
         />
         <Select
-          label="Period"
+          label={t("diagnostics.period")}
           value={period}
-          options={[{ value: "today", label: "Today" }, { value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "custom", label: "Custom date range" }]}
+          options={[{ value: "today", label: t("diagnostics.today") }, { value: "7d", label: t("diagnostics.last7") }, { value: "30d", label: t("diagnostics.last30") }, { value: "custom", label: t("diagnostics.custom") }]}
           onChange={(value) => onPeriodChange(value as HistoryPeriod)}
         />
       </div>
       {period === "custom" ? (
         <div className="mt-4 grid gap-4 md:max-w-xl md:grid-cols-2">
-          <DateInput label="Tanggal awal" value={customStart} onChange={onCustomStartChange} />
-          <DateInput label="Tanggal akhir" value={customEnd} onChange={onCustomEndChange} />
+          <DateInput label={t("diagnostics.startDate")} value={customStart} onChange={onCustomStartChange} />
+          <DateInput label={t("diagnostics.endDate")} value={customEnd} onChange={onCustomEndChange} />
         </div>
       ) : null}
       <label className="mt-4 flex items-start gap-3 text-body text-text-secondary">
@@ -277,8 +281,8 @@ function HistoryFilters({
           type="checkbox"
         />
         <span>
-          Show development tests
-          <span className="mt-1 block text-meta text-text-muted">Default LAN only; localhost simulation dikecualikan.</span>
+          {t("diagnostics.showDevelopment")}
+          <span className="mt-1 block text-meta text-text-muted">{t("diagnostics.developmentHelp")}</span>
         </span>
       </label>
     </div>
@@ -286,28 +290,30 @@ function HistoryFilters({
 }
 
 function HistorySummary({ summary }: { summary: ReturnType<typeof summarizeDiagnosticTests> }) {
+  const { t } = useTranslation("history");
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <div className="rounded-control border border-border bg-bg-base p-4">
-        <p className="text-meta font-medium text-text-secondary">Tests performed</p>
+        <p className="text-meta font-medium text-text-secondary">{t("diagnostics.testsPerformed")}</p>
         <p className="mt-2 font-data text-heading font-semibold text-accent">{summary.testsPerformed}</p>
-        <p className="mt-1 text-meta text-text-muted">Satu row per diagnostic job</p>
+        <p className="mt-1 text-meta text-text-muted">{t("diagnostics.testsHelp")}</p>
       </div>
-      <SeriesSummaryCard label="Upload" summary={summary.upload} />
-      <SeriesSummaryCard label="Download" summary={summary.download} />
+      <SeriesSummaryCard label={t("diagnostics.upload")} summary={summary.upload} />
+      <SeriesSummaryCard label={t("diagnostics.download")} summary={summary.download} />
     </div>
   );
 }
 
 function SeriesSummaryCard({ label, summary }: { label: string; summary: SeriesSummary }) {
+  const { t } = useTranslation("history");
   return (
     <div className="rounded-control border border-border bg-bg-base p-4">
       <p className="text-meta font-medium text-text-secondary">{label}</p>
       <dl className="mt-3 grid grid-cols-2 gap-3 text-meta">
-        <Metric label="Latest" value={summary.latest} />
-        <Metric label="Average" value={summary.average} />
-        <Metric label="Highest" value={summary.highest} />
-        <Metric label="Lowest" value={summary.lowest} />
+        <Metric label={t("diagnostics.latest")} value={summary.latest} />
+        <Metric label={t("diagnostics.average")} value={summary.average} />
+        <Metric label={t("diagnostics.highest")} value={summary.highest} />
+        <Metric label={t("diagnostics.lowest")} value={summary.lowest} />
       </dl>
     </div>
   );

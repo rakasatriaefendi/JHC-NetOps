@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { BandwidthComparison } from "@/components/dashboard/bandwidth-comparison";
 import { BandwidthChart } from "@/components/dashboard/bandwidth-chart";
@@ -19,6 +20,7 @@ type DiagnosticsPanelProps = {
 };
 
 export function DiagnosticsPanel({ data, loadError }: DiagnosticsPanelProps) {
+  const { t } = useTranslation("diagnostics");
   const [filters, setFilters] = useState<DiagnosticsFilters>({
     source: "all",
     target: "all",
@@ -59,20 +61,16 @@ export function DiagnosticsPanel({ data, loadError }: DiagnosticsPanelProps) {
     <section className="mt-8 scroll-mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6" id="diagnostic-results">
       <div>
         <p className="text-meta font-medium uppercase tracking-wide text-accent">
-          Diagnostic results
+          {t("panel.eyebrow")}
         </p>
-        <h2 className="mt-2 text-section font-semibold">Riwayat hasil per sesi</h2>
-        <p className="mt-2 text-text-secondary">
-          Gunakan filter untuk membandingkan hasil. Detail path dibuka per sesi agar tidak tercampur dengan panel job aktif/latest di atas.
-        </p>
+        <h2 className="mt-2 text-section font-semibold">{t("panel.title")}</h2>
+        <p className="mt-2 text-text-secondary">{t("panel.description")}</p>
       </div>
 
       {loadError ? (
         <div className="mt-6 rounded-control border border-severity-critical bg-bg-base p-4">
-          <p className="font-medium text-severity-critical">Data diagnostik gagal dimuat</p>
-          <p className="mt-2 text-text-secondary">
-            Periksa deployment Edge Function diagnostics, sesi login, dan RLS.
-          </p>
+          <p className="font-medium text-severity-critical">{t("panel.loadError")}</p>
+          <p className="mt-2 text-text-secondary">{t("panel.loadErrorHelp")}</p>
         </div>
       ) : (
         <div className="mt-6 grid gap-6">
@@ -86,10 +84,8 @@ export function DiagnosticsPanel({ data, loadError }: DiagnosticsPanelProps) {
           />
 
           <div>
-            <h3 className="text-section font-medium">Latest bandwidth comparison</h3>
-            <p className="mt-1 text-meta text-text-muted">
-              Perbandingan numerik lintas lokasi dan tipe koneksi untuk target yang dipilih.
-            </p>
+            <h3 className="text-section font-medium">{t("panel.latestComparison")}</h3>
+            <p className="mt-1 text-meta text-text-muted">{t("panel.comparisonHelp")}</p>
             <div className="mt-4">
               <BandwidthComparison
                 measurements={filtered.bandwidth}
@@ -99,43 +95,33 @@ export function DiagnosticsPanel({ data, loadError }: DiagnosticsPanelProps) {
           </div>
 
           <div>
-            <h3 className="text-section font-medium">Selected bandwidth history</h3>
-            <p className="mt-1 text-meta text-text-muted">
-              Pilih satu source, target, dan connection type agar satu riwayat memakai satu skala.
-            </p>
+            <h3 className="text-section font-medium">{t("panel.selectedHistory")}</h3>
+            <p className="mt-1 text-meta text-text-muted">{t("panel.historyHelp")}</p>
             <div className="mt-4">
               {hasExactHistorySelection ? (
                 <BandwidthChart measurements={filtered.bandwidth} />
               ) : (
                 <div className="rounded-control border border-border bg-bg-base p-4 text-text-secondary">
-                  Lengkapi ketiga filter untuk menampilkan chart historis.
+                  {t("panel.selectFilters")}
                 </div>
               )}
             </div>
           </div>
 
           <div className="border-t border-border pt-6">
-            <h3 className="text-section font-medium">Riwayat path per sesi</h3>
-            <p className="mt-1 text-meta text-text-muted">
-              Pilih satu sesi untuk melihat urutan responding Layer-3 hop, latency, dan loss.
-            </p>
+            <h3 className="text-section font-medium">{t("panel.pathHistory")}</h3>
+            <p className="mt-1 text-meta text-text-muted">{t("panel.pathHelp")}</p>
             <div className="mt-4">
               <HopLatencyTable measurements={filtered.hops} sortOrder={sortOrder} collapsible />
             </div>
           </div>
 
           <aside className="rounded-control border border-border bg-bg-base p-4">
-            <h3 className="text-body font-medium">Cara membaca hasil</h3>
+            <h3 className="text-body font-medium">{t("panel.readingTitle")}</h3>
             <ul className="mt-3 grid gap-2 text-body text-text-secondary">
-              <li>
-                WiFi mengukur end-to-end client-ke-server dan bukan bukti bottleneck LAN kabel.
-              </li>
-              <li>
-                MTR menampilkan hop Layer 3 yang merespons dan tidak memperlihatkan setiap switch Layer 2.
-              </li>
-              <li>
-                Perbedaan hasil menunjukkan suspected bottleneck; hasil ini tidak membuktikan perangkat tertentu gagal.
-              </li>
+              <li>{t("panel.wifi")}</li>
+              <li>{t("panel.mtr")}</li>
+              <li>{t("panel.suspected")}</li>
             </ul>
           </aside>
         </div>
