@@ -67,8 +67,8 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
         <span className="text-text-secondary">{t("pagination.range", { from: (page - 1) * data.pagination.page_size + 1, to: Math.min(page * data.pagination.page_size, data.pagination.total), total: data.pagination.total })}</span>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="text-text-secondary whitespace-nowrap">{t("pagination.page", { page, pages })}</span>
-          <PageLink disabled={page <= 1} href={pageHref(query, page - 1)} aria-label={t("common:actions.previous")}>{chevronLeft}</PageLink>
-          <PageLink disabled={page >= pages} href={pageHref(query, page + 1)} aria-label={t("common:actions.next")}>{chevronRight}</PageLink>
+          <PageLink disabled={page <= 1} href={pageHref(query, page - 1)} ariaLabel={t("common:actions.previous")}>{chevronLeft}</PageLink>
+          <PageLink disabled={page >= pages} href={pageHref(query, page + 1)} ariaLabel={t("common:actions.next")}>{chevronRight}</PageLink>
         </div>
       </div>
     </> : null}
