@@ -67,26 +67,65 @@ export function normalizeScannedHost(discovery: NmapHost, fingerprint: NmapHost 
   };
 }
 
+const CANONICAL_DEVICE_TYPES = new Set([
+  "computer_workstation",
+  "server",
+  "nas_storage_server",
+  "printer",
+  "router_firewall",
+  "switch_network",
+  "access_point",
+  "network_device",
+  "camera_cctv",
+  "voip_gateway",
+  "industrial_controller",
+  "iot_smart_device",
+  "medical_device",
+]);
+
+function isCanonicalKnownType(type: string): boolean {
+  return CANONICAL_DEVICE_TYPES.has(type);
+}
+
 export function mergeActiveScanObservation(existing: AssetObservation, scanned: AssetObservation): AssetObservation {
   const preserveOperatorType = (existing.source === "manual" || existing.network_node_ref !== null)
-    && existing.device_type !== "unknown";
+    && existing.device_type !== "unknown"
+    && existing.device_type.trim() !== "";
   const scanOsWins = confidenceRank(scanned.os_confidence) >= confidenceRank(existing.os_confidence) && scanned.platform !== null;
-  const scanTypeWins = !preserveOperatorType && confidenceRank(scanned.classification_confidence) >= confidenceRank(existing.classification_confidence);
+  const scannedTypeKnown = isCanonicalKnownType(scanned.device_type);
+  const existingTypeKnown = isCanonicalKnownType(existing.device_type);
+  const scanTypeWins = !preserveOperatorType
+    && scannedTypeKnown
+    && (!existingTypeKnown || confidenceRank(scanned.classification_confidence) >= confidenceRank(existing.classification_confidence));
+  const selfHealExistingType = !preserveOperatorType
+    && existing.device_type !== "unknown"
+    && !existingTypeKnown;
+  const mergedDeviceType = preserveOperatorType
+    ? existing.device_type
+    : scanTypeWins
+      ? scanned.device_type
+      : existingTypeKnown
+        ? existing.device_type
+        : "unknown";
+  const mergedClassificationConfidence = scanTypeWins || selfHealExistingType
+    ? scanned.classification_confidence
+    : existing.classification_confidence;
+  const mergedVendor = normalizeVendor(scanned.vendor) ?? normalizeVendor(existing.vendor);
   return {
     ...existing,
     stable_source_key: existing.stable_source_key,
     name: usefulHostname(existing.name, existing.ip_address ?? "") ? existing.name : scanned.name,
     hostname: scanned.hostname ?? existing.hostname,
-    device_type: scanTypeWins ? scanned.device_type : existing.device_type,
+    device_type: mergedDeviceType,
     status: existing.health_target_ref ? existing.status : "online",
     ip_address: scanned.ip_address ?? existing.ip_address,
     mac_address: scanned.mac_address ?? existing.mac_address,
-    vendor: normalizeVendor(scanned.vendor) ?? normalizeVendor(existing.vendor),
+    vendor: mergedVendor,
     platform: scanOsWins ? scanned.platform : existing.platform,
     first_seen_at: earliest(existing.first_seen_at, scanned.first_seen_at),
     last_seen_at: latest(existing.last_seen_at, scanned.last_seen_at),
     source: preserveOperatorType ? existing.source : "active_scan",
-    classification_confidence: scanTypeWins ? scanned.classification_confidence : existing.classification_confidence,
+    classification_confidence: mergedClassificationConfidence,
     os_confidence: scanOsWins ? scanned.os_confidence : existing.os_confidence,
     classification_evidence: mergeEvidence(existing.classification_evidence, scanned.classification_evidence),
     open_ports: scanned.open_ports.length ? uniqueNumbers([...existing.open_ports, ...scanned.open_ports]) : existing.open_ports,

@@ -338,9 +338,9 @@ export function classifyAsset(input: Readonly<{
   const strong = capConfidence("high", input.macKind);
   const medium = capConfidence("medium", input.macKind);
 
-  if (/integrated lights-out|\b(?:hp )?ilo(?:\s|$)|proliant/.test(text)) return classification("server_remote_management", strong, "classification", "Product evidence", "iLO / remote management");
+  if (/integrated lights-out|\b(?:hp )?ilo(?:\s|$)|proliant/.test(text)) return classification("server", strong, "classification", "Product evidence", "iLO / remote management");
   if (/mindray|patient monitor|medical device|medical equipment/.test(text)) return classification("medical_device", strong, "classification", "Product evidence", "Medical equipment signature");
-  if (/hikvision|dahua|axis camera|network camera|\bcctv\b/.test(text)) return classification("cctv_camera", strong, "classification", "Product evidence", "Camera signature");
+  if (/hikvision|dahua|axis camera|network camera|\bcctv\b/.test(text)) return classification("camera_cctv", strong, "classification", "Product evidence", "Camera signature");
   if (/audiocodes|voip gateway|mediant|voip adapter/.test(text)) return classification("voip_gateway", strong, "classification", "Product evidence", "VoIP gateway signature");
   if (/keyence|industrial controller|\bplc\b|\bhmi\b/.test(text)) return classification("industrial_controller", strong, "classification", "Product evidence", "Industrial control signature");
   if (/synology|qnap|asustor|storage server/.test(text)) return classification("nas_storage_server", strong, "classification", "Product evidence", "Storage signature");
@@ -355,12 +355,12 @@ export function classifyAsset(input: Readonly<{
   }
 
   if (/windows|microsoft/.test(input.platform?.toLowerCase() ?? "") || [135, 139, 445, 3389].filter((port) => ports.has(port)).length >= 2) {
-    return classification("windows_pc_server", medium, "classification", "OS/service evidence", "Windows signature");
+    return classification("unknown", medium, "classification", "OS/service evidence", "Windows signature");
   }
   if (/linux|unix|ubuntu|debian|centos|red hat/.test(text) || (ports.has(22) && /ssh|openssh|dropbear/.test(text))) {
-    return classification("linux_unix_server", medium, "classification", "OS/service evidence", "Linux/Unix signature");
+    return classification("unknown", medium, "classification", "OS/service evidence", "Linux/Unix signature");
   }
-  if (/macos|mac os|darwin|apple/.test(text)) return classification("mac_apple_workstation", medium, "classification", "OS/vendor evidence", "Apple signature");
+  if (/macos|mac os|darwin|apple/.test(text)) return classification("unknown", medium, "classification", "OS/vendor evidence", "Apple signature");
   if (/cisco|juniper|aruba|tp-link|d-link|netgear/.test(vendor)) return classification("network_device", medium, "classification", "Vendor evidence", input.vendor ?? "network vendor");
   if (/dell|lenovo|acer|asustek|gigabyte|micro-star|\bmsi\b/.test(vendor)) return classification("computer_workstation", medium, "classification", "Vendor evidence", input.vendor ?? "computer vendor");
   if (/iot|zigbee|smart device|smart plug|raspberry pi/.test(text)) return classification("iot_smart_device", medium, "classification", "Device evidence", "IoT signature");
@@ -373,7 +373,7 @@ function mapKnownType(value: string | null): string | null {
     gateway: "router_firewall", router: "router_firewall", firewall: "router_firewall",
     layer3_switch: "switch_network", managed_switch: "switch_network", switch: "switch_network",
     access_point: "access_point", printer: "printer", server: "server", workstation: "computer_workstation",
-    computer: "computer_workstation", camera: "cctv_camera", iot: "iot_smart_device", phone: "voip_gateway",
+    computer: "computer_workstation", camera: "camera_cctv", iot: "iot_smart_device", phone: "voip_gateway",
     medical_device: "medical_device", network_device: "network_device",
   } as Record<string, string>)[value.toLowerCase()] ?? null;
 }

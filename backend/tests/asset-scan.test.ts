@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { normalizeVendor, type AssetObservation } from "../src/assets/evidence.js";
+import { normalizeVendor, type AssetObservation, classifyAsset } from "../src/assets/evidence.js";
 import { parseNmapXml } from "../src/assets/nmap-parser.js";
 import { normalizeScannedHost, mergeActiveScanObservation } from "../src/assets/scan-normalize.js";
 import { AssetScanController, AssetScanError } from "../src/assets/scan-controller.js";
@@ -56,13 +56,13 @@ test("deep XML normalizes Windows, Linux, macOS, network, NAS, printer and unkno
   const windows = normalized("192.168.1.20", ports([
     service(135, "msrpc", "Microsoft Windows RPC"), service(139, "netbios-ssn", "Microsoft Windows"), service(445, "microsoft-ds", "Windows SMB"),
   ]) + os("Microsoft Windows 11", 96, "general purpose", "Windows"));
-  assert.equal(windows.platform, "Windows"); assert.equal(windows.os_confidence, "high"); assert.equal(windows.device_type, "windows_pc_server");
+  assert.equal(windows.platform, "Windows"); assert.equal(windows.os_confidence, "high"); assert.equal(windows.device_type, "unknown");
 
   const linux = normalized("192.168.1.21", ports([service(22, "ssh", "OpenSSH", "9.6p1")]) + os("Linux 5.15", 92, "general purpose", "Linux"));
-  assert.equal(linux.platform, "Linux / Unix"); assert.equal(linux.detected_services[0]?.product, "OpenSSH"); assert.equal(linux.detected_services[0]?.version, "9.6p1");
+  assert.equal(linux.platform, "Linux / Unix"); assert.equal(linux.detected_services[0]?.product, "OpenSSH"); assert.equal(linux.detected_services[0]?.version, "9.6p1"); assert.equal(linux.device_type, "unknown");
 
   const apple = normalized("192.168.1.22", os("Apple macOS", 91, "general purpose", "Mac OS X"), "00:11:22:33:44:56", "Apple, Inc.");
-  assert.equal(apple.platform, "macOS / Apple");
+  assert.equal(apple.platform, "macOS / Apple"); assert.equal(apple.device_type, "unknown");
 
   const router = normalized("192.168.1.23", ports([service(443, "https", "Router management")]) + os("Network appliance", 90, "router", "embedded"));
   assert.equal(router.platform, "Network Appliance"); assert.equal(router.device_type, "router_firewall");
@@ -82,6 +82,7 @@ test("deep XML normalizes Windows, Linux, macOS, network, NAS, printer and unkno
 
 test("vendor normalization rejects garbage, repairs known truncation and preserves useful names", () => {
   assert.equal(normalizeVendor("0x"), null);
+  assert.equal(normalizeVendor("0x1234"), null);
   assert.equal(normalizeVendor("---"), null);
   assert.equal(normalizeVendor("RaspberryPiF"), "Raspberry Pi Foundation");
   assert.equal(normalizeVendor("Shenzhen Example Technology Company Limited"), "Shenzhen Example Technology Company Limited");
@@ -267,3 +268,155 @@ async function waitForIdle(controller: AssetScanController) {
   }
   assert.fail("scan did not become idle");
 }
+
+test("regression: existing known device type preserved when scan returns unknown", () => {
+  const scanned = normalized("192.168.1.70", ports([service(22, "ssh", "OpenSSH")]), "00:11:22:33:44:70", "0x");
+  const existing: AssetObservation = {
+    ...scanned, stable_source_key: "node:existing", name: "Known Device", hostname: "known",
+    device_type: "switch_network", vendor: "Cisco", platform: "Network OS", source: "manual",
+    classification_confidence: "high", os_confidence: "high", first_seen_at: "2026-01-01T00:00:00.000Z",
+    last_seen_at: "2026-09-01T00:00:00.000Z", evidence_updated_at: "2026-09-01T00:00:00.000Z",
+    open_ports: [], detected_services: [], network_node_ref: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  };
+  const merged = mergeActiveScanObservation(existing, scanned);
+  assert.equal(merged.device_type, "switch_network");
+  assert.equal(merged.vendor, "Cisco");
+});
+
+test("regression: operator classification wins over scan classification", () => {
+  const scanned = normalized("192.168.1.71", ports([service(443, "https", "Web UI")]) + os("RouterOS", 95, "router", "embedded"), "00:11:22:33:44:71", "MikroTik");
+  const existing: AssetObservation = {
+    ...scanned, stable_source_key: "node:operator", name: "Operator Device", hostname: "op-device",
+    device_type: "router_firewall", vendor: "MikroTik", platform: "Network OS", source: "manual",
+    classification_confidence: "high", os_confidence: "high", first_seen_at: "2026-01-01T00:00:00.000Z",
+    last_seen_at: "2026-09-01T00:00:00.000Z", evidence_updated_at: "2026-09-01T00:00:00.000Z",
+    open_ports: [], detected_services: [], network_node_ref: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  };
+  const merged = mergeActiveScanObservation(existing, scanned);
+  assert.equal(merged.device_type, "router_firewall");
+  assert.equal(merged.source, "manual");
+});
+
+test("regression: canonical scanner type output only - no windows_pc_server or linux_unix_server", () => {
+  const windows = normalized("192.168.1.80", ports([
+    service(135, "msrpc", "Microsoft Windows RPC"), service(139, "netbios-ssn"), service(445, "microsoft-ds"),
+  ]) + os("Windows 10", 90, "general purpose", "Windows"));
+  assert.equal(windows.device_type, "unknown");
+  assert.notEqual(windows.device_type, "windows_pc_server");
+
+  const linux = normalized("192.168.1.81", ports([service(22, "ssh", "OpenSSH")]) + os("Linux 6.1", 90, "general purpose", "Linux"));
+  assert.equal(linux.device_type, "unknown");
+  assert.notEqual(linux.device_type, "linux_unix_server");
+
+  const apple = normalized("192.168.1.82", os("macOS 14", 90, "general purpose", "Mac OS X"), "00:11:22:33:44:82", "Apple");
+  assert.equal(apple.device_type, "unknown");
+  assert.notEqual(apple.device_type, "mac_apple_workstation");
+});
+
+test("regression: Windows/Linux OS evidence alone does not invent server/workstation", () => {
+  const windowsOnlyOS = { nodeType: null, fingerprintType: null, vendor: null, hostname: "host", platform: "Windows", services: [], macKind: "global" as const, sourceConfidence: "medium" as const };
+  assert.equal(classifyAsset(windowsOnlyOS).deviceType, "unknown");
+
+  const linuxOnlyOS = { nodeType: null, fingerprintType: null, vendor: null, hostname: "host", platform: "Linux / Unix", services: [], macKind: "global" as const, sourceConfidence: "medium" as const };
+  assert.equal(classifyAsset(linuxOnlyOS).deviceType, "unknown");
+
+  const windowsPorts = { nodeType: null, fingerprintType: null, vendor: null, hostname: "host", platform: "Windows", services: [{ protocol: "tcp" as const, port: 445, name: "microsoft-ds" }], macKind: "global" as const, sourceConfidence: "medium" as const };
+  assert.equal(classifyAsset(windowsPorts).deviceType, "unknown");
+
+  const linuxSSH = { nodeType: null, fingerprintType: null, vendor: null, hostname: "host", platform: "Linux / Unix", services: [{ protocol: "tcp" as const, port: 22, name: "ssh" }], macKind: "global" as const, sourceConfidence: "medium" as const };
+  assert.equal(classifyAsset(linuxSSH).deviceType, "unknown");
+});
+
+test("regression: generic Apple vendor or macOS evidence does not invent a workstation role", () => {
+  const base = { nodeType: null, fingerprintType: null, hostname: "host", services: [], macKind: "global" as const, sourceConfidence: "medium" as const };
+  assert.equal(classifyAsset({ ...base, vendor: "Apple, Inc.", platform: null }).deviceType, "unknown");
+  assert.equal(classifyAsset({ ...base, vendor: null, platform: "macOS / Apple" }).deviceType, "unknown");
+  assert.equal(classifyAsset({ ...base, vendor: null, hostname: "apple-device", platform: null }).deviceType, "unknown");
+});
+
+test("regression: stale scanner-generated noncanonical types self-heal to unknown", () => {
+  const scanned = normalized("192.168.1.83", "", "00:11:22:33:44:83");
+  for (const staleType of ["windows_pc_server", "linux_unix_server", "mac_apple_workstation"]) {
+    const existing: AssetObservation = {
+      ...scanned,
+      stable_source_key: `active_scan:stale:${staleType}`,
+      device_type: staleType,
+      classification_confidence: "high",
+    };
+    const merged = mergeActiveScanObservation(existing, scanned);
+    assert.equal(merged.device_type, "unknown");
+    assert.equal(merged.classification_confidence, scanned.classification_confidence);
+  }
+});
+
+test("regression: noncanonical scanned type cannot replace unknown while an operator-owned type is preserved", () => {
+  const baseline = normalized("192.168.1.84", "", "00:11:22:33:44:84");
+  const noncanonicalScan: AssetObservation = { ...baseline, device_type: "windows_pc_server", classification_confidence: "high" };
+  assert.equal(mergeActiveScanObservation(baseline, noncanonicalScan).device_type, "unknown");
+
+  const operatorOwned: AssetObservation = {
+    ...baseline,
+    stable_source_key: "manual:operator-category",
+    source: "manual",
+    device_type: "operator_specific_category",
+    classification_confidence: "high",
+  };
+  assert.equal(mergeActiveScanObservation(operatorOwned, baseline).device_type, "operator_specific_category");
+});
+
+test("regression: existing invalid vendor 0x with no valid new vendor becomes null", () => {
+  const scanned = normalized("192.168.1.90", "", "00:11:22:33:44:90", "0x");
+  const existing: AssetObservation = {
+    ...scanned, stable_source_key: "node:vendor0x", name: "Bad Vendor", hostname: "bad",
+    device_type: "unknown", vendor: "0x", platform: null, source: "discovery",
+    classification_confidence: "low", os_confidence: null, first_seen_at: "2026-01-01T00:00:00.000Z",
+    last_seen_at: "2026-09-01T00:00:00.000Z", evidence_updated_at: "2026-09-01T00:00:00.000Z",
+    open_ports: [], detected_services: [],
+  };
+  const merged = mergeActiveScanObservation(existing, scanned);
+  assert.equal(merged.vendor, null);
+});
+
+test("regression: invalid 0x vendor replaced by valid new vendor", () => {
+  const normalizedScan = normalized("192.168.1.91", ports([service(22, "ssh", "OpenSSH")]), "00:11:22:33:44:91", "RaspberryPiF");
+  const scanned: AssetObservation = { ...normalizedScan, vendor: "RaspberryPiF" };
+  const existing: AssetObservation = {
+    ...scanned, stable_source_key: "node:vendor0x2", name: "Bad Vendor 2", hostname: "bad2",
+    device_type: "unknown", vendor: "0x", platform: "Linux / Unix", source: "discovery",
+    classification_confidence: "low", os_confidence: "medium", first_seen_at: "2026-01-01T00:00:00.000Z",
+    last_seen_at: "2026-09-01T00:00:00.000Z", evidence_updated_at: "2026-09-01T00:00:00.000Z",
+    open_ports: [], detected_services: [],
+  };
+  const merged = mergeActiveScanObservation(existing, scanned);
+  assert.equal(merged.vendor, "Raspberry Pi Foundation");
+});
+
+test("regression: valid existing vendor preserved when new vendor missing", () => {
+  const scanned = normalized("192.168.1.92", ports([service(22, "ssh", "OpenSSH")]), "00:11:22:33:44:92", "0x");
+  const existing: AssetObservation = {
+    ...scanned, stable_source_key: "node:vendorgood", name: "Good Vendor", hostname: "good",
+    device_type: "computer_workstation", vendor: "Dell", platform: "Windows", source: "manual",
+    classification_confidence: "high", os_confidence: "high", first_seen_at: "2026-01-01T00:00:00.000Z",
+    last_seen_at: "2026-09-01T00:00:00.000Z", evidence_updated_at: "2026-09-01T00:00:00.000Z",
+    open_ports: [], detected_services: [], network_node_ref: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  };
+  const merged = mergeActiveScanObservation(existing, scanned);
+  assert.equal(merged.vendor, "Dell");
+});
+
+test("regression: valid existing vendor is normalized when scanned vendor is invalid", () => {
+  const scanned = normalized("192.168.1.93", "", "00:11:22:33:44:93", "0x1234");
+  const existing: AssetObservation = {
+    ...scanned,
+    stable_source_key: "active_scan:vendor-normalized",
+    vendor: "RaspberryPiF",
+  };
+  assert.equal(mergeActiveScanObservation(existing, scanned).vendor, "Raspberry Pi Foundation");
+});
+
+test("regression: repeated Deep enrichment is idempotent", () => {
+  const scanned = normalized("192.168.1.100", ports([service(22, "ssh", "OpenSSH"), service(80, "http", "nginx")]) + os("Linux 6.5", 95, "general purpose", "Linux"), "00:11:22:33:44:99", "CanonicalVendor");
+  const mergedOnce = mergeActiveScanObservation(scanned, scanned);
+  const mergedTwice = mergeActiveScanObservation(mergedOnce, scanned);
+  assert.deepEqual(mergedOnce, mergedTwice);
+});
