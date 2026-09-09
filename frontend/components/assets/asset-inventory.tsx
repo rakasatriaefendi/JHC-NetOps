@@ -31,7 +31,17 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
   const pages = data?.pagination.pages ?? 1;
 
   return <section>
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("eyebrow")}</p><h1 className="mt-2 text-heading font-semibold">{t("title")}</h1><p className="mt-2 max-w-3xl text-text-secondary">{t("description")}</p></div><div className="shrink-0"><AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />{data ? <p className="mt-2 text-right text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}</div></div>
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(440px,500px)] xl:items-start">
+      <div className="min-w-0">
+        <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("eyebrow")}</p>
+        <h1 className="mt-2 text-heading font-semibold">{t("title")}</h1>
+        <p className="mt-2 text-text-secondary">{t("description")}</p>
+      </div>
+      <div className="w-full xl:justify-self-end">
+        <AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />
+        {data ? <p className="mt-3 text-right text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}
+      </div>
+    </div>
     {error ? <div className="mt-6 rounded-control border border-severity-medium bg-bg-surface p-4"><p className="font-medium text-severity-medium">{t(`errors.${error}.title`)}</p><p className="mt-1 text-meta text-text-secondary">{t(`errors.${error}.description`)}</p></div> : null}
 
     <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

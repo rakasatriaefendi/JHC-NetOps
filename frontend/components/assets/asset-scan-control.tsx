@@ -81,15 +81,15 @@ export function AssetScanControl({ initialState, initialError, canScan }: Props)
     setPending(false);
   }
 
-  return <div className="w-full sm:w-auto">
-    {canScan ? <Button className="w-full sm:w-auto" disabled={!state?.available || Boolean(running)} onClick={() => setOpen(true)}>{t("scan.action")}</Button> : null}
+  return <div className="w-full">
+    {canScan && !running ? <div className="flex justify-end"><Button disabled={!state?.available || Boolean(running)} onClick={() => setOpen(true)}>{t(state?.last ? "scan.repeat" : "scan.action")}</Button></div> : null}
     {!state?.available ? <p className="mt-2 max-w-sm text-meta text-text-muted">{t(initialError === "unavailable" ? "scan.stateUnavailable" : "scan.unavailable")}</p> : null}
-    {running ? <div className="mt-3 min-w-72 rounded-panel border border-accent bg-bg-surface p-4" aria-live="polite">
-      <p className="font-medium text-accent">{t("scan.running", { mode: t(`scan.mode.${running.mode}.title`) })}</p>
-      <dl className="mt-3 grid grid-cols-2 gap-3 text-meta"><Metric label={t("scan.discovered")} value={running.discovered_count} /><Metric label={t("scan.fingerprinted")} value={`${running.fingerprinted_count} / ${running.discovered_count}`} /><Metric label={t("scan.failed")} value={running.failed_count} /><Metric label={t("scan.elapsed")} value={durationLabel(clock - Date.parse(running.started_at))} /></dl>
-      {running.current_target ? <p className="mt-3 font-data text-meta text-text-secondary">{t("scan.current", { target: running.current_target })}</p> : null}
-      {canScan ? <Button className="mt-3 w-full" disabled={pending} variant="destructive" onClick={() => void cancel()}>{t("scan.cancel")}</Button> : null}
-    </div> : state?.last ? <div className="mt-2"><p className="text-meta text-text-muted">{t("scan.last", { status: t(`scan.status.${state.last.status}`), found: state.last.discovered_count, enriched: state.last.fingerprinted_count, failed: state.last.failed_count, time: timeLabel(state.last.completed_at ?? state.last.cancelled_at, locale) })}</p><div className="mt-2 flex flex-wrap justify-end gap-2 text-meta"><Link className="rounded-control border border-border px-3 py-2 hover:border-accent hover:text-accent" href="#asset-insights">{t("scan.viewSummary")}</Link>{canScan && state.available ? <Button variant="secondary" onClick={() => setOpen(true)}>{t("scan.repeat")}</Button> : null}</div></div> : null}
+    {running ? <div className="w-full rounded-panel border border-accent bg-bg-surface p-5" aria-live="polite">
+      <p className="text-center font-medium text-accent">{t("scan.running", { mode: t(`scan.mode.${running.mode}.title`) })}</p>
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-center text-meta"><Metric label={t("scan.discovered")} value={running.discovered_count} /><Metric label={t("scan.fingerprinted")} value={`${running.fingerprinted_count} / ${running.discovered_count}`} /><Metric label={t("scan.failed")} value={running.failed_count} /><Metric label={t("scan.elapsed")} value={durationLabel(clock - Date.parse(running.started_at))} /></dl>
+      {running.current_target ? <p className="mt-4 text-center font-data text-meta text-text-secondary">{t("scan.current", { target: running.current_target })}</p> : null}
+      {canScan ? <Button className="mt-4 w-full" disabled={pending} variant="destructive" onClick={() => void cancel()}>{t("scan.cancel")}</Button> : null}
+    </div> : state?.last ? <div className="mt-3"><p className="text-right text-meta text-text-muted">{t("scan.last", { status: t(`scan.status.${state.last.status}`), found: state.last.discovered_count, enriched: state.last.fingerprinted_count, failed: state.last.failed_count, time: timeLabel(state.last.completed_at ?? state.last.cancelled_at, locale) })}</p><div className="mt-2 flex justify-end"><Link className="rounded-control border border-border px-3 py-2 text-meta text-text-primary transition-colors hover:border-accent hover:text-accent" href="#asset-insights">{t("scan.viewSummary")}</Link></div></div> : null}
     {errorCode ? <p className="mt-2 text-meta text-severity-critical" role="alert">{t(`scan.errors.${safeUiError(errorCode)}`)}</p> : null}
 
     {open && state?.available ? <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t("scan.dialogTitle")}>
