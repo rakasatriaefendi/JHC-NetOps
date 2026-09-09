@@ -69,3 +69,39 @@ test("asset server loader forwards bounded evidence filters without exposing cre
   assert.match(loader, /item\.open_ports\.length <= 32/);
   assert.doesNotMatch(loader, /community|auth_password|priv_password/);
 });
+
+test("active inventory scan is explicit, operator-gated, allowlisted and polls only while running", () => {
+  const page = source("../app/(protected)/assets/page.tsx");
+  const action = source("../app/actions/assets.ts");
+  const loader = source("../lib/assets.ts");
+  const control = source("../components/assets/asset-scan-control.tsx");
+  assert.match(page, /loadAssetScanState\(\)/);
+  assert.match(page, /canOperateNetwork\(profile\.role\)/);
+  assert.doesNotMatch(page, /startAssetScanAction|requestAssetScan/);
+  assert.match(action, /requireOperatorProfile\(\)/);
+  assert.match(action, /requireApprovedProfile\(\)/);
+  assert.match(loader, /\/api\/assets\/scan/);
+  assert.match(control, /state\?\.current\?\.status === "running"/);
+  assert.match(control, /window\.setTimeout/);
+  assert.match(control, /router\.refresh\(\)/);
+  assert.match(control, /SCAN_NETWORK_NOT_ALLOWED/);
+  assert.match(control, /role="dialog"/);
+  assert.doesNotMatch(control, /nmap|--script|exec\(|spawn\(/i);
+});
+
+test("active scan localization and richer service evidence remain paired", () => {
+  const component = source("../components/assets/asset-inventory.tsx");
+  const loader = source("../lib/assets.ts");
+  assert.match(component, /service\.product/);
+  assert.match(component, /service\.version/);
+  assert.match(component, /service\.extra_info/);
+  assert.match(loader, /optionalString\(service\.product, 160\)/);
+  for (const language of ["id", "en"]) {
+    const catalog = JSON.parse(source(`../i18n/${language}/assets.json`));
+    assert.equal(typeof catalog.scan.action, "string");
+    assert.equal(typeof catalog.scan.mode.quick.description, "string");
+    assert.equal(typeof catalog.scan.mode.deep.description, "string");
+    assert.equal(typeof catalog.scan.unavailable, "string");
+    assert.equal(typeof catalog.source.active_scan, "string");
+  }
+});

@@ -105,7 +105,13 @@ export class PostgresAssetRepository implements AssetRepository {
         status = EXCLUDED.status,
         ip_address = EXCLUDED.ip_address,
         mac_address = COALESCE(EXCLUDED.mac_address, asset.assets.mac_address),
-        vendor = COALESCE(EXCLUDED.vendor, asset.assets.vendor),
+        vendor = CASE
+          WHEN lower(btrim(coalesce(asset.assets.vendor, ''))) IN ('', '-', 'unknown', 'unknown vendor', 'n/a', 'none', 'null')
+            OR lower(btrim(asset.assets.vendor)) ~ '^0x[0-9a-f]*$'
+            OR btrim(asset.assets.vendor) !~ '[[:alpha:]]'
+          THEN EXCLUDED.vendor
+          ELSE COALESCE(EXCLUDED.vendor, asset.assets.vendor)
+        END,
         platform = COALESCE(EXCLUDED.platform, asset.assets.platform),
         first_seen_at = LEAST(asset.assets.first_seen_at, EXCLUDED.first_seen_at),
         last_seen_at = GREATEST(asset.assets.last_seen_at, EXCLUDED.last_seen_at),
@@ -216,9 +222,31 @@ function normalizePorts(value: unknown): number[] {
 
 function normalizeServices(value: unknown): AssetRecord["detected_services"] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is { protocol: "tcp" | "udp"; port: number; name: string } =>
-    record(item) && (item.protocol === "tcp" || item.protocol === "udp") && Number.isSafeInteger(item.port)
-      && Number(item.port) >= 1 && Number(item.port) <= 65_535 && typeof item.name === "string").slice(0, 32);
+  return value.map(normalizeService).filter((item): item is NonNullable<typeof item> => item !== null).slice(0, 32);
+}
+
+function normalizeService(item: unknown): AssetRecord["detected_services"][number] | null {
+  if (!record(item) || (item.protocol !== "tcp" && item.protocol !== "udp") || !Number.isSafeInteger(item.port)
+      || Number(item.port) < 1 || Number(item.port) > 65_535 || typeof item.name !== "string") return null;
+  const product = optionalText(item.product, 160);
+  const version = optionalText(item.version, 100);
+  const extraInfo = optionalText(item.extra_info, 160);
+  const tunnel = optionalText(item.tunnel, 32);
+  return {
+    protocol: item.protocol,
+    port: Number(item.port),
+    name: item.name.slice(0, 100),
+    ...(product ? { product } : {}),
+    ...(version ? { version } : {}),
+    ...(extraInfo ? { extra_info: extraInfo } : {}),
+    ...(tunnel ? { tunnel } : {}),
+  };
+}
+
+function optionalText(value: unknown, maximum: number): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text && text.length <= maximum && !/[\u0000-\u001f\u007f]/.test(text) ? text : null;
 }
 
 function record(value: unknown): value is Record<string, unknown> {

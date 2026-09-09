@@ -29,7 +29,7 @@ or enabled. See
 | Discovery | Operator/Admin-triggered, bounded discovery of hosts visible to the current local runner. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
 | Devices | One operator inventory with contextual Health Watch configuration. | Inventory identity and detected identity are separate; dependent configuration blocks inventory deletion. |
 | SNMP | Latest read-only Managed Telemetry and Observed LAN Hosts first, followed by target configuration. | Known targets and local credential-profile references only. |
-| Asset Inventory | Compact local asset summary, evidence-backed Insights, filters, paging, and Overview/Network detail. | P10D1 consumes retained normalized evidence only; identity history/reporting remain P10D2/P10E. |
+| Asset Inventory | Compact local asset summary, evidence-backed Insights, filters, paging, Overview/Network detail, and explicit Quick/Deep enrichment. | Active scan is Operator/Admin-only and allowlisted; identity history/reporting remain P10D2/P10E. |
 | Admin | User approval and account access control. | Monitoring configuration lives on Devices and SNMP, not Admin. |
 
 Role dan status akses adalah dua dimensi terpisah. Viewer memiliki visibilitas
@@ -80,6 +80,7 @@ Supabase Auth + Database + Realtime + control-plane Edge Functions
         |
 Loopback Fastify backend <--- Local Runner (Node.js)
         |-- P10C/P10D1 Asset API + bounded evidence sync ---> dedicated local PostgreSQL asset.*
+        |-- explicit P10D1-B scan ---> root-owned fixed-argument Nmap helper
         |-- Windows: PowerShell context + PING.EXE + wsl.exe --exec
         `-- Linux: ip -j context + ping + native child process
                  |
@@ -92,7 +93,7 @@ Loopback Fastify backend <--- Local Runner (Node.js)
 |---|---|
 | Frontend | Authenticated UI, read models, Realtime subscriptions, and structured admin actions. It never runs local shell commands. |
 | Supabase | Authentication, RLS, persistent latest state/history, temporary job/session coordination, Realtime, and retained control-plane Edge contracts. |
-| Local backend | Timing-safe runner auth and bounded persistence bridge for recurring domains; separate server token, PostgreSQL repository, and read-through normalized evidence adapter for P10C/P10D1 assets. |
+| Local backend | Timing-safe runner auth and bounded persistence bridge for recurring domains; separate server token, PostgreSQL repository, read-through evidence adapter, and explicit allowlisted P10D1-B scan orchestrator. |
 | Dedicated PostgreSQL | Future-provisioned `16/jhcnetops:5433`, database `jhc_netops`, local `asset.*` only; existing `16/main` is strictly out of scope. |
 | Local runner | Heartbeat, allow-list enforcement, scheduling, platform context, relocatable local state/logs, and structured WSL/native process orchestration. |
 | Python agent | Network measurement, bounded inspection/capture, SNMP collection, and normalized protocol output. |

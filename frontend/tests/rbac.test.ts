@@ -61,10 +61,14 @@ test("Admin route and user administration remain directly Admin-only", () => {
 test("operational server actions use active Operator authorization", () => {
   const devices = source("../app/actions/devices.ts");
   const snmp = source("../app/actions/snmp.ts");
+  const assets = source("../app/actions/assets.ts");
   assert.match(devices, /requireOperatorProfile/);
   assert.doesNotMatch(devices, /requireAdminProfile/);
   assert.match(snmp, /requireOperatorProfile/);
   assert.doesNotMatch(snmp, /requireAdminProfile/);
+  assert.match(assets, /requireOperatorProfile/);
+  assert.match(assets, /requireApprovedProfile/);
+  assert.doesNotMatch(assets, /requireAdminProfile/);
 });
 
 test("Admin UI exposes independent role and access selectors", () => {

@@ -1,7 +1,7 @@
 {
   "eyebrow": "Asset management",
   "title": "Asset Inventory",
-  "description": "A compact inventory enriched from existing authorized NetOps evidence. No additional network scan is started here.",
+  "description": "A compact inventory enriched from authorized NetOps evidence. Active scans run only after an operator explicitly starts one.",
   "loading": "Loading Asset Inventory",
   "lastUpdated": "Last updated: {{value}}",
   "summary": { "total": "Total assets", "online": "Online", "offline": "Offline", "changed": "Changed" },
@@ -9,12 +9,22 @@
   "table": { "no": "No", "hostname": "Hostname", "mac": "MAC", "os": "OS", "ports": "Ports", "portCount": "{{count}} detected", "name": "Name", "type": "Type", "status": "Status", "ip": "IP", "vendor": "Vendor", "lastSeen": "Last seen", "action": "Action" },
   "status": { "online": "Online", "offline": "Offline", "changed": "Changed", "unknown": "Unknown" },
   "types": { "unknown": "Unknown", "network_device": "Network device", "computer": "Computer", "computer_workstation": "Computer / Workstation", "windows_pc_server": "Windows PC / Server", "linux_unix_server": "Linux / Unix / Server", "mac_apple_workstation": "Mac / Apple Workstation", "server": "Server", "server_remote_management": "Server / Remote Management", "nas_storage_server": "NAS / Storage Server", "printer": "Printer", "switch_network": "Switch / Network", "router_firewall": "Router / Firewall", "access_point": "Access Point", "cctv_camera": "CCTV / Camera", "voip_gateway": "VoIP Gateway", "industrial_controller": "Industrial Controller", "iot_smart_device": "IoT / Smart Device", "medical_device": "Medical Device" },
-  "source": { "manual": "Manual", "discovery": "Discovery", "observed_host": "Observed LAN Host", "device_inspector": "Device Inspector", "managed_telemetry": "Managed SNMP", "import": "Import" },
+  "source": { "manual": "Manual", "discovery": "Discovery", "observed_host": "Observed LAN Host", "device_inspector": "Device Inspector", "managed_telemetry": "Managed SNMP", "active_scan": "Active scan", "import": "Import" },
   "confidence": { "low": "Low", "medium": "Medium", "high": "High" },
   "actions": { "details": "Details", "viewDevice": "View Device", "viewHealth": "View Health Watch", "viewSnmp": "View SNMP", "viewObservedHost": "View Observed Host" },
   "insights": { "title": "Asset Insights", "compactHint": "Expand summaries and filter the inventory", "platform": "OS / Platform", "vendor": "Vendor", "vendorType": "Vendor to device type", "empty": "Evidence-backed summaries will appear when normalized evidence is available.", "unavailable": "No evidence available" },
   "detail": { "title": "Asset details", "overview": "Overview", "network": "Network", "mac": "MAC", "platform": "Platform", "source": "Source / evidence", "confidence": "OS confidence", "confidenceHelp": "Confidence in OS classification based on available network evidence. Private or randomized MAC evidence lowers confidence where applicable.", "vendorHelp": "Vendor is estimated from MAC and other available device evidence. Some devices may remain Unknown.", "firstSeen": "First seen", "latency": "Latest latency", "evidenceUpdated": "Evidence updated", "evidence": "Normalized evidence", "services": "Detected services", "noServices": "No bounded port or service evidence is available.", "noLinks": "No related NetOps destination is available for this asset yet." },
   "empty": { "title": "No assets match this view", "description": "Clear the filters or wait until an authorized integration adds inventory records." },
   "errors": { "unconfigured": { "title": "Asset Inventory is not configured", "description": "The local PostgreSQL asset connection has not been enabled on this environment." }, "unavailable": { "title": "Asset Inventory is unavailable", "description": "The local backend could not load the inventory. Existing NetOps features remain unaffected." } },
-  "pagination": { "range": "{{from}}-{{to}} of {{total}}", "page": "Page {{page}} / {{pages}}" }
+  "pagination": { "range": "{{from}}-{{to}} of {{total}}", "page": "Page {{page}} / {{pages}}" },
+  "scan": {
+    "action": "Scan Network", "eyebrow": "Active inventory", "dialogTitle": "Scan Network", "network": "Network", "modeLabel": "Scan mode",
+    "mode": {
+      "quick": { "title": "Quick Discovery", "short": "Quick Discovery", "description": "Find active devices and basic network identity." },
+      "deep": { "title": "Deep Inventory Scan", "short": "Deep Scan", "description": "Find devices and enrich OS, ports, services, vendor, and device type." }
+    },
+    "start": "Start {{mode}}", "starting": "Starting…", "running": "{{mode}} is running", "discovered": "Discovered", "fingerprinted": "Fingerprint", "failed": "Failed", "elapsed": "Elapsed", "current": "Inspecting {{target}}", "cancel": "Cancel Scan",
+    "last": "Last scan ({{status}}): {{found}} discovered · {{enriched}} enriched · {{failed}} failed · {{time}}", "status": { "running": "running", "completed": "completed", "failed": "failed", "cancelled": "cancelled" }, "viewSummary": "View Summary", "repeat": "Scan Again", "unavailable": "The network scanner is not available on the NetOps host.", "stateUnavailable": "Scanner status is temporarily unavailable; Asset Inventory remains usable.",
+    "errors": { "SCAN_ALREADY_RUNNING": "Another inventory scan is already running.", "SCANNER_UNAVAILABLE": "The network scanner is unavailable.", "SCAN_NETWORK_NOT_ALLOWED": "The selected network is not allowed.", "ASSET_SCAN_FAILED": "The scan request could not be completed safely.", "ASSET_SCAN_STATE_FAILED": "Scanner progress is temporarily unavailable." }
+  }
 }

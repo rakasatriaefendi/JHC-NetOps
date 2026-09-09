@@ -18,8 +18,8 @@ menyimpan raw packet atau PCAP.
 - Observed LAN Hosts dari evidence neighbor Layer-3, dengan naming enrichment opsional.
 - Buffer SQLite lokal untuk toleransi gangguan koneksi backend.
 - Inventaris Aset lokal melalui backend loopback dan PostgreSQL cluster NetOps
-  terisolasi, dengan enrichment P10D1 dari evidence pipeline yang sudah ada;
-  tidak menambah scanner jaringan (provisioning runtime tetap terpisah).
+  terisolasi, dengan enrichment P10D1 dari evidence yang sudah ada dan Quick/Deep
+  active scan yang hanya berjalan setelah tindakan eksplisit Operator/Admin.
 
 Hermes AI Agent masih berupa endpoint stub dan belum menjalankan analisis LLM.
 
@@ -32,6 +32,7 @@ flowchart LR
     Backend -->|REST and RPC| Supabase
     Browser -->|authenticated server render| Backend
     Backend -->|Asset Inventory only| AssetDB[(PostgreSQL 16/jhcnetops :5433)]
+    Backend -->|explicit bounded scan| NmapHelper[Root-owned fixed-argument Nmap helper]
     Runner -->|WSL or native structured command| Agent[Same Python agent]
     Agent -->|recurring Traffic snapshots and flows| Backend
     Agent -->|on-demand diagnostic results| Supabase
@@ -73,6 +74,8 @@ runner diabaikan oleh Git.
 - Project Supabase dan Supabase CLI untuk migration/deployment.
 - `iperf3` dan `mtr` di runtime Linux untuk LAN Diagnostics.
 - Server `iperf3 -s` pada target yang sudah mendapat izin.
+- Nmap dan privileged helper P10D1-B yang direview operator hanya untuk active
+  inventory scan pada CIDR RFC1918 yang dikonfigurasi.
 
 ## Quick start development
 

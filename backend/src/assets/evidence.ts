@@ -6,7 +6,15 @@ export const ASSET_SERVICE_LIMIT = 32;
 
 export type AssetConfidence = "low" | "medium" | "high" | null;
 export type AssetEvidence = Readonly<{ source: string; label: string; value: string }>;
-export type AssetService = Readonly<{ protocol: "tcp" | "udp"; port: number; name: string }>;
+export type AssetService = Readonly<{
+  protocol: "tcp" | "udp";
+  port: number;
+  name: string;
+  product?: string;
+  version?: string;
+  extra_info?: string;
+  tunnel?: string;
+}>;
 
 export type AssetObservation = Readonly<{
   stable_source_key: string;
@@ -20,7 +28,7 @@ export type AssetObservation = Readonly<{
   platform: string | null;
   first_seen_at: string | null;
   last_seen_at: string | null;
-  source: "manual" | "observed_host" | "device_inspector" | "managed_telemetry";
+  source: "manual" | "discovery" | "observed_host" | "device_inspector" | "managed_telemetry" | "active_scan" | "import";
   classification_confidence: AssetConfidence;
   os_confidence: AssetConfidence;
   classification_evidence: readonly AssetEvidence[];
@@ -146,8 +154,8 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
       mac,
       macKind,
       vendor: macKind === "global"
-        ? boundedText(detected?.manufacturer, 200) ?? boundedText(identity?.mac_vendor, 200)
-        : boundedText(detected?.manufacturer, 200),
+        ? normalizeVendor(detected?.manufacturer) ?? normalizeVendor(identity?.mac_vendor)
+        : normalizeVendor(detected?.manufacturer),
       platform: normalizePlatform(detected?.os_family),
       firstSeen: timestamp(row.created_at),
       lastSeen: inspectedAt ?? timestamp(row.updated_at),
@@ -198,7 +206,7 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
     const status = latest.status === "connected" || latest.status === "partial" ? "online" : "unknown";
     setStatus(draft, status, 3);
     draft.hostname ??= boundedText(latest.sys_name, 255);
-    draft.vendor ??= boundedText(latest.manufacturer, 200);
+    draft.vendor ??= normalizeVendor(latest.manufacturer);
     const inferredPlatform = inferPlatform(latest.sys_descr);
     if (!draft.platform && inferredPlatform) {
       draft.platform = inferredPlatform;
@@ -324,7 +332,8 @@ export function classifyAsset(input: Readonly<{
   if (fingerprintMapped) return classification(fingerprintMapped, capConfidence(input.sourceConfidence ?? "medium", input.macKind), "device_inspector", "Detected type", input.fingerprintType ?? "");
 
   const ports = new Set(input.services.map((item) => item.port));
-  const text = [input.vendor, input.hostname, input.platform, ...input.services.map((item) => item.name)].filter(Boolean).join(" ").toLowerCase();
+  const serviceEvidence = input.services.flatMap((item) => [item.name, item.product, item.version, item.extra_info]);
+  const text = [input.vendor, input.hostname, input.platform, ...serviceEvidence].filter(Boolean).join(" ").toLowerCase();
   const vendor = (input.vendor ?? "").toLowerCase();
   const strong = capConfidence("high", input.macKind);
   const medium = capConfidence("medium", input.macKind);
@@ -400,7 +409,19 @@ function normalizeServices(value: unknown): AssetService[] {
     const port = Number(item.port);
     const name = boundedText(item.name, 100);
     if (!Number.isSafeInteger(port) || port < 1 || port > 65_535 || !name) continue;
-    byKey.set(`${item.protocol}:${port}`, { protocol: item.protocol, port, name });
+    const product = boundedText(item.product, 160);
+    const version = boundedText(item.version, 100);
+    const extraInfo = boundedText(item.extra_info, 160);
+    const tunnel = boundedText(item.tunnel, 32);
+    byKey.set(`${item.protocol}:${port}`, {
+      protocol: item.protocol,
+      port,
+      name,
+      ...(product ? { product } : {}),
+      ...(version ? { version } : {}),
+      ...(extraInfo ? { extra_info: extraInfo } : {}),
+      ...(tunnel ? { tunnel } : {}),
+    });
   }
   return [...byKey.values()];
 }
@@ -408,6 +429,13 @@ function normalizeServices(value: unknown): AssetService[] {
 function normalizePlatform(value: unknown): string | null {
   const text = boundedText(value, 200);
   return text ? inferPlatform(text) ?? text : null;
+}
+
+export function normalizeVendor(value: unknown): string | null {
+  const text = boundedText(value, 200);
+  if (!text || /^(?:-|unknown|unknown vendor|n\/a|none|null|0x[0-9a-f]*)$/i.test(text) || !/[a-z]/i.test(text)) return null;
+  if (/^raspberry\s*pi\s*f$/i.test(text) || /^raspberrypif$/i.test(text)) return "Raspberry Pi Foundation";
+  return text;
 }
 
 function inferPlatform(value: unknown): string | null {

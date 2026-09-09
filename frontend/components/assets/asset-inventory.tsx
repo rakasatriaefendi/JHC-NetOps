@@ -5,17 +5,22 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { AssetScanControl } from "@/components/assets/asset-scan-control";
+import type { AssetScanState } from "@/lib/asset-scan-contract";
 import type { AssetInventoryData, AssetInventoryQuery, AssetRecord, AssetStatus } from "@/lib/assets";
 
 type Props = {
   data: AssetInventoryData | null;
   error: "unconfigured" | "unavailable" | null;
   query: AssetInventoryQuery;
+  scanState: AssetScanState | null;
+  scanError: "unconfigured" | "unavailable" | null;
+  canScan: boolean;
 };
 
 const control = "min-w-0 rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none";
 
-export function AssetInventory({ data, error, query }: Props) {
+export function AssetInventory({ data, error, query, scanState, scanError, canScan }: Props) {
   const { t, i18n } = useTranslation("assets");
   const [selected, setSelected] = useState<AssetRecord | null>(null);
   const locale = i18n.language === "en" ? "en-US" : "id-ID";
@@ -23,7 +28,7 @@ export function AssetInventory({ data, error, query }: Props) {
   const pages = data?.pagination.pages ?? 1;
 
   return <section>
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("eyebrow")}</p><h1 className="mt-2 text-heading font-semibold">{t("title")}</h1><p className="mt-2 max-w-3xl text-text-secondary">{t("description")}</p></div>{data ? <p className="shrink-0 text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}</div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("eyebrow")}</p><h1 className="mt-2 text-heading font-semibold">{t("title")}</h1><p className="mt-2 max-w-3xl text-text-secondary">{t("description")}</p></div><div className="shrink-0"><AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />{data ? <p className="mt-2 text-right text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}</div></div>
     {error ? <div className="mt-6 rounded-control border border-severity-medium bg-bg-surface p-4"><p className="font-medium text-severity-medium">{t(`errors.${error}.title`)}</p><p className="mt-1 text-meta text-text-secondary">{t(`errors.${error}.description`)}</p></div> : null}
 
     <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -65,7 +70,7 @@ export function AssetInventory({ data, error, query }: Props) {
 function AssetInsights({ data, query }: { data: AssetInventoryData; query: AssetInventoryQuery }) {
   const { t } = useTranslation("assets");
   const hasInsights = data.insights.platforms.length || data.insights.vendors.length || data.insights.vendor_device_types.length;
-  return <details className="mt-6 rounded-panel border border-border bg-bg-surface p-4"><summary className="cursor-pointer font-medium text-text-primary">{t("insights.title")}<span className="ml-2 text-meta font-normal text-text-muted">{t("insights.compactHint")}</span></summary>
+  return <details className="mt-6 scroll-mt-4 rounded-panel border border-border bg-bg-surface p-4" id="asset-insights"><summary className="cursor-pointer font-medium text-text-primary">{t("insights.title")}<span className="ml-2 text-meta font-normal text-text-muted">{t("insights.compactHint")}</span></summary>
     {hasInsights ? <div className="mt-4 grid gap-4 lg:grid-cols-3"><InsightGroup title={t("insights.platform")} items={data.insights.platforms.map((item) => ({ label: item.value, count: item.count, href: filterHref(query, { platform: item.value }) }))} /><InsightGroup title={t("insights.vendor")} items={data.insights.vendors.map((item) => ({ label: item.value, count: item.count, href: filterHref(query, { vendor: item.value }) }))} /><InsightGroup title={t("insights.vendorType")} items={data.insights.vendor_device_types.map((item) => ({ label: `${item.vendor} · ${typeLabel(item.device_type, t)}`, count: item.count, href: filterHref(query, { vendor: item.vendor, device_type: item.device_type }) }))} /></div>
       : <p className="mt-3 text-meta text-text-muted">{t("insights.empty")}</p>}
   </details>;
@@ -90,7 +95,7 @@ function AssetDetail({ asset, locale, onClose }: { asset: AssetRecord; locale: s
     <div className="mt-5 flex gap-2 border-b border-border" role="tablist"><Tab active={tab === "overview"} onClick={() => setTab("overview")}>{t("detail.overview")}</Tab><Tab active={tab === "network"} onClick={() => setTab("network")}>{t("detail.network")}</Tab></div>
     {tab === "overview" ? <><dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("table.status")} value={t(`status.${asset.status}`)} /><Meta label={t("table.ip")} value={asset.ip_address ?? "-"} /><Meta label={t("table.mac")} value={asset.mac_address ?? "-"} /><Meta label={t("table.hostname")} value={asset.hostname ?? "-"} /><Meta label={t("table.vendor")} value={asset.vendor ?? "-"} /><Meta label={t("table.os")} value={asset.platform ?? "-"} /><Meta label={t("table.type")} value={typeLabel(asset.device_type, t)} /><Meta label={t("detail.confidence")} value={asset.os_confidence ? t(`confidence.${asset.os_confidence}`) : "-"} /><Meta label={t("detail.firstSeen")} value={dateLabel(asset.first_seen_at, locale)} /><Meta label={t("table.lastSeen")} value={dateLabel(asset.last_seen_at, locale)} /><Meta label={t("detail.source")} value={t(`source.${asset.source}`, { defaultValue: asset.source })} /></dl><p className="mt-3 text-meta text-text-muted">{t("detail.confidenceHelp")}</p>
       <p className="mt-1 text-meta text-text-muted">{t("detail.vendorHelp")}</p>{asset.classification_evidence.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.evidence")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.classification_evidence.map((item, index) => <li className="rounded-control border border-border bg-bg-base p-3 text-meta" key={`${item.source}-${item.label}-${index}`}><span className="font-medium">{item.label}</span><span className="mt-1 block text-text-muted">{item.value} · {item.source}</span></li>)}</ul></div> : null}</>
-      : <div className="mt-5"><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("detail.latency")} value={asset.latency_ms === null ? "-" : `${asset.latency_ms.toFixed(2)} ms`} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("detail.evidenceUpdated")} value={dateLabel(asset.evidence_updated_at, locale)} /></dl>{asset.detected_services.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.services")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.detected_services.map((service) => <li className="rounded-control border border-border bg-bg-base p-3" key={`${service.protocol}-${service.port}`}><span>{service.name}</span><span className="ml-2 font-data text-meta text-text-muted">{service.protocol.toUpperCase()}/{service.port}</span></li>)}</ul></div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noServices")}</p>}</div>}
+      : <div className="mt-5"><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("detail.latency")} value={asset.latency_ms === null ? "-" : `${asset.latency_ms.toFixed(2)} ms`} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("detail.evidenceUpdated")} value={dateLabel(asset.evidence_updated_at, locale)} /></dl>{asset.detected_services.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.services")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.detected_services.map((service) => <li className="rounded-control border border-border bg-bg-base p-3" key={`${service.protocol}-${service.port}`}><div><span>{service.name}</span><span className="ml-2 font-data text-meta text-text-muted">{service.protocol.toUpperCase()}/{service.port}</span></div>{service.product || service.version || service.extra_info ? <p className="mt-1 text-meta text-text-secondary">{[service.product, service.version, service.extra_info].filter(Boolean).join(" · ")}</p> : null}</li>)}</ul></div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noServices")}</p>}</div>}
     {links.length ? <div className="mt-5 flex flex-wrap gap-2">{links.map((link) => <Link className="rounded-control border border-border px-4 py-2 text-body font-medium text-text-primary transition-colors hover:border-accent hover:text-accent" href={link.href} key={link.href}>{link.label}</Link>)}</div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noLinks")}</p>}
   </aside></div>;
 }

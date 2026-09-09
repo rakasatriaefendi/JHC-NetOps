@@ -129,6 +129,7 @@ test("P10D migration adds bounded evidence fields and an idempotent stable key",
   assert.match(sql, /jsonb_array_length\(detected_services\) <= 32/);
   assert.match(repository, /jsonb_to_recordset\(\$1::jsonb\)/);
   assert.match(repository, /ON CONFLICT \(stable_source_key\) DO UPDATE/);
+  assert.match(repository, /lower\(btrim\(asset\.assets\.vendor\)\) ~ '\^0x/);
   assert.doesNotMatch(repository, /for \(const observation of observations\)/);
   assert.doesNotMatch(sql, /DROP\s+(?:TABLE|DATABASE|SCHEMA)|TRUNCATE|REFERENCES\s+(?:public|auth)\./i);
 });
