@@ -34,9 +34,11 @@ test("representative Indonesian and English catalog copy switches visibly", asyn
   const instance = createInstance();
   await instance.init({ lng: "id", fallbackLng: "en", resources, ns: ["common", "snmp"], defaultNS: "common", initAsync: false });
   assert.equal(instance.t("nav.devices"), "Perangkat");
+  assert.equal(instance.t("nav.networkOperations"), "Operasi jaringan");
   assert.equal(instance.t("observed.searchLabel", { ns: "snmp" }), "Cari host terpantau");
   await instance.changeLanguage("en");
   assert.equal(instance.t("nav.devices"), "Devices");
+  assert.equal(instance.t("nav.networkOperations"), "Network operations");
   assert.equal(instance.t("observed.searchLabel", { ns: "snmp" }), "Search observed hosts");
 });
 
@@ -79,7 +81,7 @@ test("language persistence and client/server refresh wiring remain allow-listed"
 });
 
 test("all namespaces have valid paired local catalogs", () => {
-  const namespaces = ["common", "auth", "dashboard", "traffic", "history", "alerts", "devices", "snmp", "diagnostics", "admin"];
+  const namespaces = ["common", "auth", "dashboard", "traffic", "history", "alerts", "devices", "snmp", "diagnostics", "admin", "assets"];
   for (const namespace of namespaces) {
     assert.equal(typeof readCatalog("id", namespace), "object");
     assert.equal(typeof readCatalog("en", namespace), "object");

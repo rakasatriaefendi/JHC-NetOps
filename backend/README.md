@@ -76,3 +76,39 @@ boleh dihentikan. Jangan mengganti mode ketika operasi masih berjalan.
 
 P11 baru akan mengganti repository Supabase dengan PostgreSQL lokal. P10B belum
 memigrasikan database, Auth, Realtime, frontend, admin, atau browser API.
+
+## P10C: local Asset Inventory foundation
+
+Asset Inventory uses `GET /api/assets` and `GET /api/assets/:id`. These routes
+are enabled only when `DATABASE_URL` and `FRONTEND_API_TOKEN` are both present.
+The DSN is rejected unless it targets the isolated loopback database
+`jhc_netops_app@127.0.0.1:5433/jhc_netops`; this prevents accidental use of the
+shared PostgreSQL `16/main` cluster on port 5432. Query parameters, response size,
+database pool, statement duration, and errors are bounded.
+
+The browser never calls these routes directly. An approved-user Next.js Server
+Component calls them with the separate server-only token. Existing runner routes
+continue to use `RUNNER_API_TOKEN` and existing Supabase repositories unchanged.
+See `deploy/postgresql/README.md` for the future provisioning and rollback plan.
+
+The dedicated cluster/database may already exist before schema acceptance. In
+that case `provision-jhcnetops-cluster.sh` is a validating no-op and
+`provision-jhcnetops-application.sh` reconciles only the two NetOps roles and the
+`jhc_netops` database contract. `npm run test:postgres:assets` is an explicit,
+read-only integration test outside the normal test glob; it skips unless both its
+opt-in marker and dedicated test DSN are supplied.
+
+## P10D1: bounded Asset Intelligence ingestion
+
+When `/api/assets` is requested, the backend may refresh the local inventory at
+most once per 30 seconds. The adapter reads only existing normalized Supabase
+evidence from network inventory, saved Device Inspector fingerprints, Health
+Watch latest state, Managed SNMP latest state, and Observed LAN Hosts. It does
+not start a probe or scanner. Evidence is bounded, classified conservatively,
+consolidated by a stable node/source key, and written with one parameterized
+PostgreSQL bulk upsert. Refresh failure is non-destructive: retained local rows
+remain available.
+
+Migration `002_asset_intelligence.sql` adds hostname, bounded ports/services,
+latency, evidence time, and the idempotent stable source key. It does not add
+P10D2 identity, IP/MAC change, snapshot, or event tables.

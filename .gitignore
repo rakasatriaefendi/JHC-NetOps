@@ -88,3 +88,9 @@ docs/manual-book/resources/screenshots/
 docs/manual-book/resources/*.zip
 docs/manual-book/draft/
 docs/manual-book/working/
+
+#reference
+docs/reference/network-inventory-legacy/source/*.db
+docs/reference/network-inventory-legacy/source/.env
+docs/reference/network-inventory-legacy/source/venv/
+docs/reference/network-inventory-legacy/source/__pycache__/

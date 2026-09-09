@@ -17,6 +17,9 @@ menyimpan raw packet atau PCAP.
 - Managed SNMP read-only untuk device/interface telemetry target yang disetujui.
 - Observed LAN Hosts dari evidence neighbor Layer-3, dengan naming enrichment opsional.
 - Buffer SQLite lokal untuk toleransi gangguan koneksi backend.
+- Inventaris Aset lokal melalui backend loopback dan PostgreSQL cluster NetOps
+  terisolasi, dengan enrichment P10D1 dari evidence pipeline yang sudah ada;
+  tidak menambah scanner jaringan (provisioning runtime tetap terpisah).
 
 Hermes AI Agent masih berupa endpoint stub dan belum menjalankan analisis LLM.
 
@@ -27,6 +30,8 @@ flowchart LR
     Browser[Next.js dashboard] --> Supabase[Supabase Auth, Database, Realtime, Edge Functions]
     Runner[Local Runner: Windows or Linux] --> Backend[Loopback Fastify backend]
     Backend -->|REST and RPC| Supabase
+    Browser -->|authenticated server render| Backend
+    Backend -->|Asset Inventory only| AssetDB[(PostgreSQL 16/jhcnetops :5433)]
     Runner -->|WSL or native structured command| Agent[Same Python agent]
     Agent -->|recurring Traffic snapshots and flows| Backend
     Agent -->|on-demand diagnostic results| Supabase
@@ -48,7 +53,7 @@ atau diaktifkan pada Mini PC. Lihat
 | Folder | Fungsi |
 |---|---|
 | [`agent`](agent/README.md) | Agent Python, metrik, diagnostics, dan capture traffic header-only. |
-| [`backend`](backend/README.md) | Backend lokal Fastify; P10B menangani heartbeat dan recurring runner data plane melalui repository Supabase. |
+| [`backend`](backend/README.md) | Backend lokal Fastify; P10B menjembatani recurring runner ke Supabase dan P10C menambahkan API Asset Inventory PostgreSQL terisolasi. |
 | [`frontend`](frontend/README.md) | Dashboard Next.js App Router. |
 | [`runner`](runner/README.md) | Orkestrasi Windows/Linux, heartbeat, Health Watch, dan job lokal. |
 | [`supabase`](supabase/README.md) | Migration, RLS, dan Edge Functions. |

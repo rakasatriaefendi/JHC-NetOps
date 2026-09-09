@@ -1,0 +1,20 @@
+{
+  "eyebrow": "Asset management",
+  "title": "Asset Inventory",
+  "description": "A compact inventory enriched from existing authorized NetOps evidence. No additional network scan is started here.",
+  "loading": "Loading Asset Inventory",
+  "lastUpdated": "Last updated: {{value}}",
+  "summary": { "total": "Total assets", "online": "Online", "offline": "Offline", "changed": "Changed" },
+  "filters": { "search": "Search", "searchPlaceholder": "Hostname, IP, MAC, vendor, or OS", "type": "Device type", "allTypes": "All devices", "status": "Status", "allStatuses": "All statuses", "sort": "Sort", "nameAsc": "Name A-Z", "nameDesc": "Name Z-A", "apply": "Apply", "clear": "Clear filters", "remove": "Remove filter" },
+  "table": { "no": "No", "hostname": "Hostname", "mac": "MAC", "os": "OS", "ports": "Ports", "portCount": "{{count}} detected", "name": "Name", "type": "Type", "status": "Status", "ip": "IP", "vendor": "Vendor", "lastSeen": "Last seen", "action": "Action" },
+  "status": { "online": "Online", "offline": "Offline", "changed": "Changed", "unknown": "Unknown" },
+  "types": { "unknown": "Unknown", "network_device": "Network device", "computer": "Computer", "computer_workstation": "Computer / Workstation", "windows_pc_server": "Windows PC / Server", "linux_unix_server": "Linux / Unix / Server", "mac_apple_workstation": "Mac / Apple Workstation", "server": "Server", "server_remote_management": "Server / Remote Management", "nas_storage_server": "NAS / Storage Server", "printer": "Printer", "switch_network": "Switch / Network", "router_firewall": "Router / Firewall", "access_point": "Access Point", "cctv_camera": "CCTV / Camera", "voip_gateway": "VoIP Gateway", "industrial_controller": "Industrial Controller", "iot_smart_device": "IoT / Smart Device", "medical_device": "Medical Device" },
+  "source": { "manual": "Manual", "discovery": "Discovery", "observed_host": "Observed LAN Host", "device_inspector": "Device Inspector", "managed_telemetry": "Managed SNMP", "import": "Import" },
+  "confidence": { "low": "Low", "medium": "Medium", "high": "High" },
+  "actions": { "details": "Details", "viewDevice": "View Device", "viewHealth": "View Health Watch", "viewSnmp": "View SNMP", "viewObservedHost": "View Observed Host" },
+  "insights": { "title": "Asset Insights", "compactHint": "Expand summaries and filter the inventory", "platform": "OS / Platform", "vendor": "Vendor", "vendorType": "Vendor to device type", "empty": "Evidence-backed summaries will appear when normalized evidence is available.", "unavailable": "No evidence available" },
+  "detail": { "title": "Asset details", "overview": "Overview", "network": "Network", "mac": "MAC", "platform": "Platform", "source": "Source / evidence", "confidence": "OS confidence", "confidenceHelp": "Confidence in OS classification based on available network evidence. Private or randomized MAC evidence lowers confidence where applicable.", "vendorHelp": "Vendor is estimated from MAC and other available device evidence. Some devices may remain Unknown.", "firstSeen": "First seen", "latency": "Latest latency", "evidenceUpdated": "Evidence updated", "evidence": "Normalized evidence", "services": "Detected services", "noServices": "No bounded port or service evidence is available.", "noLinks": "No related NetOps destination is available for this asset yet." },
+  "empty": { "title": "No assets match this view", "description": "Clear the filters or wait until an authorized integration adds inventory records." },
+  "errors": { "unconfigured": { "title": "Asset Inventory is not configured", "description": "The local PostgreSQL asset connection has not been enabled on this environment." }, "unavailable": { "title": "Asset Inventory is unavailable", "description": "The local backend could not load the inventory. Existing NetOps features remain unaffected." } },
+  "pagination": { "range": "{{from}}-{{to}} of {{total}}", "page": "Page {{page}} / {{pages}}" }
+}

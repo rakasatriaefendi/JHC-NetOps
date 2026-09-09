@@ -3,6 +3,17 @@
 Dashboard Next.js App Router untuk auth, monitoring, traffic visibility, history,
 alerts, LAN Diagnostics, administration, Health Watch, dan Network Discovery.
 
+Route `/assets` adalah fondasi P10C untuk inventaris lokal. Approved user
+merender data melalui Next.js Server Component yang memanggil backend loopback
+dengan `LOCAL_BACKEND_URL` dan `LOCAL_BACKEND_FRONTEND_TOKEN` server-only.
+Browser tidak menerima koneksi PostgreSQL atau token tersebut; konfigurasi kosong
+dan backend failure ditampilkan sebagai state lokal yang bounded.
+
+P10D1 memperkaya route yang sama dengan satu Asset Insights yang collapsed,
+tabel desktop ringkas (No, Status, IP, Hostname, MAC, Vendor, OS, Type, Ports),
+kartu responsif, dan detail Overview/Network terpusat. Pilihan Insight memfilter
+inventaris yang sama; tidak membuat tabel kedua atau memulai operasi jaringan.
+
 ## Stack
 
 - Next.js 16 dan React 19.
@@ -21,6 +32,7 @@ alerts, LAN Diagnostics, administration, Health Watch, dan Network Discovery.
 | `/diagnostics` | One-click bandwidth dan Layer-3 path diagnostics. |
 | `/devices` | Satu daftar inventory perangkat dengan konfigurasi Health Watch kontekstual. |
 | `/snmp` | Latest device/interface telemetry dan Observed LAN Hosts terlebih dahulu, lalu konfigurasi Managed SNMP. |
+| `/assets` | Inventaris Aset lokal, Insights berbasis evidence, dan detail Overview/Network. |
 | `/admin` | Approval dan pengelolaan akses user. |
 
 Route protected memerlukan profile Supabase berstatus internal `approved` (label UI

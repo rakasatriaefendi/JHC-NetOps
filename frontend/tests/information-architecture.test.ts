@@ -4,11 +4,18 @@ import test from "node:test";
 
 function source(relativePath: string) { return readFileSync(new URL(relativePath, import.meta.url), "utf8"); }
 
-test("navigation exposes Devices and SNMP before LAN Diagnostics while Admin remains role-gated", () => {
+test("navigation has compact operations, asset, and role-gated administration groups", () => {
   const navigation = source("../components/app-navigation.tsx");
   assert.ok(navigation.indexOf('href: "/devices"') < navigation.indexOf('href: "/diagnostics"'));
   assert.ok(navigation.indexOf('href: "/snmp"') < navigation.indexOf('href: "/diagnostics"'));
-  assert.match(navigation, /role === "admin"[\s\S]*href: "\/admin"/);
+  assert.match(navigation, /key: "networkOperations"/);
+  assert.doesNotMatch(navigation, /observedHosts|observed-lan-hosts|\/snmp\/\$\{[^}]+\}\/hosts/);
+  assert.match(navigation, /href: "\/dashboard"[\s\S]*href: "\/traffic"[\s\S]*href: "\/history"[\s\S]*href: "\/alerts"[\s\S]*href: "\/devices"[\s\S]*href: "\/snmp"[\s\S]*href: "\/diagnostics"/);
+  assert.match(navigation, /link\.href === "\/snmp"[\s\S]*pathname === "\/snmp" \|\| \/\^\\\/snmp/);
+  assert.doesNotMatch(navigation, /b9bf5d39-c965-4407-960c-4b327ff273a8/);
+  assert.match(navigation, /key: "assetManagement"[\s\S]*href: "\/assets"/);
+  assert.match(navigation, /role === "admin"[\s\S]*key: "administration"[\s\S]*href: "\/admin"/);
+  assert.doesNotMatch(navigation, /medical-equipment|vendor-history|ip-history|calibration|maintenance/);
 });
 
 test("Admin is account-only and monitoring configuration moved to approved-user pages", () => {
