@@ -601,5 +601,9 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   operator-triggered melalui backend loopback, allowlist CIDR RFC1918, fixed Nmap
   helper, bounded concurrency/deadline/cancellation, normalisasi XML, serta
   enrichment idempotent. Deployment dan Mini PC acceptance tetap menunggu operator.
-- [ ] P10D2 identity/change history, P10E Excel, P10F Medical Equipment, dan P11
-  migrasi domain Supabase (semuanya sengaja deferred).
+- [~] P10D2 Asset Change History source implementation: migration 004, snapshot
+  ternormalisasi, grouped created/changed events transaksional, read API bounded,
+  tab History, riwayat detail aset, dan badge PERANGKAT BARU 24 jam. Deployment
+  serta acceptance PostgreSQL/Mini PC tetap menunggu change window operator.
+- [ ] P10E Excel, P10F Medical Equipment, dan P11 migrasi domain Supabase tetap
+  sengaja deferred.

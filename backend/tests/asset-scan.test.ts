@@ -125,6 +125,7 @@ test("controller supports one bounded scan, partial host failure, cancellation a
   assert.equal(repository.lastRecord?.fingerprinted_count, 1);
   assert.equal(repository.lastRecord?.failed_count, 1);
   assert.equal(repository.ingested.length, 2);
+  assert.deepEqual(repository.ingestScanRunIds, [started.id]);
   assert.equal(started.id, repository.lastRecord?.id);
 
   const blocking = new BlockingExecutor();
@@ -196,6 +197,7 @@ test("migration and privileged helper remain bounded, fixed-argument and isolate
 class FakeScanRepository implements AssetScanRepository {
   recovered = false;
   ingested: AssetObservation[] = [];
+  ingestScanRunIds: string[] = [];
   lastRecord: AssetScanRecord | null = null;
   async recoverInterrupted(): Promise<void> { this.recovered = true; }
   async create(mode: AssetScanMode, network: string, startedAt: string): Promise<AssetScanRecord> {
@@ -204,8 +206,8 @@ class FakeScanRepository implements AssetScanRepository {
   }
   async update(record: AssetScanRecord): Promise<void> { this.lastRecord = record; }
   async last(): Promise<AssetScanRecord | null> { return this.lastRecord?.status === "running" ? null : this.lastRecord; }
-  async ingest(observations: readonly AssetObservation[], signal: AbortSignal): Promise<number> {
-    signal.throwIfAborted(); this.ingested.push(...observations); return observations.length;
+  async ingest(observations: readonly AssetObservation[], scanRunId: string, signal: AbortSignal): Promise<number> {
+    signal.throwIfAborted(); this.ingested.push(...observations); this.ingestScanRunIds.push(scanRunId); return observations.length;
   }
 }
 
@@ -299,7 +301,7 @@ test("regression: operator classification wins over scan classification", () => 
 
 test("regression: canonical scanner type output only - no windows_pc_server or linux_unix_server", () => {
   const windows = normalized("192.168.1.80", ports([
-    service(135, "msrpc", "Microsoft Windows RPC"), service(139, "netbios-ssn"), service(445, "microsoft-ds"),
+    service(135, "msrpc", "Microsoft Windows RPC"), service(139, "netbios-ssn", null), service(445, "microsoft-ds", null),
   ]) + os("Windows 10", 90, "general purpose", "Windows"));
   assert.equal(windows.device_type, "unknown");
   assert.notEqual(windows.device_type, "windows_pc_server");

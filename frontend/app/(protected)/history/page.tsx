@@ -5,12 +5,18 @@ import { requireApprovedProfile } from "@/lib/auth";
 import { loadNetworkNodes } from "@/lib/network-nodes";
 import type { NetworkHealthEvent } from "@/lib/network-health";
 import { getServerTranslation } from "@/i18n/server";
+import { loadAssetChangeHistory } from "@/lib/assets";
+import type { AssetChangeHistoryQuery } from "@/lib/asset-change-contract";
 
-export default async function HistoryPage() {
+export default async function HistoryPage({ searchParams }: { searchParams: Promise<AssetChangeHistoryQuery> }) {
   const { t } = await getServerTranslation("history");
   const { supabase, profile } = await requireApprovedProfile();
-  const networkNodes = await loadNetworkNodes(supabase);
-  const { data: events } = await supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "network_health").order("created_at", { ascending: false }).limit(100).returns<NetworkHealthEvent[]>();
+  const query = await searchParams;
+  const [networkNodes, healthEvents, assetChanges] = await Promise.all([
+    loadNetworkNodes(supabase),
+    supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "network_health").order("created_at", { ascending: false }).limit(100).returns<NetworkHealthEvent[]>(),
+    loadAssetChangeHistory(query),
+  ]);
   return (
     <main className="p-4 md:p-6">
       <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("page.eyebrow")}</p>
@@ -19,7 +25,7 @@ export default async function HistoryPage() {
         {t("page.description")}
       </p>
       <NetworkNodesProvider initialNodes={networkNodes.data} loadError={networkNodes.error} role={profile.role}>
-        <DeviceProfileProvider role={profile.role}><HistoryTabs events={events ?? []} /></DeviceProfileProvider>
+        <DeviceProfileProvider role={profile.role}><HistoryTabs assetChanges={assetChanges.data} assetError={assetChanges.error} assetQuery={query} events={healthEvents.data ?? []} initialTab={query.tab === "assets" ? "assets" : "diagnostics"} /></DeviceProfileProvider>
       </NetworkNodesProvider>
     </main>
   );

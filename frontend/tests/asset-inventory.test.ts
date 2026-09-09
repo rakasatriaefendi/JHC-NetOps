@@ -36,7 +36,9 @@ test("compact inventory exposes P10D columns, Insights, filters, pagination, and
   assert.match(component, /hidden overflow-hidden[\s\S]*xl:block/);
   assert.match(component, /xl:hidden/);
   assert.doesNotMatch(component, /overflow-x-auto|min-w-\[/);
-  assert.match(component, /"overview" \| "network"/);
+  assert.match(component, /"overview" \| "network" \| "history"/);
+  assert.match(component, /AssetDetailHistory/);
+  assert.match(component, /isNewNetworkAsset/);
   assert.doesNotMatch(component, /identity|IP_CHANGED|MAC_CHANGED|NEW_DEVICE/);
 });
 
@@ -59,6 +61,8 @@ test("asset catalogs are paired and contain compact error and empty states", () 
     assert.equal(typeof catalog.insights.title, "string");
     assert.equal(typeof catalog.detail.confidenceHelp, "string");
     assert.equal(typeof catalog.table.portCount, "string");
+    assert.equal(typeof catalog.history.newDevice, "string");
+    assert.equal(typeof catalog.history.empty, "string");
   }
 });
 

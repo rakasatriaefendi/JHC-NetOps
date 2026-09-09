@@ -16,6 +16,10 @@ inventaris yang sama. P10D1-B menambahkan dialog Scan Jaringan yang eksplisit
 untuk Operator/Admin; membuka `/assets` hanya membaca inventory/status dan tidak
 pernah memulai scan. Viewer tetap read-only.
 
+P10D2 menambahkan tab Perubahan Aset pada `/history`, riwayat kontekstual dalam
+detail aset, serta badge PERANGKAT BARU selama 24 jam untuk bukti jaringan baru.
+Riwayat memakai backend loopback yang sama dan tidak memulai operasi jaringan.
+
 ## Stack
 
 - Next.js 16 dan React 19.

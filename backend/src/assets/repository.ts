@@ -1,6 +1,7 @@
-import type { Pool, QueryResultRow } from "pg";
+import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import type { AssetListQuery, AssetListResponse, AssetRecord, AssetSummary } from "./contract.js";
+import { normalizeAssetChangeSnapshot, prepareAssetChangeEvent, type AssetChangeEventWrite } from "./change.js";
 import type { AssetObservation } from "./evidence.js";
 
 export const ASSET_QUERY_TIMEOUT_MS = 5_000;
@@ -8,8 +9,13 @@ export const ASSET_QUERY_TIMEOUT_MS = 5_000;
 export interface AssetRepository {
   list(query: AssetListQuery, signal: AbortSignal): Promise<AssetListResponse>;
   detail(id: string, signal: AbortSignal): Promise<AssetRecord | null>;
-  ingest(observations: readonly AssetObservation[], signal: AbortSignal): Promise<number>;
+  ingest(observations: readonly AssetObservation[], signal: AbortSignal, context?: AssetIngestContext): Promise<number>;
 }
+
+export type AssetIngestContext = Readonly<{
+  scanRunId?: string | null;
+  eventSource?: AssetObservation["source"];
+}>;
 
 export class PostgresAssetRepository implements AssetRepository {
   constructor(private readonly pool: Pool) {}
@@ -73,11 +79,23 @@ export class PostgresAssetRepository implements AssetRepository {
     return result.rows[0] ? normalizeAsset(result.rows[0]) : null;
   }
 
-  async ingest(observations: readonly AssetObservation[], signal: AbortSignal): Promise<number> {
+  async ingest(observations: readonly AssetObservation[], signal: AbortSignal, context: AssetIngestContext = {}): Promise<number> {
     signal.throwIfAborted();
     if (!observations.length) return 0;
-    const result = await this.pool.query<{ id: string }>({
-      text: `INSERT INTO asset.assets (
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const stableKeys = [...new Set(observations.map((item) => item.stable_source_key))].sort();
+      await client.query({
+        text: `SELECT pg_advisory_xact_lock(hashtextextended(stable_key, 0))
+          FROM unnest($1::text[]) AS keys(stable_key) ORDER BY stable_key`,
+        values: [stableKeys],
+      });
+      signal.throwIfAborted();
+      const beforeResult = await loadAssetsForChange(client, stableKeys);
+      const beforeByKey = new Map(beforeResult.rows.map((row) => [row.stable_source_key, row]));
+      const result = await client.query<{ id: string; stable_source_key: string }>({
+        text: `INSERT INTO asset.assets (
         stable_source_key, name, hostname, device_type, status, ip_address, mac_address,
         vendor, platform, first_seen_at, last_seen_at, source, classification_confidence, os_confidence,
         classification_evidence, open_ports, detected_services, latency_ms, evidence_updated_at,
@@ -128,11 +146,40 @@ export class PostgresAssetRepository implements AssetRepository {
         managed_telemetry_target_ref = COALESCE(EXCLUDED.managed_telemetry_target_ref, asset.assets.managed_telemetry_target_ref),
         observed_host_target_ref = COALESCE(EXCLUDED.observed_host_target_ref, asset.assets.observed_host_target_ref),
         updated_at = now()
-      RETURNING id`,
-      values: [JSON.stringify(observations)],
-    });
-    signal.throwIfAborted();
-    return result.rowCount ?? 0;
+        RETURNING id::text, stable_source_key`,
+        values: [JSON.stringify(observations)],
+      });
+      signal.throwIfAborted();
+      const afterResult = await loadAssetsForChange(client, stableKeys);
+      const afterByKey = new Map(afterResult.rows.map((row) => [row.stable_source_key, row]));
+      const observationByKey = new Map(observations.map((item) => [item.stable_source_key, item]));
+      const events: AssetChangeEventWrite[] = [];
+      for (const stableKey of stableKeys) {
+        const after = afterByKey.get(stableKey);
+        const observation = observationByKey.get(stableKey);
+        if (!after || !observation) continue;
+        const before = beforeByKey.get(stableKey);
+        const event = prepareAssetChangeEvent({
+          assetId: after.id,
+          stableKey,
+          source: context.eventSource ?? observation.source,
+          scanRunId: context.scanRunId ?? null,
+          observedAt: observation.evidence_updated_at ?? observation.last_seen_at ?? observation.first_seen_at ?? new Date().toISOString(),
+          before: before ? normalizeAssetChangeSnapshot(before) : null,
+          after: normalizeAssetChangeSnapshot(after),
+        });
+        if (event) events.push(event);
+      }
+      if (events.length) await insertAssetChangeEvents(client, events);
+      signal.throwIfAborted();
+      await client.query("COMMIT");
+      return result.rowCount ?? 0;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 
@@ -140,12 +187,41 @@ type AssetRow = QueryResultRow & AssetRecord;
 type SummaryRow = QueryResultRow & { total: string; online: string; offline: string; changed: string };
 type InsightRow = QueryResultRow & { value: string; count: string };
 type VendorTypeRow = QueryResultRow & { vendor: string; device_type: string; count: string };
+type ChangeAssetRow = AssetRow & { stable_source_key: string };
 
 const ASSET_COLUMNS = `id, name, hostname, device_type, status, host(ip_address) AS ip_address,
   mac_address::text AS mac_address, vendor, platform, first_seen_at::text, last_seen_at::text,
   source, classification_confidence, os_confidence, classification_evidence, open_ports, detected_services,
   latency_ms::float8 AS latency_ms, evidence_updated_at::text, network_node_ref::text,
   health_target_ref::text, managed_telemetry_target_ref::text, observed_host_target_ref::text`;
+
+async function loadAssetsForChange(client: PoolClient, stableKeys: readonly string[]) {
+  return client.query<ChangeAssetRow>({
+    text: `SELECT stable_source_key, ${ASSET_COLUMNS} FROM asset.assets
+      WHERE stable_source_key = ANY($1::text[]) FOR UPDATE`,
+    values: [stableKeys],
+  });
+}
+
+async function insertAssetChangeEvents(client: PoolClient, events: readonly AssetChangeEventWrite[]): Promise<void> {
+  await client.query({
+    text: `INSERT INTO asset.change_events (
+      asset_id, scan_run_id, asset_stable_key, event_key, event_type, source,
+      observed_at, changed_fields, before_state, after_state
+    )
+    SELECT source.asset_id::uuid, source.scan_run_id::uuid, source.asset_stable_key,
+      source.event_key, source.event_type, source.source, source.observed_at::timestamptz,
+      ARRAY(SELECT jsonb_array_elements_text(source.changed_fields)),
+      source.before_state, source.after_state
+    FROM jsonb_to_recordset($1::jsonb) AS source(
+      asset_id text, scan_run_id text, asset_stable_key text, event_key text,
+      event_type text, source text, observed_at text, changed_fields jsonb,
+      before_state jsonb, after_state jsonb
+    )
+    ON CONFLICT (event_key) DO NOTHING`,
+    values: [JSON.stringify(events)],
+  });
+}
 
 function filters(query: AssetListQuery): { where: string; values: unknown[] } {
   const clauses: string[] = [];

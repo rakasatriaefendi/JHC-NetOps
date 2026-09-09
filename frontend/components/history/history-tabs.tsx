@@ -4,23 +4,28 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { DiagnosticHistoryPanel } from "@/components/history/diagnostic-history-panel";
+import { AssetChangeHistoryPanel } from "@/components/assets/asset-change-history-panel";
 import { NetworkHealthEventList } from "@/components/network-health-event-list";
+import type { AssetChangeData, AssetChangeHistoryQuery } from "@/lib/asset-change-contract";
 import type { NetworkHealthEvent } from "@/lib/network-health";
 
-type HistoryTab = "events" | "diagnostics";
+type HistoryTab = "events" | "diagnostics" | "assets";
 
-export function HistoryTabs({ events }: { events: NetworkHealthEvent[] }) {
+export function HistoryTabs({ events, assetChanges, assetError, assetQuery, initialTab }: { events: NetworkHealthEvent[]; assetChanges: AssetChangeData | null; assetError: "unconfigured" | "unavailable" | null; assetQuery: AssetChangeHistoryQuery; initialTab: HistoryTab }) {
   const { t } = useTranslation("history");
-  const [activeTab, setActiveTab] = useState<HistoryTab>("diagnostics");
+  const [activeTab, setActiveTab] = useState<HistoryTab>(initialTab);
 
   return (
     <section className="mt-6">
-      <div className="flex gap-2 border-b border-border" role="tablist" aria-label={t("tabs.label")}>
+      <div className="flex flex-wrap gap-2 border-b border-border" role="tablist" aria-label={t("tabs.label")}>
         <TabButton active={activeTab === "events"} onClick={() => setActiveTab("events")}>
           {t("tabs.health")}
         </TabButton>
         <TabButton active={activeTab === "diagnostics"} onClick={() => setActiveTab("diagnostics")}>
           {t("tabs.diagnostics")}
+        </TabButton>
+        <TabButton active={activeTab === "assets"} onClick={() => setActiveTab("assets")}>
+          {t("tabs.assets")}
         </TabButton>
       </div>
 
@@ -30,11 +35,11 @@ export function HistoryTabs({ events }: { events: NetworkHealthEvent[] }) {
           <p className="mt-2 text-text-secondary">{t("events.description")}</p>
           <NetworkHealthEventList events={events} />
         </div>
-      ) : (
+      ) : activeTab === "diagnostics" ? (
         <div role="tabpanel">
           <DiagnosticHistoryPanel />
         </div>
-      )}
+      ) : <AssetChangeHistoryPanel data={assetChanges} error={assetError} query={assetQuery} />}
     </section>
   );
 }

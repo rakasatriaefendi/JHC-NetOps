@@ -87,7 +87,7 @@ export class AssetScanController {
       if (active.record.mode === "quick") {
         active.abort.signal.throwIfAborted();
         const observedAt = this.now().toISOString();
-        await this.repository.ingest(discovered.map((host) => normalizeScannedHost(host, null, observedAt)), AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
+        await this.repository.ingest(discovered.map((host) => normalizeScannedHost(host, null, observedAt)), active.record.id, AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
         active.abort.signal.throwIfAborted();
         await this.#complete(active, "completed");
         return;
@@ -122,7 +122,7 @@ export class AssetScanController {
       await Promise.all(Array.from({ length: Math.min(this.concurrency, discovered.length || 1) }, worker));
       if (active.abort.signal.aborted) throw new ScanExecutionError("NMAP_CANCELLED");
       const observedAt = this.now().toISOString();
-      await this.repository.ingest(discovered.map((host, index) => normalizeScannedHost(host, results[index] ?? null, observedAt)), AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
+      await this.repository.ingest(discovered.map((host, index) => normalizeScannedHost(host, results[index] ?? null, observedAt)), active.record.id, AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
       active.abort.signal.throwIfAborted();
       await this.#complete(active, "completed");
     } catch (error) {
