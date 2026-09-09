@@ -278,10 +278,11 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
 }
 
 function finalizeDraft(draft: Draft): AssetObservation {
+  const vendor = normalizeVendor(draft.vendor);
   const classified = classifyAsset({
     nodeType: draft.nodeType,
     fingerprintType: draft.fingerprintType,
-    vendor: draft.vendor,
+    vendor,
     hostname: draft.hostname ?? draft.name,
     platform: draft.platform,
     services: draft.services,
@@ -297,7 +298,7 @@ function finalizeDraft(draft: Draft): AssetObservation {
     status: draft.status,
     ip_address: draft.ip,
     mac_address: draft.mac,
-    vendor: draft.vendor,
+    vendor,
     platform: draft.platform,
     first_seen_at: draft.firstSeen,
     last_seen_at: draft.lastSeen,
