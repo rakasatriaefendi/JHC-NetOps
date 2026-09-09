@@ -1,0 +1,109 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { Button } from "@/components/ui/button";
+import type { AssetInventoryData, AssetInventoryQuery, AssetRecord, AssetStatus } from "@/lib/assets";
+
+type Props = {
+  data: AssetInventoryData | null;
+  error: "unconfigured" | "unavailable" | null;
+  query: AssetInventoryQuery;
+};
+
+const control = "min-w-0 rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none";
+
+export function AssetInventory({ data, error, query }: Props) {
+  const { t, i18n } = useTranslation("assets");
+  const [selected, setSelected] = useState<AssetRecord | null>(null);
+  const locale = i18n.language === "en" ? "en-US" : "id-ID";
+  const page = data?.pagination.page ?? 1;
+  const pages = data?.pagination.pages ?? 1;
+
+  return <section>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("eyebrow")}</p><h1 className="mt-2 text-heading font-semibold">{t("title")}</h1><p className="mt-2 max-w-3xl text-text-secondary">{t("description")}</p></div>{data ? <p className="shrink-0 text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}</div>
+    {error ? <div className="mt-6 rounded-control border border-severity-medium bg-bg-surface p-4"><p className="font-medium text-severity-medium">{t(`errors.${error}.title`)}</p><p className="mt-1 text-meta text-text-secondary">{t(`errors.${error}.description`)}</p></div> : null}
+
+    <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Summary label={t("summary.total")} value={data?.summary.total ?? 0} />
+      <Summary label={t("summary.online")} value={data?.summary.online ?? 0} />
+      <Summary label={t("summary.offline")} value={data?.summary.offline ?? 0} />
+      <Summary label={t("summary.changed")} value={data?.summary.changed ?? 0} />
+    </div>
+
+    {data ? <AssetInsights data={data} query={query} /> : null}
+
+    <form className="mt-6 grid gap-3 rounded-panel border border-border bg-bg-surface p-4 md:grid-cols-2 xl:grid-cols-[minmax(240px,2fr)_repeat(3,minmax(150px,1fr))_auto]" method="get">
+      {query.vendor ? <input name="vendor" type="hidden" value={query.vendor} /> : null}
+      {query.platform ? <input name="platform" type="hidden" value={query.platform} /> : null}
+      <label className="grid gap-1 text-meta text-text-secondary"><span>{t("filters.search")}</span><input className={control} defaultValue={query.q ?? ""} maxLength={100} name="q" placeholder={t("filters.searchPlaceholder")} /></label>
+      <label className="grid gap-1 text-meta text-text-secondary"><span>{t("filters.type")}</span><select className={control} defaultValue={query.device_type ?? ""} name="device_type"><option value="">{t("filters.allTypes")}</option>{data?.device_types.map((type) => <option key={type} value={type}>{typeLabel(type, t)}</option>)}</select></label>
+      <label className="grid gap-1 text-meta text-text-secondary"><span>{t("filters.status")}</span><select className={control} defaultValue={query.status ?? ""} name="status"><option value="">{t("filters.allStatuses")}</option>{(["online", "offline", "changed", "unknown"] as const).map((status) => <option key={status} value={status}>{t(`status.${status}`)}</option>)}</select></label>
+      <label className="grid gap-1 text-meta text-text-secondary"><span>{t("filters.sort")}</span><select className={control} defaultValue={query.sort ?? "name_asc"} name="sort"><option value="name_asc">{t("filters.nameAsc")}</option><option value="name_desc">{t("filters.nameDesc")}</option></select></label>
+      <div className="flex items-end gap-2"><Button className="flex-1" type="submit">{t("filters.apply")}</Button>{hasFilters(query) ? <Link className="rounded-control border border-border px-4 py-2 text-body font-medium hover:border-accent hover:text-accent" href="/assets">{t("filters.clear")}</Link> : null}</div>
+    </form>
+
+    {(query.vendor || query.platform) ? <div className="mt-3 flex flex-wrap gap-2 text-meta">{query.vendor ? <ActiveFilter label={t("insights.vendor")} value={query.vendor} href={filterHref(query, { vendor: null })} /> : null}{query.platform ? <ActiveFilter label={t("insights.platform")} value={query.platform} href={filterHref(query, { platform: null })} /> : null}</div> : null}
+    {!error && data?.items.length === 0 ? <div className="mt-6 rounded-panel border border-border bg-bg-surface p-8 text-center"><p className="font-medium">{t("empty.title")}</p><p className="mt-2 text-text-secondary">{t("empty.description")}</p></div> : null}
+
+    {data?.items.length ? <>
+      <div className="mt-6 hidden overflow-hidden rounded-panel border border-border xl:block">
+        <table className="w-full table-fixed text-left text-meta"><thead className="bg-bg-surface text-text-secondary"><tr><th className="w-12 p-3">{t("table.no")}</th><th className="w-24 p-3">{t("table.status")}</th><th className="w-32 p-3">{t("table.ip")}</th><th className="p-3">{t("table.hostname")}</th><th className="w-36 p-3">{t("table.mac")}</th><th className="p-3">{t("table.vendor")}</th><th className="p-3">{t("table.os")}</th><th className="p-3">{t("table.type")}</th><th className="w-24 p-3">{t("table.ports")}</th></tr></thead>
+          <tbody>{data.items.map((asset, index) => <tr className="border-t border-border bg-bg-base align-top" key={asset.id}><td className="p-3 font-data text-text-muted">{(page - 1) * data.pagination.page_size + index + 1}</td><td className="p-3"><Status value={asset.status} /></td><td className="p-3 font-data">{asset.ip_address ?? "-"}</td><td className="p-3"><button className="max-w-full text-left font-medium text-accent hover:underline" type="button" onClick={() => setSelected(asset)}>{asset.hostname ?? asset.name}</button></td><td className="truncate p-3 font-data" title={asset.mac_address ?? undefined}>{asset.mac_address ?? "-"}</td><td className="truncate p-3" title={asset.vendor ?? undefined}>{asset.vendor ?? "-"}</td><td className="truncate p-3" title={asset.platform ?? undefined}>{asset.platform ?? "-"}</td><td className="p-3">{typeLabel(asset.device_type, t)}</td><td className="p-3">{t("table.portCount", { count: asset.open_ports.length })}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="mt-6 grid gap-3 xl:hidden">{data.items.map((asset) => <article className="rounded-panel border border-border bg-bg-surface p-4" key={asset.id}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate font-medium">{asset.hostname ?? asset.name}</h2><p className="mt-1 font-data text-meta text-text-muted">{asset.ip_address ?? "-"}</p></div><Status value={asset.status} /></div><dl className="mt-4 grid grid-cols-2 gap-3 text-meta"><Meta label={t("table.mac")} value={asset.mac_address ?? "-"} /><Meta label={t("table.vendor")} value={asset.vendor ?? "-"} /><Meta label={t("table.os")} value={asset.platform ?? "-"} /><Meta label={t("table.type")} value={typeLabel(asset.device_type, t)} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("table.lastSeen")} value={dateLabel(asset.last_seen_at, locale)} /></dl><Button className="mt-4 w-full" variant="secondary" onClick={() => setSelected(asset)}>{t("actions.details")}</Button></article>)}</div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-meta text-text-secondary"><span>{t("pagination.range", { from: (page - 1) * data.pagination.page_size + 1, to: Math.min(page * data.pagination.page_size, data.pagination.total), total: data.pagination.total })}</span><div className="flex items-center gap-2"><PageLink disabled={page <= 1} href={pageHref(query, page - 1)}>{t("common:actions.previous")}</PageLink><span>{t("pagination.page", { page, pages })}</span><PageLink disabled={page >= pages} href={pageHref(query, page + 1)}>{t("common:actions.next")}</PageLink></div></div>
+    </> : null}
+
+    {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} onClose={() => setSelected(null)} /> : null}
+  </section>;
+}
+
+function AssetInsights({ data, query }: { data: AssetInventoryData; query: AssetInventoryQuery }) {
+  const { t } = useTranslation("assets");
+  const hasInsights = data.insights.platforms.length || data.insights.vendors.length || data.insights.vendor_device_types.length;
+  return <details className="mt-6 rounded-panel border border-border bg-bg-surface p-4"><summary className="cursor-pointer font-medium text-text-primary">{t("insights.title")}<span className="ml-2 text-meta font-normal text-text-muted">{t("insights.compactHint")}</span></summary>
+    {hasInsights ? <div className="mt-4 grid gap-4 lg:grid-cols-3"><InsightGroup title={t("insights.platform")} items={data.insights.platforms.map((item) => ({ label: item.value, count: item.count, href: filterHref(query, { platform: item.value }) }))} /><InsightGroup title={t("insights.vendor")} items={data.insights.vendors.map((item) => ({ label: item.value, count: item.count, href: filterHref(query, { vendor: item.value }) }))} /><InsightGroup title={t("insights.vendorType")} items={data.insights.vendor_device_types.map((item) => ({ label: `${item.vendor} · ${typeLabel(item.device_type, t)}`, count: item.count, href: filterHref(query, { vendor: item.vendor, device_type: item.device_type }) }))} /></div>
+      : <p className="mt-3 text-meta text-text-muted">{t("insights.empty")}</p>}
+  </details>;
+}
+
+function InsightGroup({ title, items }: { title: string; items: readonly { label: string; count: number; href: string }[] }) {
+  const { t } = useTranslation("assets");
+  return <div><h2 className="text-meta font-medium uppercase tracking-wide text-text-secondary">{title}</h2>{items.length ? <div className="mt-2 flex flex-wrap gap-2">{items.slice(0, 8).map((item) => <Link className="rounded-full border border-border px-3 py-1.5 text-meta hover:border-accent hover:text-accent" href={item.href} key={`${item.label}-${item.href}`}>{item.label} <span className="font-data text-text-muted">{item.count}</span></Link>)}</div> : <p className="mt-2 text-meta text-text-muted">{t("insights.unavailable")}</p>}</div>;
+}
+
+function AssetDetail({ asset, locale, onClose }: { asset: AssetRecord; locale: string; onClose: () => void }) {
+  const { t } = useTranslation("assets");
+  const [tab, setTab] = useState<"overview" | "network">("overview");
+  const links = [
+    asset.network_node_ref ? { href: "/devices", label: t("actions.viewDevice") } : null,
+    asset.health_target_ref ? { href: "/dashboard", label: t("actions.viewHealth") } : null,
+    asset.managed_telemetry_target_ref ? { href: "/snmp#managed-telemetry", label: t("actions.viewSnmp") } : null,
+    asset.observed_host_target_ref ? { href: `/snmp/${asset.observed_host_target_ref}/hosts`, label: t("actions.viewObservedHost") } : null,
+  ].filter((item): item is { href: string; label: string } => item !== null);
+  return <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t("detail.title")}><button className="absolute inset-0 bg-bg-base/80" type="button" aria-label={t("common:actions.close")} onClick={onClose} /><aside className="relative max-h-[calc(100vh-2rem)] w-full max-w-4xl overflow-y-auto rounded-panel border border-accent bg-bg-surface p-4 shadow-2xl md:p-6">
+    <div className="flex items-start justify-between gap-4"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("detail.title")}</p><h2 className="mt-2 text-section font-semibold">{asset.hostname ?? asset.name}</h2><p className="mt-1 text-meta text-text-muted">{asset.name}</p></div><Button variant="secondary" onClick={onClose}>{t("common:actions.close")}</Button></div>
+    <div className="mt-5 flex gap-2 border-b border-border" role="tablist"><Tab active={tab === "overview"} onClick={() => setTab("overview")}>{t("detail.overview")}</Tab><Tab active={tab === "network"} onClick={() => setTab("network")}>{t("detail.network")}</Tab></div>
+    {tab === "overview" ? <><dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("table.status")} value={t(`status.${asset.status}`)} /><Meta label={t("table.ip")} value={asset.ip_address ?? "-"} /><Meta label={t("table.mac")} value={asset.mac_address ?? "-"} /><Meta label={t("table.hostname")} value={asset.hostname ?? "-"} /><Meta label={t("table.vendor")} value={asset.vendor ?? "-"} /><Meta label={t("table.os")} value={asset.platform ?? "-"} /><Meta label={t("table.type")} value={typeLabel(asset.device_type, t)} /><Meta label={t("detail.confidence")} value={asset.os_confidence ? t(`confidence.${asset.os_confidence}`) : "-"} /><Meta label={t("detail.firstSeen")} value={dateLabel(asset.first_seen_at, locale)} /><Meta label={t("table.lastSeen")} value={dateLabel(asset.last_seen_at, locale)} /><Meta label={t("detail.source")} value={t(`source.${asset.source}`, { defaultValue: asset.source })} /></dl><p className="mt-3 text-meta text-text-muted">{t("detail.confidenceHelp")}</p>
+      <p className="mt-1 text-meta text-text-muted">{t("detail.vendorHelp")}</p>{asset.classification_evidence.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.evidence")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.classification_evidence.map((item, index) => <li className="rounded-control border border-border bg-bg-base p-3 text-meta" key={`${item.source}-${item.label}-${index}`}><span className="font-medium">{item.label}</span><span className="mt-1 block text-text-muted">{item.value} · {item.source}</span></li>)}</ul></div> : null}</>
+      : <div className="mt-5"><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("detail.latency")} value={asset.latency_ms === null ? "-" : `${asset.latency_ms.toFixed(2)} ms`} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("detail.evidenceUpdated")} value={dateLabel(asset.evidence_updated_at, locale)} /></dl>{asset.detected_services.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.services")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.detected_services.map((service) => <li className="rounded-control border border-border bg-bg-base p-3" key={`${service.protocol}-${service.port}`}><span>{service.name}</span><span className="ml-2 font-data text-meta text-text-muted">{service.protocol.toUpperCase()}/{service.port}</span></li>)}</ul></div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noServices")}</p>}</div>}
+    {links.length ? <div className="mt-5 flex flex-wrap gap-2">{links.map((link) => <Link className="rounded-control border border-border px-4 py-2 text-body font-medium text-text-primary transition-colors hover:border-accent hover:text-accent" href={link.href} key={link.href}>{link.label}</Link>)}</div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noLinks")}</p>}
+  </aside></div>;
+}
+
+function Summary({ label, value }: { label: string; value: number }) { return <div className="rounded-panel border border-border bg-bg-surface p-4"><p className="text-meta text-text-secondary">{label}</p><p className="mt-2 font-data text-title text-accent">{value}</p></div>; }
+function Status({ value }: { value: AssetStatus }) { const { t } = useTranslation("assets"); return <span className={`inline-flex rounded-full px-2 py-1 text-meta font-medium ${value === "online" ? "bg-severity-low/10 text-severity-low" : value === "offline" ? "bg-severity-critical/10 text-severity-critical" : value === "changed" ? "bg-severity-medium/10 text-severity-medium" : "bg-text-muted/10 text-text-muted"}`}>{t(`status.${value}`)}</span>; }
+function Meta({ label, value }: { label: string; value: string }) { return <div className="min-w-0 rounded-control border border-border bg-bg-base p-3"><dt className="text-meta text-text-muted">{label}</dt><dd className="mt-1 break-words text-body">{value}</dd></div>; }
+function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button className={`border-b-2 px-3 py-2 text-body font-medium ${active ? "border-accent text-accent" : "border-transparent text-text-secondary"}`} role="tab" aria-selected={active} type="button" onClick={onClick}>{children}</button>; }
+function ActiveFilter({ label, value, href }: { label: string; value: string; href: string }) { const { t } = useTranslation("assets"); return <Link className="rounded-full border border-accent px-3 py-1.5 text-accent" href={href}>{label}: {value} <span aria-hidden="true">×</span><span className="sr-only"> {t("filters.remove")}</span></Link>; }
+function dateLabel(value: string | null, locale: string) { return value ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "-"; }
+function timeLabel(value: string, locale: string) { return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
+function typeLabel(value: string, t: (key: string, options?: Record<string, unknown>) => string) { return t(`types.${value}`, { defaultValue: value.replaceAll("_", " ") }); }
+function pageHref(query: AssetInventoryQuery, page: number) { return filterHref(query, { page: String(Math.max(1, page)) }); }
+function filterHref(query: AssetInventoryQuery, changes: Partial<Record<keyof AssetInventoryQuery, string | null>>) { const params = new URLSearchParams(); for (const key of ["q", "device_type", "vendor", "platform", "status", "sort", "page_size"] as const) if (query[key]) params.set(key, query[key] ?? ""); for (const [key, value] of Object.entries(changes)) { if (value) params.set(key, value); else params.delete(key); } if (!("page" in changes)) params.set("page", "1"); return `/assets?${params}`; }
+function PageLink({ href, disabled, children }: { href: string; disabled: boolean; children: string }) { return disabled ? <span className="rounded-control border border-border px-3 py-2 opacity-50">{children}</span> : <Link className="rounded-control border border-border px-3 py-2 hover:border-accent hover:text-accent" href={href}>{children}</Link>; }
+function hasFilters(query: AssetInventoryQuery) { return Boolean(query.q || query.device_type || query.vendor || query.platform || query.status || query.sort || query.page || query.page_size); }

@@ -43,7 +43,28 @@ test("configuration defaults to the private loopback endpoint", () => {
     runnerApiToken: VALID_ENVIRONMENT.RUNNER_API_TOKEN,
     supabaseUrl: VALID_ENVIRONMENT.SUPABASE_URL,
     supabaseServiceRoleKey: VALID_ENVIRONMENT.SUPABASE_SERVICE_ROLE_KEY,
+    assets: null,
   });
+});
+
+test("asset database configuration is optional, paired, and isolated from PostgreSQL 16/main", () => {
+  const configured = loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
+    FRONTEND_API_TOKEN: "f".repeat(32),
+  });
+  assert.equal(configured.assets?.frontendApiToken, "f".repeat(32));
+  assert.match(configured.assets?.databaseUrl ?? "", /127\.0\.0\.1:5433\/jhc_netops$/);
+
+  for (const environment of [
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops" },
+    { ...VALID_ENVIRONMENT, FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5432/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/mercure", FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/montblanc", FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://postgres:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@192.168.1.130:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
+  ]) assert.throws(() => loadBackendConfig(environment), BackendConfigurationError);
 });
 
 test("invalid or publicly exposed configuration is rejected safely", () => {

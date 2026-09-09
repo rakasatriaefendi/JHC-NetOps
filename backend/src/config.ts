@@ -8,6 +8,10 @@ export type BackendConfig = Readonly<{
   runnerApiToken: string;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
+  assets: Readonly<{
+    databaseUrl: string;
+    frontendApiToken: string;
+  }> | null;
 }>;
 
 export class BackendConfigurationError extends Error {
@@ -37,7 +41,34 @@ export function loadBackendConfig(
     32,
     4096,
   );
-  return Object.freeze({ host, port, runnerApiToken, supabaseUrl, supabaseServiceRoleKey });
+  const databaseUrl = environment.DATABASE_URL?.trim();
+  const frontendApiToken = environment.FRONTEND_API_TOKEN?.trim();
+  if (Boolean(databaseUrl) !== Boolean(frontendApiToken)) {
+    throw new BackendConfigurationError("DATABASE_URL and FRONTEND_API_TOKEN must be configured together");
+  }
+  const assets = databaseUrl && frontendApiToken
+    ? Object.freeze({
+      databaseUrl: parseAssetDatabaseUrl(databaseUrl),
+      frontendApiToken: requiredSecret(frontendApiToken, "FRONTEND_API_TOKEN", 32, 512),
+    })
+    : null;
+  return Object.freeze({ host, port, runnerApiToken, supabaseUrl, supabaseServiceRoleKey, assets });
+}
+
+function parseAssetDatabaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "postgresql:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+        url.port !== "5433" || url.pathname !== "/jhc_netops" || url.username !== "jhc_netops_app" ||
+        !url.password || url.hash || url.search) {
+      throw new Error("invalid");
+    }
+    return value;
+  } catch {
+    throw new BackendConfigurationError(
+      "DATABASE_URL must target the dedicated loopback jhc_netops cluster on port 5433 as jhc_netops_app",
+    );
+  }
 }
 
 function requiredSecret(value: string | undefined, name: string, minimum: number, maximum: number): string {

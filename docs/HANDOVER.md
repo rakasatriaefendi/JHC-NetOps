@@ -29,6 +29,7 @@ or enabled. See
 | Discovery | Operator/Admin-triggered, bounded discovery of hosts visible to the current local runner. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
 | Devices | One operator inventory with contextual Health Watch configuration. | Inventory identity and detected identity are separate; dependent configuration blocks inventory deletion. |
 | SNMP | Latest read-only Managed Telemetry and Observed LAN Hosts first, followed by target configuration. | Known targets and local credential-profile references only. |
+| Asset Inventory | Compact local asset summary, evidence-backed Insights, filters, paging, and Overview/Network detail. | P10D1 consumes retained normalized evidence only; identity history/reporting remain P10D2/P10E. |
 | Admin | User approval and account access control. | Monitoring configuration lives on Devices and SNMP, not Admin. |
 
 Role dan status akses adalah dua dimensi terpisah. Viewer memiliki visibilitas
@@ -59,7 +60,14 @@ data plane (Health Watch, Traffic, Managed Telemetry) melewati backend ini lalu
 repository REST/RPC Supabase. Supabase database, Auth, RLS, dan Realtime tetap
 authoritative; PostgreSQL/Auth lokal belum diperkenalkan. Manual Ping, Discovery,
 Device Inspector, LAN Diagnostics, dan control-plane berfrekuensi rendah masih
-memakai Edge Function.
+memakai Edge Function. P10C menambahkan fondasi `asset.*` pada cluster khusus
+PostgreSQL `16/jhcnetops` port 5433; cluster tersebut belum diprovision oleh
+perubahan source ini dan tidak menggantikan domain Supabase yang ada. Detail aman
+ada di `deploy/postgresql/README.md`.
+Operator telah membuat cluster `16/jhcnetops` dan database kosongnya secara
+manual; migration P10C/P10D1 belum diterapkan. Role/schema acceptance menggunakan
+skrip khusus yang memvalidasi cluster/port/config/HBA dan tidak mengubah
+`16/main`. Rencana P10D1/P10D2 ada di `P10D_SPLIT_PLAN.md`.
 
 ## Current architecture
 
@@ -71,6 +79,7 @@ Supabase Auth + Database + Realtime + control-plane Edge Functions
         ^
         |
 Loopback Fastify backend <--- Local Runner (Node.js)
+        |-- P10C/P10D1 Asset API + bounded evidence sync ---> dedicated local PostgreSQL asset.*
         |-- Windows: PowerShell context + PING.EXE + wsl.exe --exec
         `-- Linux: ip -j context + ping + native child process
                  |
@@ -83,7 +92,8 @@ Loopback Fastify backend <--- Local Runner (Node.js)
 |---|---|
 | Frontend | Authenticated UI, read models, Realtime subscriptions, and structured admin actions. It never runs local shell commands. |
 | Supabase | Authentication, RLS, persistent latest state/history, temporary job/session coordination, Realtime, and retained control-plane Edge contracts. |
-| Local backend | Timing-safe runner auth and bounded persistence bridge for heartbeat plus recurring Health, Traffic, and Managed Telemetry. |
+| Local backend | Timing-safe runner auth and bounded persistence bridge for recurring domains; separate server token, PostgreSQL repository, and read-through normalized evidence adapter for P10C/P10D1 assets. |
+| Dedicated PostgreSQL | Future-provisioned `16/jhcnetops:5433`, database `jhc_netops`, local `asset.*` only; existing `16/main` is strictly out of scope. |
 | Local runner | Heartbeat, allow-list enforcement, scheduling, platform context, relocatable local state/logs, and structured WSL/native process orchestration. |
 | Python agent | Network measurement, bounded inspection/capture, SNMP collection, and normalized protocol output. |
 

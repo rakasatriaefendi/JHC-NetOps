@@ -1,4 +1,5 @@
 import Fastify, { LogController, type FastifyInstance } from "fastify";
+import { registerAssetRoutes, type AssetRouteOptions } from "./assets/route.js";
 import { registerManagedTelemetryRoute, type ManagedTelemetryRouteOptions } from "./managed-telemetry/route.js";
 import { registerNetworkHealthRoute, type NetworkHealthRouteOptions } from "./network-health/route.js";
 import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
@@ -8,6 +9,7 @@ export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 
 type BuildServerOptions = Readonly<{
+  assets?: AssetRouteOptions;
   logger?: boolean;
   managedTelemetry?: ManagedTelemetryRouteOptions;
   networkHealth?: NetworkHealthRouteOptions;
@@ -57,6 +59,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.networkHealth) registerNetworkHealthRoute(server, options.networkHealth);
   if (options.traffic) registerTrafficRoute(server, options.traffic);
   if (options.managedTelemetry) registerManagedTelemetryRoute(server, options.managedTelemetry);
+  if (options.assets) registerAssetRoutes(server, options.assets);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {

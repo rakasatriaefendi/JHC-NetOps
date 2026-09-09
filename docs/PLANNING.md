@@ -580,3 +580,22 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   dan semua fixture dibersihkan exact-ID dengan audit `clean: true`. Sisa blocker:
   validasi SNMP polling nyata ke perangkat managed (runner capability
   `snmp_telemetry` belum diterbitkan runner live).
+
+## P10C Asset Inventory Foundation (source implementation, 2026-09-08)
+
+- [x] Audit lengkap legacy Network Inventory dan feature matrix P10C-P10F.
+- [x] Migration PostgreSQL-native `asset.assets`, backend repository/API bounded,
+  compact Asset Inventory, progressive detail, serta katalog id/en.
+- [x] Hard guard menolak port 5432/database lain; target hanya cluster khusus
+  `16/jhcnetops` port 5433 dan database `jhc_netops` via backend loopback.
+- [ ] Rekonsiliasi role, terapkan migration, dan lakukan runtime acceptance pada
+  cluster/database kosong yang sudah dibuat operator (wajib change window).
+- [x] Rekonsiliasi jalur cluster-existing, role least-privilege, rollback schema
+  kosong, opt-in integration test read-only, backend server time, modal detail
+  terpusat, dan rencana split P10D1/P10D2.
+- [x] P10D1 Asset Intelligence: bounded read-through evidence adapter untuk
+  `network_nodes`, saved Device Inspector fingerprint, Health Watch latest,
+  Managed SNMP latest, dan Observed LAN Hosts; stable-key bulk upsert, klasifikasi
+  konservatif, Insights, tabel ringkas, serta modal Overview/Network.
+- [ ] P10D2 identity/change history, P10E Excel, P10F Medical Equipment, dan P11
+  migrasi domain Supabase (semuanya sengaja deferred).

@@ -30,26 +30,29 @@ type WorkspaceProps = {
 type SummaryProps = WorkspaceProps & {
   targetId: string;
   lastPolledAt: string | null;
+  sourceName?: string;
+  sourceIp?: string;
 };
 
 const FILTERS: ObservedHostFilter[] = ["all", "named", "unnamed", "fresh", "stale"];
 
-export function ObservedLanHostsSummary({ targetId, hosts, status, lastPolledAt }: SummaryProps) {
+export function ObservedLanHostsSummary({ targetId, hosts, status, lastPolledAt, sourceName, sourceIp }: SummaryProps) {
   const { t, i18n } = useTranslation("snmp");
-  const currentCount = hosts.filter((host) => host.status === "current").length;
   const latestAt = latestObservedAt(hosts, lastPolledAt);
-  return <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6" aria-label={t("observed.summaryTitle")}>
+  const sourceDevice = sourceName ? `${sourceName}${sourceIp ? ` · ${sourceIp}` : ""}` : sourceIp;
+  return <section className="mt-6 scroll-mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6" aria-label={t("observed.summaryTitle")} id="observed-lan-hosts">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <h3 className="text-section font-semibold">{t("observed.summaryTitle")}</h3>
         <p className="mt-1 max-w-3xl text-meta text-text-muted">{t("observed.summaryDescription")}</p>
       </div>
-      <Link className={actionClass} href={`/snmp/${targetId}/hosts`}>{t("observed.view")}</Link>
+      <Link className={actionClass} href={`/snmp/${targetId}/hosts`}>{t("observed.viewCount", { count: hosts.length })}</Link>
     </div>
-    <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-      <SummaryMetric label={t("observed.currentObservations")} value={String(currentCount)} data />
+    <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <SummaryMetric label={t("observed.observedHosts")} value={String(hosts.length)} data />
       <SummaryMetric label={t("observed.state")} value={observedStatusLabel(status, t)} />
       <SummaryMetric label={t("observed.latest")} value={formatDateTime(latestAt, i18n.language)} data />
+      {sourceDevice ? <SummaryMetric label={t("observed.sourceDevice")} value={sourceDevice} /> : null}
     </dl>
   </section>;
 }
@@ -170,7 +173,7 @@ export function observedStatusLabel(status: ObservationStatus, t: TFunction): st
   }
 }
 
-const actionClass = "inline-flex w-fit items-center justify-center rounded-control border border-accent px-4 py-2 text-body font-medium text-accent transition-colors hover:bg-accent hover:text-bg-base focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const actionClass = "inline-flex w-fit items-center justify-center rounded-control border border-accent bg-accent px-4 py-2 text-body font-medium text-bg-base transition-colors hover:bg-accent/85 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const controlClass = "rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary outline-none placeholder:text-text-muted focus:border-accent";
 const filterClass = "rounded-control border border-border px-3 py-1.5 text-meta text-text-secondary transition-colors hover:border-accent hover:text-accent";
 const activeFilterClass = "rounded-control border border-accent bg-accent/10 px-3 py-1.5 text-meta text-accent";

@@ -11,14 +11,19 @@ import { Button } from "@/components/ui/button";
 import type { ProfileRole } from "@/lib/auth";
 
 const navigation = [
-  { href: "/dashboard", key: "dashboard" },
-  { href: "/traffic", key: "traffic" },
-  { href: "/history", key: "history" },
-  { href: "/alerts", key: "alerts" },
-  { href: "/devices", key: "devices" },
-  { href: "/snmp", key: "snmp" },
-  { href: "/diagnostics", key: "diagnostics" },
-];
+  { key: "networkOperations", items: [
+    { href: "/dashboard", key: "dashboard" },
+    { href: "/traffic", key: "traffic" },
+    { href: "/history", key: "history" },
+    { href: "/alerts", key: "alerts" },
+    { href: "/devices", key: "devices" },
+    { href: "/snmp", key: "snmp" },
+    { href: "/diagnostics", key: "diagnostics" },
+  ] },
+  { key: "assetManagement", items: [
+    { href: "/assets", key: "assets" },
+  ] },
+] as const;
 
 type AppNavigationProps = {
   fullName: string;
@@ -29,10 +34,9 @@ export function AppNavigation({ fullName, role }: AppNavigationProps) {
   const { t } = useTranslation("common");
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const links =
-    role === "admin"
-      ? [...navigation, { href: "/admin", key: "admin" }]
-      : navigation;
+  const groups = role === "admin"
+    ? [...navigation, { key: "administration", items: [{ href: "/admin", key: "admin" }] }] as const
+    : navigation;
 
   const sidebar = (
     <div className="flex h-full flex-col bg-bg-surface p-4">
@@ -42,24 +46,16 @@ export function AppNavigation({ fullName, role }: AppNavigationProps) {
       </div>
 
       <nav className="mt-4 flex flex-1 flex-col gap-1" aria-label={t("nav.main")}>
-        {links.map((link) => {
-          const active = pathname === link.href;
-
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setOpen(false)}
-              className={`rounded-control border px-3 py-2 text-body font-medium transition-colors ${
-                active
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-transparent text-text-secondary hover:border-border hover:text-text-primary"
-              }`}
-            >
-              {t(`nav.${link.key}`)}
-            </Link>
-          );
-        })}
+        {groups.map((group, groupIndex) => <div className={groupIndex ? "mt-4" : ""} key={group.key}>
+          <p className="mb-1 px-3 text-meta font-medium uppercase tracking-wide text-text-muted">{t(`nav.${group.key}`)}</p>
+          <div className="flex flex-col gap-1">{group.items.map((link) => {
+            const active = link.href === "/snmp"
+              ? pathname === "/snmp" || /^\/snmp\/[^/]+\/hosts$/.test(pathname)
+              : pathname === link.href;
+            const className = `rounded-control border px-3 py-2 text-left text-body font-medium transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-transparent text-text-secondary hover:border-border hover:text-text-primary"}`;
+            return <Link href={link.href} onClick={() => setOpen(false)} className={className} key={link.key}>{t(`nav.${link.key}`)}</Link>;
+          })}</div>
+        </div>)}
       </nav>
 
       <div className="border-t border-border pt-4">

@@ -138,6 +138,20 @@ test("interfaceSummary distinguishes likely physical ports from logical interfac
   assert.equal(summary.physical_discards, 1);
 });
 
+test("SNMP workspace keeps interface detail collapsed behind one accessible toggle", () => {
+  const component = readFileSync(new URL("../components/snmp/managed-telemetry-detail.tsx", import.meta.url), "utf8");
+  assert.match(component, /const \[interfacesExpanded, setInterfacesExpanded\] = useState\(false\)/);
+  assert.match(component, /interfaceSummary\(selectedInterfaces\)/);
+  assert.match(component, /aria-expanded=\{interfacesExpanded\}/);
+  assert.match(component, /aria-controls="managed-interface-details"/);
+  assert.match(component, /interfacesExpanded \? "detail\.hideInterfaceDetails" : "detail\.showInterfaceDetails"/);
+  assert.match(component, /interfacesExpanded && selectedInterfaces\.length > 0 \? <div id="managed-interface-details"/);
+  assert.match(component, /setSelectedId\(event\.target\.value\);\s*setInterfacesExpanded\(false\)/);
+  assert.match(component, /detail\.interfaceOperational/);
+  assert.match(component, /detail\.interfacesWithErrors/);
+  assert.match(component, /detail\.interfacesWithDiscards/);
+});
+
 test("interfaceWarnings emits cautious wording only", () => {
   const thresholds = { oper_error_threshold: 5, discard_threshold: 10, util_warning_percent: 80, util_critical_percent: 95, util_sustained_seconds: 300 };
   const down = { ...baseInterface, admin_status: "up" as const, oper_status: "down" as const };

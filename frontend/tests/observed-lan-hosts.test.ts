@@ -128,7 +128,7 @@ test("latest observation prefers valid host evidence and safely falls back to th
   assert.equal(latestObservedAt([], "2026-08-31T08:20:00Z"), "2026-08-31T08:20:00Z");
 });
 
-test("SNMP detail uses only the compact observed-host summary and dedicated route link", () => {
+test("SNMP detail uses one target selection for the contextual observed-host summary and route", () => {
   const detail = source("../components/snmp/managed-telemetry-detail.tsx");
   const deviceProfile = source("../components/device-profile/managed-telemetry-section.tsx");
   assert.match(detail, /ObservedLanHostsSummary/);
@@ -136,8 +136,12 @@ test("SNMP detail uses only the compact observed-host summary and dedicated rout
   assert.match(deviceProfile, /ObservedLanHostsSummary/);
   assert.doesNotMatch(deviceProfile, /ObservedLanHostsWorkspace/);
   const component = source("../components/snmp/observed-lan-hosts.tsx");
-  assert.match(component, /t\("observed\.view"\)/);
+  assert.match(component, /t\("observed\.viewCount", \{ count: hosts\.length \}\)/);
   assert.match(component, /href={`\/snmp\/\$\{targetId\}\/hosts`}/);
+  assert.match(detail, /sourceName=\{selected\.node\.name\}/);
+  assert.match(detail, /sourceIp=\{selected\.node\.ip_address\}/);
+  assert.match(component, /t\("observed\.sourceDevice"\)/);
+  assert.doesNotMatch(detail, /ObservedLanHostsWorkspace/);
 });
 
 test("dedicated observed-host workspace is approved-viewer read-only and handles required states", () => {

@@ -12,13 +12,16 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:postgres:assets": "node --import tsx --test tests/integration/assets-postgres.integration.ts",
     "lint": "eslint src tests"
   },
   "dependencies": {
-    "fastify": "^5.12.3"
+    "fastify": "^5.12.3",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
+    "@types/pg": "^8.15.5",
     "eslint": "^10.10.0",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3",
