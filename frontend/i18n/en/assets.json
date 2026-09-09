@@ -16,7 +16,7 @@
   "detail": { "title": "Asset details", "overview": "Overview", "network": "Network", "mac": "MAC", "platform": "Platform", "source": "Source / evidence", "confidence": "OS confidence", "confidenceHelp": "Confidence in OS classification based on available network evidence. Private or randomized MAC evidence lowers confidence where applicable.", "vendorHelp": "Vendor is estimated from MAC and other available device evidence. Some devices may remain Unknown.", "firstSeen": "First seen", "latency": "Latest latency", "evidenceUpdated": "Evidence updated", "evidence": "Normalized evidence", "services": "Detected services", "noServices": "No bounded port or service evidence is available.", "noLinks": "No related NetOps destination is available for this asset yet." },
   "empty": { "title": "No assets match this view", "description": "Clear the filters or wait until an authorized integration adds inventory records." },
   "errors": { "unconfigured": { "title": "Asset Inventory is not configured", "description": "The local PostgreSQL asset connection has not been enabled on this environment." }, "unavailable": { "title": "Asset Inventory is unavailable", "description": "The local backend could not load the inventory. Existing NetOps features remain unaffected." } },
-  "pagination": { "range": "{{from}}-{{to}} of {{total}}", "page": "Page {{page}} / {{pages}}" },
+  "pagination": { "range": "{{from}}–{{to}} of {{total}}", "page": "Page {{page}} of {{pages}}" },
   "scan": {
     "action": "Scan Network", "eyebrow": "Active inventory", "dialogTitle": "Scan Network", "network": "Network", "modeLabel": "Scan mode",
     "mode": {

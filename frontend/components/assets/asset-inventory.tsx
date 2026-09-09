@@ -9,6 +9,9 @@ import { AssetScanControl } from "@/components/assets/asset-scan-control";
 import type { AssetScanState } from "@/lib/asset-scan-contract";
 import type { AssetInventoryData, AssetInventoryQuery, AssetRecord, AssetStatus } from "@/lib/assets";
 
+const chevronLeft = "◀";
+const chevronRight = "▶";
+
 type Props = {
   data: AssetInventoryData | null;
   error: "unconfigured" | "unavailable" | null;
@@ -60,7 +63,14 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
         </table>
       </div>
       <div className="mt-6 grid gap-3 xl:hidden">{data.items.map((asset) => <article className="rounded-panel border border-border bg-bg-surface p-4" key={asset.id}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate font-medium">{asset.hostname ?? asset.name}</h2><p className="mt-1 font-data text-meta text-text-muted">{asset.ip_address ?? "-"}</p></div><Status value={asset.status} /></div><dl className="mt-4 grid grid-cols-2 gap-3 text-meta"><Meta label={t("table.mac")} value={asset.mac_address ?? "-"} /><Meta label={t("table.vendor")} value={asset.vendor ?? "-"} /><Meta label={t("table.os")} value={asset.platform ?? "-"} /><Meta label={t("table.type")} value={typeLabel(asset.device_type, t)} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("table.lastSeen")} value={dateLabel(asset.last_seen_at, locale)} /></dl><Button className="mt-4 w-full" variant="secondary" onClick={() => setSelected(asset)}>{t("actions.details")}</Button></article>)}</div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-meta text-text-secondary"><span>{t("pagination.range", { from: (page - 1) * data.pagination.page_size + 1, to: Math.min(page * data.pagination.page_size, data.pagination.total), total: data.pagination.total })}</span><div className="flex items-center gap-2"><PageLink disabled={page <= 1} href={pageHref(query, page - 1)}>{t("common:actions.previous")}</PageLink><span>{t("pagination.page", { page, pages })}</span><PageLink disabled={page >= pages} href={pageHref(query, page + 1)}>{t("common:actions.next")}</PageLink></div></div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-meta">
+        <span className="text-text-secondary">{t("pagination.range", { from: (page - 1) * data.pagination.page_size + 1, to: Math.min(page * data.pagination.page_size, data.pagination.total), total: data.pagination.total })}</span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-text-secondary whitespace-nowrap">{t("pagination.page", { page, pages })}</span>
+          <PageLink disabled={page <= 1} href={pageHref(query, page - 1)} aria-label={t("common:actions.previous")}>{chevronLeft}</PageLink>
+          <PageLink disabled={page >= pages} href={pageHref(query, page + 1)} aria-label={t("common:actions.next")}>{chevronRight}</PageLink>
+        </div>
+      </div>
     </> : null}
 
     {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} onClose={() => setSelected(null)} /> : null}
@@ -110,5 +120,10 @@ function timeLabel(value: string, locale: string) { return new Intl.DateTimeForm
 function typeLabel(value: string, t: (key: string, options?: Record<string, unknown>) => string) { return t(`types.${value}`, { defaultValue: value.replaceAll("_", " ") }); }
 function pageHref(query: AssetInventoryQuery, page: number) { return filterHref(query, { page: String(Math.max(1, page)) }); }
 function filterHref(query: AssetInventoryQuery, changes: Partial<Record<keyof AssetInventoryQuery, string | null>>) { const params = new URLSearchParams(); for (const key of ["q", "device_type", "vendor", "platform", "status", "sort", "page_size"] as const) if (query[key]) params.set(key, query[key] ?? ""); for (const [key, value] of Object.entries(changes)) { if (value) params.set(key, value); else params.delete(key); } if (!("page" in changes)) params.set("page", "1"); return `/assets?${params}`; }
-function PageLink({ href, disabled, children }: { href: string; disabled: boolean; children: string }) { return disabled ? <span className="rounded-control border border-border px-3 py-2 opacity-50">{children}</span> : <Link className="rounded-control border border-border px-3 py-2 hover:border-accent hover:text-accent" href={href}>{children}</Link>; }
+function PageLink({ href, disabled, children, ariaLabel }: { href: string; disabled: boolean; children: string; ariaLabel: string }) {
+  if (disabled) {
+    return <span className="rounded-control border border-border px-3 py-2 text-text-muted" aria-disabled="true" aria-label={ariaLabel}>{children}</span>;
+  }
+  return <Link className="rounded-control border border-border px-3 py-2 text-text-primary hover:border-accent hover:text-accent transition-colors" href={href} scroll={false} aria-label={ariaLabel}>{children}</Link>;
+}
 function hasFilters(query: AssetInventoryQuery) { return Boolean(query.q || query.device_type || query.vendor || query.platform || query.status || query.sort || query.page || query.page_size); }
