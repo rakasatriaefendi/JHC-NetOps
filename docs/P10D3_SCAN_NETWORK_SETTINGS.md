@@ -1,4 +1,4 @@
-# P10D3 Scan Network Settings and routed VLAN support
+# P10D3 Scan Network Settings and routed-network support
 
 Date: 2026-09-09. Source implementation is complete; all Mini PC migration,
 deployment, real route inspection, and Nmap acceptance remain pending.
@@ -12,8 +12,9 @@ CIDR, optional operator label, explicit enabled state, origin
 (`manual`/`detected`/`bootstrap`), timestamps, and an optional soft-deletion
 timestamp. Live interface, gateway, and route state are derived and never stored.
 
-`ASSET_SCAN_NETWORKS` is now bootstrap/emergency compatibility rather than the
-runtime allowlist. On the first initialized startup, its valid bounded entries
+`ASSET_SCAN_NETWORKS` is now bootstrap-only compatibility rather than the
+runtime allowlist. On the first initialized startup, its valid, canonical,
+bounded entries
 are inserted and the durable marker is written in the same locked transaction.
 Every later startup leaves database configuration untouched. Disabling or
 deleting the last network therefore does not resurrect an old environment value.
@@ -30,8 +31,8 @@ The Linux adapter executes only fixed-argument iproute2 operations:
 Connectivity testing is a kernel route lookup, not a ping, sweep, Nmap run, or
 claim that a device responded. Adapter absence, malformed output, and unsupported
 runtime fail safely to unavailable/unknown. Auto-detection is optional. Manual
-LAN configuration is always supported, and the same manual form supports routed
-VLAN CIDRs. An unreachable/unknown valid network is saved disabled and can be
+network configuration is always supported, and the same manual form supports
+directly connected or routed CIDRs. An unreachable/unknown valid network is saved disabled and can be
 enabled only after a current direct/routed result.
 
 The implementation is vendor-neutral. It does not require Ruijie, SNMP, switch
@@ -39,7 +40,7 @@ management access, or a particular Linux interface name.
 
 ## Scan strategies and safety
 
-Every CIDR is canonicalized, must be wholly within RFC1918 space, and must be
+Every submitted CIDR must already be canonical, must be wholly within RFC1918 space, and must be
 `/22` or narrower (at most 1,024 addresses). At most eight active configured
 rows are allowed. Public, loopback, link-local, multicast, IPv6, default routes,
 malformed CIDRs, disabled/deleted rows, and arbitrary request CIDRs are rejected.
@@ -67,7 +68,7 @@ All use the existing server-to-server bearer model and bounded/sanitized errors.
 Next.js read actions require an approved profile. Create, edit, enable/disable,
 delete, and route-test actions require Operator/Admin. The Asset Inventory now
 contains a responsive Scan Networks dialog with detected networks, configured
-network cards, manual LAN/VLAN input, route feedback, and an explicit fallback
+network cards, generic manual network input, route feedback, and an explicit fallback
 when detection is unavailable. The existing scan dialog offers only currently
 enabled and currently routable configured networks, using their optional labels.
 
@@ -82,7 +83,7 @@ enabled and currently routable configured networks, using their optional labels.
 - [ ] If detection fails, manually add the primary LAN and verify full usability.
 - [ ] Route-test and run one approved Quick scan on the direct LAN; verify the
   direct helper strategy.
-- [ ] Configure one authorized routed VLAN when available, route-test it, and
+- [ ] Configure one authorized routed network when its factual CIDR is available, route-test it, and
   verify routed Quick discovery followed by bounded Deep enrichment.
 - [ ] Prove disabled/deleted/unconfigured CIDRs cannot be scanned.
 - [ ] Verify Indonesian/English, viewer/operator gating, responsive layout, and

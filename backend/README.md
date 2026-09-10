@@ -128,7 +128,7 @@ is active; cancellation aborts child processes, and startup marks interrupted
 runs failed. XML is parsed and normalized in memory; raw XML is never persisted.
 See `../docs/P10D1B_ACTIVE_INVENTORY_SCAN.md` for the privilege and rollout model.
 
-## P10D3: scan-network settings and routed VLANs
+## P10D3: scan-network settings and routed networks
 
 Migration `005_scan_network_settings.sql` adds the soft-deletable allowlist and a
 durable bootstrap marker. Explicit `/api/assets/scan-networks` routes list,

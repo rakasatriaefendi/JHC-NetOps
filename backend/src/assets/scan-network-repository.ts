@@ -55,10 +55,10 @@ export class PostgresScanNetworkRepository implements ScanNetworkRepository {
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(1249073103)");
-      const count = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM asset.scan_networks WHERE deleted_at IS NULL");
-      if (Number(count.rows[0]?.count ?? ASSET_SCAN_MAX_NETWORKS) >= ASSET_SCAN_MAX_NETWORKS) throw new ScanNetworkRepositoryError("SCAN_NETWORK_LIMIT_REACHED");
       const existing = await client.query<{ deleted_at: string | null }>("SELECT deleted_at::text FROM asset.scan_networks WHERE network = $1::cidr FOR UPDATE", [input.cidr]);
       if (existing.rows[0] && existing.rows[0].deleted_at === null) throw new ScanNetworkRepositoryError("SCAN_NETWORK_DUPLICATE");
+      const count = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM asset.scan_networks WHERE deleted_at IS NULL");
+      if (Number(count.rows[0]?.count ?? ASSET_SCAN_MAX_NETWORKS) >= ASSET_SCAN_MAX_NETWORKS) throw new ScanNetworkRepositoryError("SCAN_NETWORK_LIMIT_REACHED");
       const result = existing.rows[0]
         ? await client.query<ScanNetworkRow>({
           text: `UPDATE asset.scan_networks SET name = $2, enabled = $3, origin = $4, deleted_at = NULL, updated_at = now()

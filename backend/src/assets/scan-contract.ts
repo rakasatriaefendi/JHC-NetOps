@@ -37,7 +37,7 @@ export function parseAllowedScanNetworks(value: string | undefined): readonly st
   const normalized: string[] = [];
   for (const item of raw) {
     const network = normalizePrivateCidr(item);
-    if (!network || normalized.includes(network)) throw new Error("ASSET_SCAN_NETWORKS_INVALID");
+    if (!network || network !== item || normalized.includes(network)) throw new Error("ASSET_SCAN_NETWORKS_INVALID");
     normalized.push(network);
   }
   return normalized;

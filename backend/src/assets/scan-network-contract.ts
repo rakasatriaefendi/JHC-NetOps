@@ -65,12 +65,14 @@ export function validateCreateScanNetwork(value: unknown):
   }
   const name = normalizeName(value.name);
   if (name === undefined) return { ok: false, code: "INVALID_SCAN_NETWORK_NAME" };
-  const cidr = normalizePrivateCidr(value.cidr.trim());
+  const submittedCidr = value.cidr.trim();
+  const cidr = normalizePrivateCidr(submittedCidr);
   if (!cidr) return { ok: false, code: cidrError(value.cidr) };
+  if (cidr !== submittedCidr) return { ok: false, code: "INVALID_SCAN_NETWORK" };
   return {
     ok: true,
     value: { name, cidr, origin: value.origin === "detected" ? "detected" : "manual" },
-    canonicalized: cidr !== value.cidr.trim(),
+    canonicalized: false,
   };
 }
 
@@ -96,9 +98,11 @@ export function validateScanNetworkTest(value: unknown):
   if (!record(value) || Object.keys(value).length !== 1 || typeof value.cidr !== "string") {
     return { ok: false, code: "INVALID_SCAN_NETWORK" };
   }
-  const cidr = normalizePrivateCidr(value.cidr.trim());
+  const submittedCidr = value.cidr.trim();
+  const cidr = normalizePrivateCidr(submittedCidr);
   if (!cidr) return { ok: false, code: cidrError(value.cidr) };
-  return { ok: true, value: { cidr }, canonicalized: cidr !== value.cidr.trim() };
+  if (cidr !== submittedCidr) return { ok: false, code: "INVALID_SCAN_NETWORK" };
+  return { ok: true, value: { cidr }, canonicalized: false };
 }
 
 function normalizeName(value: unknown): string | null | undefined {

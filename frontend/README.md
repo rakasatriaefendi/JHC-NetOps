@@ -21,8 +21,8 @@ detail aset, serta badge PERANGKAT BARU selama 24 jam untuk bukti jaringan baru.
 Riwayat memakai backend loopback yang sama dan tidak memulai operasi jaringan.
 
 P10D3 menambahkan dialog Jaringan Pemindaian pada `/assets`. Operator/Admin dapat
-menggunakan LAN privat yang terdeteksi atau menambahkan LAN/VLAN routed secara
-manual, menguji rute tanpa sweep, serta mengubah status/nama dan menghapusnya.
+menggunakan jaringan privat yang terdeteksi atau menambahkan jaringan routed
+secara manual, menguji rute tanpa sweep, serta mengubah status/nama dan menghapusnya.
 Auto-detection bersifat opsional; Viewer dapat membaca konfigurasi tetapi tidak
 dapat mengubah atau memulai scan. Dialog Scan Jaringan hanya menawarkan network
 yang aktif dan saat ini memiliki rute direct/routed.

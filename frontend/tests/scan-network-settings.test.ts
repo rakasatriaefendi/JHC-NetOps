@@ -28,13 +28,19 @@ test("scan state supports a compact single network and labeled multiple-network 
   ] }), true);
 });
 
-test("settings UI keeps auto-detection optional and exposes one manual LAN/VLAN workflow", () => {
+test("settings UI keeps auto-detection optional and exposes one generic manual network workflow", () => {
   const settings = source("../components/assets/scan-network-settings.tsx");
   for (const behavior of ["scanNetworks.detected.unavailable", "scanNetworks.detected.use", "scanNetworks.add.title", "testScanNetworkAction", "updateScanNetworkAction", "deleteScanNetworkAction", "window.confirm"]) {
     assert.match(settings, new RegExp(behavior.replaceAll(".", "\\.")));
   }
   assert.match(settings, /origin: "manual"/);
   assert.match(settings, /origin: "detected"/);
+  assert.match(settings, /configuredRoutes/);
+  assert.match(settings, /testedRoute/);
+  assert.match(settings, /testRoute\(item\.cidr, "configured"\)/);
+  assert.match(settings, /testRoute\(cidr, "form"\)/);
+  assert.match(settings, /network\.cidr === candidate \? \{ \.\.\.network, \.\.\.testedRoute \}/);
+  assert.doesNotMatch(settings, /setCidr\(result\.data\.cidr\)/);
   assert.match(settings, /canManage \?/);
   assert.doesNotMatch(settings, /nmap|snmp|exec\(|spawn\(|--script/i);
 });
@@ -67,6 +73,10 @@ test("Indonesian and English catalogs pair every P10D3 UX state", () => {
     assert.equal(typeof get(id.scanNetworks, path), "string", `id ${path}`);
     assert.equal(typeof get(en.scanNetworks, path), "string", `en ${path}`);
   }
+  assert.doesNotMatch(JSON.stringify(id.scanNetworks), /VLAN/i);
+  assert.doesNotMatch(JSON.stringify(en.scanNetworks), /VLAN/i);
+  assert.match(String(get(id.scanNetworks, "add.help")), /kanonik/);
+  assert.match(String(get(en.scanNetworks, "add.help")), /canonical/);
 });
 
 function network(route_kind: "direct" | "routed" | "unreachable" | "unknown", enabled: boolean) {

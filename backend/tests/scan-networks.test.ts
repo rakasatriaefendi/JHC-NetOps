@@ -20,7 +20,7 @@ import { AssetScanController, AssetScanError } from "../src/assets/scan-controll
 import type { NmapExecutionMode, NmapExecutor } from "../src/assets/scan-executor.js";
 import type { AssetScanRepository } from "../src/assets/scan-repository.js";
 import type { AssetObservation } from "../src/assets/evidence.js";
-import type { AssetScanMode, AssetScanRecord } from "../src/assets/scan-contract.js";
+import { parseAllowedScanNetworks, type AssetScanMode, type AssetScanRecord } from "../src/assets/scan-contract.js";
 import { buildServer } from "../src/server.js";
 
 const TOKEN = "n".repeat(32);
@@ -28,31 +28,35 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const NETWORK = "192.168.1.0/24";
 const NOW = "2026-09-09T00:00:00.000Z";
 
-test("P10D3 CIDR and mutation contracts canonicalize safely and reject unsafe input", () => {
-  assert.deepEqual(validateCreateScanNetwork({ name: " Main LAN ", cidr: "192.168.1.17/24" }), {
-    ok: true, value: { name: "Main LAN", cidr: NETWORK, origin: "manual" }, canonicalized: true,
+test("P10D3 CIDR and mutation contracts require canonical bounded RFC1918 input", () => {
+  assert.deepEqual(validateCreateScanNetwork({ name: " Main LAN ", cidr: NETWORK }), {
+    ok: true, value: { name: "Main LAN", cidr: NETWORK, origin: "manual" }, canonicalized: false,
   });
-  assert.equal(validateCreateScanNetwork({ cidr: "10.20.0.0/22" }).ok, true);
-  for (const cidr of ["192.168.0.0/21", "8.8.8.0/24", "0.0.0.0/0", "127.0.0.0/24", "169.254.1.0/24", "not-cidr", "fd00::/64"]) {
+  for (const cidr of ["10.20.0.0/22", "10.20.3.4/32"]) assert.equal(validateCreateScanNetwork({ cidr }).ok, true, cidr);
+  for (const cidr of ["192.168.1.17/24", "192.168.0.0/21", "8.8.8.0/24", "0.0.0.0/0", "127.0.0.0/24", "169.254.1.0/24", "not-cidr", "fd00::/64"]) {
     assert.equal(validateCreateScanNetwork({ cidr }).ok, false, cidr);
   }
   assert.equal(validateCreateScanNetwork({ cidr: NETWORK, name: "x".repeat(101) }).ok, false);
   assert.deepEqual(validateUpdateScanNetwork({ enabled: false }), { ok: true, value: { enabled: false } });
   assert.deepEqual(validateUpdateScanNetwork({ name: " VLAN 20 " }), { ok: true, value: { name: "VLAN 20" } });
   assert.equal(validateUpdateScanNetwork({ cidr: "10.0.0.0/24" }).ok, false);
-  assert.deepEqual(validateScanNetworkTest({ cidr: "172.16.5.4/24" }), { ok: true, value: { cidr: "172.16.5.0/24" }, canonicalized: true });
+  assert.deepEqual(validateScanNetworkTest({ cidr: "172.16.5.0/24" }), { ok: true, value: { cidr: "172.16.5.0/24" }, canonicalized: false });
+  assert.deepEqual(validateScanNetworkTest({ cidr: "172.16.5.4/24" }), { ok: false, code: "INVALID_SCAN_NETWORK" });
+  assert.deepEqual(parseAllowedScanNetworks("192.168.1.0/24,10.20.0.0/22"), ["192.168.1.0/24", "10.20.0.0/22"]);
+  assert.throws(() => parseAllowedScanNetworks("192.168.1.17/24"));
 });
 
 test("Linux address parser detects only bounded directly connected private IPv4 networks", () => {
   const detected = parseIpAddressJson(JSON.stringify([
-    { ifname: "lo", operstate: "UNKNOWN", addr_info: [{ family: "inet", local: "127.0.0.1", prefixlen: 8, scope: "host" }] },
-    { ifname: "enp3s0", operstate: "UP", addr_info: [
+    { ifname: "lo", flags: ["LOOPBACK", "UP"], operstate: "UNKNOWN", addr_info: [{ family: "inet", local: "127.0.0.1", prefixlen: 8, scope: "host" }] },
+    { ifname: "enp3s0", flags: ["BROADCAST", "UP"], operstate: "UP", addr_info: [
       { family: "inet", local: "192.168.1.67", prefixlen: 24, scope: "global" },
       { family: "inet6", local: "fd00::1", prefixlen: 64, scope: "global" },
     ] },
-    { ifname: "eth1", operstate: "UP", addr_info: [{ family: "inet", local: "10.2.3.4", prefixlen: 16, scope: "global" }] },
-    { ifname: "eth2", operstate: "UP", addr_info: [{ family: "inet", local: "203.0.113.8", prefixlen: 24, scope: "global" }] },
-    { ifname: "veth0", operstate: "DOWN", addr_info: [{ family: "inet", local: "172.16.4.2", prefixlen: 24, scope: "global" }] },
+    { ifname: "eth1", flags: ["BROADCAST", "UP"], operstate: "UP", addr_info: [{ family: "inet", local: "10.2.3.4", prefixlen: 16, scope: "global" }] },
+    { ifname: "eth2", flags: ["BROADCAST", "UP"], operstate: "UP", addr_info: [{ family: "inet", local: "203.0.113.8", prefixlen: 24, scope: "global" }] },
+    { ifname: "veth0", flags: ["BROADCAST"], operstate: "DOWN", addr_info: [{ family: "inet", local: "172.16.4.2", prefixlen: 24, scope: "global" }] },
+    { ifname: "inactive0", flags: ["BROADCAST"], operstate: "UNKNOWN", addr_info: [{ family: "inet", local: "172.16.8.2", prefixlen: 24, scope: "global" }] },
   ]));
   assert.deepEqual(detected, [{ cidr: NETWORK, interface_name: "enp3s0", source_ip: "192.168.1.67", route_kind: "direct" }]);
   assert.throws(() => parseIpAddressJson("not-json"));
@@ -63,6 +67,7 @@ test("route parser distinguishes direct, routed, unreachable and malformed resul
   const routed = parseIpRouteJson("192.168.20.0/24", JSON.stringify([{ dst: "192.168.20.1", gateway: "192.168.1.1", dev: "enp3s0", prefsrc: "192.168.1.67" }]));
   assert.deepEqual(routed, { cidr: "192.168.20.0/24", route_kind: "routed", interface_name: "enp3s0", source_ip: "192.168.1.67", gateway: "192.168.1.1", reason_code: "ROUTE_AVAILABLE" });
   assert.equal(parseIpRouteJson(NETWORK, JSON.stringify([{ type: "unreachable" }])).route_kind, "unreachable");
+  assert.equal(parseIpRouteJson(NETWORK, JSON.stringify([{ dev: "enp3s0", gateway: "not-an-ip" }])).route_kind, "unknown");
   assert.equal(parseIpRouteJson(NETWORK, "[]").route_kind, "unknown");
 });
 
@@ -89,14 +94,41 @@ test("manager saves unreachable networks disabled and requires a current route b
   await manager.initialize([NETWORK]);
   await manager.initialize(["10.0.0.0/24"]);
   assert.deepEqual(repository.bootstraps, [[NETWORK], ["10.0.0.0/24"]]);
-  const saved = await manager.create({ name: "Future VLAN", cidr: "192.168.20.0/24", origin: "manual" });
+  assert.deepEqual((await repository.list(AbortSignal.timeout(100))).map((item) => item.cidr), [NETWORK]);
+  const saved = await manager.create({ name: "Future routed network", cidr: "192.168.20.0/24", origin: "manual" });
   assert.equal(saved.network.enabled, false);
   assert.equal(saved.warning, true);
   await assert.rejects(() => manager.update(saved.network.id, { enabled: true }), (error: unknown) => error instanceof ScanNetworkManagerError);
   adapter.kind = "routed";
   assert.equal((await manager.update(saved.network.id, { enabled: true }))?.enabled, true);
   assert.equal(await manager.remove(saved.network.id), true);
-  assert.equal((await manager.list()).length, 0);
+  assert.equal((await manager.list()).length, 1);
+});
+
+test("bootstrap is durable even when empty and never resurrects an operator-deleted network", async () => {
+  const populated = new MemoryNetworks();
+  await populated.bootstrap([NETWORK], AbortSignal.timeout(100));
+  const bootstrapped = (await populated.list(AbortSignal.timeout(100)))[0]!;
+  assert.equal(bootstrapped.origin, "bootstrap");
+  assert.equal(await populated.remove(bootstrapped.id, AbortSignal.timeout(100)), true);
+  await populated.bootstrap([NETWORK], AbortSignal.timeout(100));
+  assert.deepEqual(await populated.list(AbortSignal.timeout(100)), []);
+
+  const empty = new MemoryNetworks();
+  await empty.bootstrap([], AbortSignal.timeout(100));
+  await empty.bootstrap([NETWORK], AbortSignal.timeout(100));
+  assert.deepEqual(await empty.list(AbortSignal.timeout(100)), []);
+});
+
+test("re-adding a soft-deleted network resurrects its durable row without bypassing the active bound", async () => {
+  const repository = new MemoryNetworks();
+  const original = await repository.create({ name: "Old label", cidr: NETWORK, origin: "manual" }, true, AbortSignal.timeout(100));
+  await repository.remove(original.id, AbortSignal.timeout(100));
+  const restored = await repository.create({ name: "Restored", cidr: NETWORK, origin: "manual" }, false, AbortSignal.timeout(100));
+  assert.equal(restored.id, original.id);
+  assert.equal(restored.name, "Restored");
+  assert.equal(restored.enabled, false);
+  assert.equal((await repository.list(AbortSignal.timeout(100))).length, 1);
 });
 
 test("repository contract blocks duplicates and configured-network overflow", async () => {
@@ -115,10 +147,12 @@ test("scan-network APIs authenticate and preserve safe direct/routed configurati
   const server = buildServer({ logger: false, scanNetworks: { token: TOKEN, manager } });
   assert.equal((await server.inject({ method: "GET", url: "/api/assets/scan-networks" })).statusCode, 401);
   assert.equal((await server.inject({ method: "POST", url: "/api/assets/scan-networks/test", headers: auth(), payload: { cidr: "8.8.8.0/24" } })).statusCode, 400);
-  const created = await server.inject({ method: "POST", url: "/api/assets/scan-networks", headers: auth(), payload: { name: "Main", cidr: "192.168.1.17/24" } });
+  assert.equal((await server.inject({ method: "POST", url: "/api/assets/scan-networks/test", headers: auth(), payload: { cidr: "192.168.1.17/24" } })).statusCode, 400);
+  assert.equal((await server.inject({ method: "POST", url: "/api/assets/scan-networks", headers: auth(), payload: { name: "Main", cidr: "192.168.1.17/24" } })).statusCode, 400);
+  const created = await server.inject({ method: "POST", url: "/api/assets/scan-networks", headers: auth(), payload: { name: "Main", cidr: NETWORK } });
   assert.equal(created.statusCode, 201);
   assert.equal(created.json().data.network.cidr, NETWORK);
-  assert.equal(created.json().data.canonicalized, true);
+  assert.equal(created.json().data.canonicalized, false);
   assert.equal((await server.inject({ method: "POST", url: "/api/assets/scan-networks", headers: auth(), payload: { cidr: NETWORK } })).statusCode, 409);
   assert.equal((await server.inject({ method: "PATCH", url: `/api/assets/scan-networks/${ID}`, headers: auth(), payload: { name: "Renamed" } })).statusCode, 200);
   assert.equal((await server.inject({ method: "DELETE", url: "/api/assets/scan-networks/not-a-uuid", headers: auth() })).statusCode, 400);
@@ -126,7 +160,7 @@ test("scan-network APIs authenticate and preserve safe direct/routed configurati
   await server.close();
 });
 
-test("controller rejects arbitrary/disabled networks and selects the routed fixed helper strategy", async () => {
+test("controller rejects arbitrary networks and selects the fixed direct/routed helper strategies", async () => {
   const calls: NmapExecutionMode[] = [];
   const executor: NmapExecutor = {
     async available() { return true; },
@@ -139,6 +173,32 @@ test("controller rejects arbitrary/disabled networks and selects the routed fixe
   await controller.start("quick", NETWORK);
   await controller.shutdown();
   assert.equal(calls[0], "discovery-routed");
+
+  const directSource = { async enabled() { return [{ ...row("10.20.0.0/24", true), route_kind: "direct" as const, interface_name: "eth1", source_ip: "10.20.0.2", gateway: null, reason_code: "ROUTE_AVAILABLE" as const }]; } };
+  const direct = new AssetScanController(new FakeScanRuns(), executor, directSource, 1, 1_000, 1_000, () => new Date(NOW));
+  await direct.start("quick", "10.20.0.0/24");
+  await direct.shutdown();
+  assert.equal(calls[1], "discovery");
+});
+
+test("disabled, deleted, and no-longer-routable configured networks cannot start a scan", async () => {
+  const executor: NmapExecutor = {
+    async available() { return true; },
+    async run() { return "<?xml version=\"1.0\"?><nmaprun></nmaprun>"; },
+  };
+  const repository = new MemoryNetworks();
+  const configured = await repository.create({ name: null, cidr: NETWORK, origin: "manual" }, false, AbortSignal.timeout(100));
+  const adapter = new FakeAdapter("direct");
+  const manager = new ScanNetworkManager(repository, adapter, 1_000);
+  const controller = new AssetScanController(new FakeScanRuns(), executor, manager, 1, 1_000, 1_000, () => new Date(NOW));
+
+  await assert.rejects(() => controller.start("quick", NETWORK), notAllowed);
+  await repository.update(configured.id, { enabled: true }, AbortSignal.timeout(100));
+  adapter.kind = "unreachable";
+  await assert.rejects(() => controller.start("quick", NETWORK), routeUnavailable);
+  await repository.remove(configured.id, AbortSignal.timeout(100));
+  adapter.kind = "direct";
+  await assert.rejects(() => controller.start("quick", NETWORK), notAllowed);
 });
 
 test("migration 005 is additive, private, bounded, soft-delete capable and wired into reviewed deployment", () => {
@@ -171,13 +231,26 @@ class FakeAdapter {
 class MemoryNetworks implements ScanNetworkRepository {
   rows: ConfiguredScanNetwork[] = [];
   bootstraps: string[][] = [];
-  async bootstrap(networks: readonly string[], signal: AbortSignal) { signal.throwIfAborted(); this.bootstraps.push([...networks]); }
+  deleted = new Map<string, ConfiguredScanNetwork>();
+  bootstrapInitialized = false;
+  async bootstrap(networks: readonly string[], signal: AbortSignal) {
+    signal.throwIfAborted();
+    this.bootstraps.push([...networks]);
+    if (this.bootstrapInitialized) return;
+    this.bootstrapInitialized = true;
+    for (const cidr of networks.slice(0, ASSET_SCAN_MAX_NETWORKS)) {
+      if (this.rows.some((item) => item.cidr === cidr) || this.deleted.has(cidr)) continue;
+      this.rows.push(row(cidr, true, null, "bootstrap", this.rows.length === 0 ? ID : crypto.randomUUID()));
+    }
+  }
   async list(signal: AbortSignal) { signal.throwIfAborted(); return [...this.rows]; }
   async create(input: CreateScanNetworkInput, enabled: boolean, signal: AbortSignal) {
     signal.throwIfAborted();
-    if (this.rows.length >= ASSET_SCAN_MAX_NETWORKS) throw new ScanNetworkRepositoryError("SCAN_NETWORK_LIMIT_REACHED");
     if (this.rows.some((item) => item.cidr === input.cidr)) throw new ScanNetworkRepositoryError("SCAN_NETWORK_DUPLICATE");
-    const value = row(input.cidr, enabled, input.name, input.origin, this.rows.length === 0 ? ID : crypto.randomUUID());
+    if (this.rows.length >= ASSET_SCAN_MAX_NETWORKS) throw new ScanNetworkRepositoryError("SCAN_NETWORK_LIMIT_REACHED");
+    const previous = this.deleted.get(input.cidr);
+    const value = row(input.cidr, enabled, input.name, input.origin, previous?.id ?? (this.rows.length === 0 ? ID : crypto.randomUUID()));
+    this.deleted.delete(input.cidr);
     this.rows.push(value); return value;
   }
   async update(id: string, input: UpdateScanNetworkInput, signal: AbortSignal) {
@@ -188,7 +261,14 @@ class MemoryNetworks implements ScanNetworkRepository {
     const value = { ...previous, ...(input.name !== undefined ? { name: input.name } : {}), ...(input.enabled !== undefined ? { enabled: input.enabled } : {}) };
     this.rows[index] = value; return value;
   }
-  async remove(id: string, signal: AbortSignal) { signal.throwIfAborted(); const before = this.rows.length; this.rows = this.rows.filter((item) => item.id !== id); return this.rows.length !== before; }
+  async remove(id: string, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const existing = this.rows.find((item) => item.id === id);
+    if (!existing) return false;
+    this.deleted.set(existing.cidr, existing);
+    this.rows = this.rows.filter((item) => item.id !== id);
+    return true;
+  }
 }
 
 class FakeScanRuns implements AssetScanRepository {
@@ -204,3 +284,5 @@ function row(cidr: string, enabled: boolean, name: string | null = null, origin:
   return { id, name, cidr, enabled, origin, created_at: NOW, updated_at: NOW };
 }
 function auth() { return { authorization: `Bearer ${TOKEN}` }; }
+function notAllowed(error: unknown) { return error instanceof AssetScanError && error.code === "SCAN_NETWORK_NOT_ALLOWED"; }
+function routeUnavailable(error: unknown) { return error instanceof AssetScanError && error.code === "SCAN_NETWORK_ROUTE_UNAVAILABLE"; }

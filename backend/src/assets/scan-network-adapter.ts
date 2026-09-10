@@ -46,7 +46,8 @@ export function parseIpAddressJson(output: string): readonly DetectedScanNetwork
   if (!Array.isArray(value)) throw new Error("IP_ADDRESS_OUTPUT_INVALID");
   const unique = new Map<string, DetectedScanNetwork>();
   for (const item of value) {
-    if (!record(item) || typeof item.ifname !== "string" || item.ifname === "lo" || item.operstate === "DOWN" || !Array.isArray(item.addr_info)) continue;
+    if (!record(item) || typeof item.ifname !== "string" || item.ifname === "lo" ||
+        !Array.isArray(item.flags) || !item.flags.includes("UP") || !Array.isArray(item.addr_info)) continue;
     for (const address of item.addr_info) {
       if (!record(address) || address.family !== "inet" || address.scope !== "global" ||
           typeof address.local !== "string" || !Number.isSafeInteger(address.prefixlen)) continue;
@@ -69,6 +70,7 @@ export function parseIpRouteJson(cidr: string, output: string): ScanNetworkRoute
   const interfaceName = typeof route.dev === "string" && /^[A-Za-z0-9_.:@-]{1,64}$/.test(route.dev) ? route.dev : null;
   if (!interfaceName) return unknownRoute(cidr);
   const gateway = normalizePrivateIpv4(route.gateway);
+  if (route.gateway !== undefined && route.gateway !== null && !gateway) return unknownRoute(cidr);
   const sourceIp = normalizePrivateIpv4(route.prefsrc) ?? normalizePrivateIpv4(route.src);
   return {
     cidr,
