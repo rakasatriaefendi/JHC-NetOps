@@ -19,6 +19,7 @@ export type AssetScanRecord = Readonly<{
 export type AssetScanState = Readonly<{
   available: boolean;
   networks: readonly string[];
+  network_options?: readonly Readonly<{ name: string | null; cidr: string; route_kind: "direct" | "routed" }>[];
   current: AssetScanRecord | null;
   last: AssetScanRecord | null;
 }>;
@@ -26,6 +27,9 @@ export type AssetScanState = Readonly<{
 export function validAssetScanState(value: unknown): value is AssetScanState {
   return record(value) && typeof value.available === "boolean"
     && Array.isArray(value.networks) && value.networks.length <= 8 && value.networks.every((item) => typeof item === "string")
+    && (value.network_options === undefined || Array.isArray(value.network_options) && value.network_options.length <= 8
+      && value.network_options.every((item) => record(item) && (item.name === null || typeof item.name === "string")
+        && typeof item.cidr === "string" && (item.route_kind === "direct" || item.route_kind === "routed")))
     && (value.current === null || validScan(value.current)) && (value.last === null || validScan(value.last));
 }
 

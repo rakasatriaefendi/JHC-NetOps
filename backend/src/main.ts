@@ -7,6 +7,9 @@ import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
 import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
 import { PostgresAssetScanRepository } from "./assets/scan-repository.js";
+import { LinuxIpRouteAdapter } from "./assets/scan-network-adapter.js";
+import { ScanNetworkManager } from "./assets/scan-network-manager.js";
+import { PostgresScanNetworkRepository } from "./assets/scan-network-repository.js";
 import { SupabaseManagedTelemetryRepository } from "./managed-telemetry/repository.js";
 import { SupabaseNetworkHealthRepository } from "./network-health/repository.js";
 import { SupabaseTrafficRepository } from "./traffic/repository.js";
@@ -38,17 +41,21 @@ async function main(): Promise<void> {
       assetRepository,
     )
     : null;
-  const assetScanController = assetPool && config.assets
+  const scanNetworkManager = assetPool && config.assets
+    ? new ScanNetworkManager(new PostgresScanNetworkRepository(assetPool), new LinuxIpRouteAdapter())
+    : null;
+  if (scanNetworkManager && config.assets) await scanNetworkManager.initialize(config.assets.scan.networks);
+  const assetScanController = assetPool && config.assets && scanNetworkManager
     ? new AssetScanController(
       new PostgresAssetScanRepository(assetPool),
       new PrivilegedNmapExecutor(config.assets.scan.helperPath),
-      config.assets.scan.networks,
+      scanNetworkManager,
       config.assets.scan.concurrency,
       config.assets.scan.hostTimeoutMs,
       config.assets.scan.discoveryTimeoutMs,
     )
     : null;
-  if (assetScanController?.networks.length) await assetScanController.initialize();
+  if (assetScanController) await assetScanController.initialize();
   const server = buildServer({
     ...(config.assets && assetRepository ? {
       assets: {
@@ -62,6 +69,9 @@ async function main(): Promise<void> {
     } : {}),
     ...(config.assets && assetScanController ? {
       assetScan: { token: config.assets.frontendApiToken, controller: assetScanController },
+    } : {}),
+    ...(config.assets && scanNetworkManager ? {
+      scanNetworks: { token: config.assets.frontendApiToken, manager: scanNetworkManager },
     } : {}),
     runnerHeartbeat: { token: config.runnerApiToken, repository: heartbeatRepository },
     networkHealth: { token: config.runnerApiToken, repository: healthRepository },

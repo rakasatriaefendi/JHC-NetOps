@@ -116,9 +116,10 @@ latency, evidence time, and the idempotent stable source key.
 
 The same loopback backend exposes `GET/POST /api/assets/scan` and
 `DELETE /api/assets/scan/:id` under the existing frontend server token. A scan
-can target only canonical RFC1918 IPv4 CIDRs in `ASSET_SCAN_NETWORKS` (maximum
-eight networks and 1,024 addresses each). Empty configuration leaves Asset
-Inventory available while reporting the scanner as unavailable.
+can target only an enabled database-configured canonical RFC1918 IPv4 CIDR
+(maximum eight networks and 1,024 addresses each). `ASSET_SCAN_NETWORKS` is
+imported only once as bootstrap compatibility and never overwrites later operator
+configuration.
 
 Quick Discovery runs one fixed discovery operation. Deep Scan follows discovery
 with fixed per-host fingerprint operations, default concurrency 4 (hard maximum
@@ -126,6 +127,16 @@ with fixed per-host fingerprint operations, default concurrency 4 (hard maximum
 is active; cancellation aborts child processes, and startup marks interrupted
 runs failed. XML is parsed and normalized in memory; raw XML is never persisted.
 See `../docs/P10D1B_ACTIVE_INVENTORY_SCAN.md` for the privilege and rollout model.
+
+## P10D3: scan-network settings and routed VLANs
+
+Migration `005_scan_network_settings.sql` adds the soft-deletable allowlist and a
+durable bootstrap marker. Explicit `/api/assets/scan-networks` routes list,
+detect, route-test, create, update, and delete settings. Detection uses structured
+iproute2 output and may fail without blocking manual configuration. Route tests
+perform one kernel lookup only. Direct Quick scans retain ARP discovery; routed
+Quick scans use a separate fixed bounded non-ARP-only helper mode. Details and
+the pending Mini PC checklist are in `../docs/P10D3_SCAN_NETWORK_SETTINGS.md`.
 
 ## P10D2: bounded Asset Change History
 

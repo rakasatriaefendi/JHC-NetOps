@@ -17,10 +17,13 @@ No browser-controlled flags or shell interpolation exist.
 
 ## Configuration and availability
 
-`ASSET_SCAN_NETWORKS` is a comma-separated list of at most eight canonical
-RFC1918 IPv4 CIDRs, each limited to 1,024 addresses (`/22` or narrower). If it is
-empty, `/assets` and retained evidence ingestion continue normally and the UI
-shows scanner unavailable. Optional bounded settings are:
+P10D3 supersedes the runtime allowlist described in the original P10D1-B scope.
+`ASSET_SCAN_NETWORKS` is now a one-time bootstrap list of at most eight RFC1918
+IPv4 CIDRs, each limited to 1,024 addresses (`/22` or narrower). Durable
+`asset.scan_networks` rows are the runtime authority. If no row is enabled,
+`/assets` and retained evidence ingestion continue normally and the UI offers
+Scan Network configuration instead of an arbitrary target input. Optional
+bounded settings are:
 
 - `ASSET_SCAN_CONCURRENCY` (default 4, maximum 8);
 - `ASSET_SCAN_HOST_TIMEOUT_MS` (default 45000);

@@ -10,6 +10,11 @@ import {
   type AssetScanRecord,
   type AssetScanState,
 } from "./scan-contract.js";
+import type { EnrichedScanNetwork } from "./scan-network-contract.js";
+
+export interface AssetScanNetworkSource {
+  enabled(): Promise<readonly EnrichedScanNetwork[]>;
+}
 
 export const ASSET_SCAN_DISCOVERY_TIMEOUT_MS = 120_000;
 export const ASSET_SCAN_HOST_TIMEOUT_MS = 45_000;
@@ -17,13 +22,13 @@ export const ASSET_SCAN_DEFAULT_CONCURRENCY = 4;
 export const ASSET_SCAN_PERSIST_TIMEOUT_MS = 7_000;
 
 export class AssetScanController {
-  #active: { record: AssetScanRecord; abort: AbortController; done: Promise<void> } | null = null;
+  #active: { record: AssetScanRecord; routeKind: "direct" | "routed"; abort: AbortController; done: Promise<void> } | null = null;
   #starting = false;
 
   constructor(
     private readonly repository: AssetScanRepository,
     private readonly executor: NmapExecutor,
-    readonly networks: readonly string[],
+    private readonly networkSource: readonly string[] | AssetScanNetworkSource,
     private readonly concurrency = ASSET_SCAN_DEFAULT_CONCURRENCY,
     private readonly hostTimeoutMs = ASSET_SCAN_HOST_TIMEOUT_MS,
     private readonly discoveryTimeoutMs = ASSET_SCAN_DISCOVERY_TIMEOUT_MS,
@@ -37,20 +42,31 @@ export class AssetScanController {
   }
 
   async state(): Promise<AssetScanState> {
-    if (!this.networks.length) return { available: false, networks: [], current: null, last: null };
+    const options = await this.#networkOptions();
+    const routable = options.filter((item): item is EnrichedScanNetwork & { route_kind: "direct" | "routed" } => item.route_kind === "direct" || item.route_kind === "routed");
+    if (!routable.length) return { available: false, networks: [], network_options: [], current: null, last: null };
     const available = await this.executor.available();
-    return { available, networks: this.networks, current: this.#active?.record ?? null, last: await this.repository.last(AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS)) };
+    return {
+      available,
+      networks: routable.map((item) => item.cidr),
+      network_options: routable.map((item) => ({ name: item.name, cidr: item.cidr, route_kind: item.route_kind })),
+      current: this.#active?.record ?? null,
+      last: await this.repository.last(AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS)),
+    };
   }
 
   async start(mode: AssetScanMode, network: string): Promise<AssetScanRecord> {
     if (this.#active || this.#starting) throw new AssetScanError("SCAN_ALREADY_RUNNING");
-    if (!this.networks.includes(network) || !await this.executor.available()) throw new AssetScanError("SCANNER_UNAVAILABLE");
+    const configured = (await this.#networkOptions()).find((item) => item.cidr === network);
+    if (!configured) throw new AssetScanError("SCAN_NETWORK_NOT_ALLOWED");
+    if (configured.route_kind !== "direct" && configured.route_kind !== "routed") throw new AssetScanError("SCAN_NETWORK_ROUTE_UNAVAILABLE");
+    if (!await this.executor.available()) throw new AssetScanError("SCANNER_UNAVAILABLE");
     this.#starting = true;
     try {
       const startedAt = this.now().toISOString();
       const record = await this.repository.create(mode, network, startedAt, AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
       const abort = new AbortController();
-      const active = { record, abort, done: Promise.resolve() };
+      const active = { record, routeKind: configured.route_kind, abort, done: Promise.resolve() };
       this.#active = active;
       active.done = this.#run(active).finally(() => { if (this.#active === active) this.#active = null; });
       void active.done.catch(() => undefined);
@@ -76,10 +92,10 @@ export class AssetScanController {
     await active.done;
   }
 
-  async #run(active: { record: AssetScanRecord; abort: AbortController; done: Promise<void> }): Promise<void> {
+  async #run(active: { record: AssetScanRecord; routeKind: "direct" | "routed"; abort: AbortController; done: Promise<void> }): Promise<void> {
     try {
       const discoveryXml = await runBounded(
-        this.executor, "discovery", active.record.network, active.abort.signal, this.discoveryTimeoutMs,
+        this.executor, active.routeKind === "routed" ? "discovery-routed" : "discovery", active.record.network, active.abort.signal, this.discoveryTimeoutMs,
       );
       const discovered = parseNmapXml(discoveryXml).slice(0, ASSET_SCAN_MAX_HOSTS);
       active.record = { ...active.record, discovered_count: discovered.length };
@@ -150,10 +166,29 @@ export class AssetScanController {
   #persist(record: AssetScanRecord): Promise<void> {
     return this.repository.update(record, AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
   }
+
+  async #networkOptions(): Promise<readonly EnrichedScanNetwork[]> {
+    if (!isStaticNetworkSource(this.networkSource)) return this.networkSource.enabled();
+    const now = this.now().toISOString();
+    return this.networkSource.map((cidr, index) => ({
+      id: `static-${index}`,
+      name: null,
+      cidr,
+      enabled: true,
+      origin: "bootstrap" as const,
+      created_at: now,
+      updated_at: now,
+      route_kind: "direct" as const,
+      interface_name: null,
+      source_ip: null,
+      gateway: null,
+      reason_code: "ROUTE_AVAILABLE" as const,
+    }));
+  }
 }
 
 export class AssetScanError extends Error {
-  constructor(readonly code: "SCAN_ALREADY_RUNNING" | "SCANNER_UNAVAILABLE" | "SCAN_NOT_RUNNING") { super(code); this.name = "AssetScanError"; }
+  constructor(readonly code: "SCAN_ALREADY_RUNNING" | "SCANNER_UNAVAILABLE" | "SCAN_NOT_RUNNING" | "SCAN_NETWORK_NOT_ALLOWED" | "SCAN_NETWORK_ROUTE_UNAVAILABLE") { super(code); this.name = "AssetScanError"; }
 }
 
 function safeErrorCode(error: unknown): string {
@@ -166,7 +201,7 @@ function safeErrorCode(error: unknown): string {
 
 async function runBounded(
   executor: NmapExecutor,
-  mode: "discovery" | "fingerprint",
+  mode: "discovery" | "discovery-routed" | "fingerprint",
   target: string,
   parentSignal: AbortSignal,
   timeoutMs: number,
@@ -182,4 +217,8 @@ async function runBounded(
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+}
+
+function isStaticNetworkSource(value: readonly string[] | AssetScanNetworkSource): value is readonly string[] {
+  return Array.isArray(value);
 }

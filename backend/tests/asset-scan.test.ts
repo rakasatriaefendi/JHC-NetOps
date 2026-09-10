@@ -17,7 +17,8 @@ const STARTED = "2026-09-09T00:00:00.000Z";
 
 test("scan contract accepts only canonical bounded RFC1918 networks and allowlisted requests", () => {
   for (const value of ["192.168.1.0/24", "10.20.0.0/22", "172.16.4.0/23"]) assert.equal(normalizePrivateCidr(value), value);
-  for (const value of ["8.8.8.0/24", "127.0.0.0/24", "169.254.1.0/24", "224.0.0.0/24", "0.0.0.0/0", "192.168.1.1/24", "192.168.0.0/21", "192.168.1.0/33"]) assert.equal(normalizePrivateCidr(value), null);
+  assert.equal(normalizePrivateCidr("192.168.1.17/24"), "192.168.1.0/24");
+  for (const value of ["8.8.8.0/24", "127.0.0.0/24", "169.254.1.0/24", "224.0.0.0/24", "0.0.0.0/0", "192.168.0.0/21", "192.168.1.0/33"]) assert.equal(normalizePrivateCidr(value), null);
   assert.deepEqual(validateAssetScanRequest({ mode: "deep", network: NETWORK }, [NETWORK]), { ok: true, value: { mode: "deep", network: NETWORK } });
   assert.equal(validateAssetScanRequest({ mode: "deep", network: "10.0.0.0/24" }, [NETWORK]).ok, false);
   assert.equal(validateAssetScanRequest({ mode: "deep", network: NETWORK, flags: "--script all" }, [NETWORK]).ok, false);
@@ -34,7 +35,7 @@ test("missing network configuration keeps the scanner unavailable without invoki
   const state = await controller.state();
   assert.equal(state.available, false);
   assert.equal(availabilityChecks, 0);
-  await assert.rejects(() => controller.start("quick", NETWORK), (error: unknown) => error instanceof AssetScanError && error.code === "SCANNER_UNAVAILABLE");
+  await assert.rejects(() => controller.start("quick", NETWORK), (error: unknown) => error instanceof AssetScanError && error.code === "SCAN_NETWORK_NOT_ALLOWED");
   assert.equal(availabilityChecks, 0);
 });
 
@@ -188,6 +189,7 @@ test("migration and privileged helper remain bounded, fixed-argument and isolate
   assert.match(migration, /asset\.scan_runs/); assert.match(migration, /active_scan/); assert.match(migration, /WHERE status = 'running'/);
   assert.doesNotMatch(migration, /DROP\s+(?:TABLE|DATABASE|SCHEMA)|TRUNCATE|REFERENCES\s+(?:public|auth)\./i);
   assert.match(helper, /-sn -PR --send-ip -T4 -oX -/); assert.match(helper, /-Pn -O -sV --version-light --osscan-guess --open -oX -/);
+  assert.match(helper, /discovery-routed/); assert.match(helper, /-PE -PS22,80,443 -PA80,443/);
   assert.doesNotMatch(helper, /\beval\b|sh -c|bash -c/);
   assert.match(executor, /process\.kill\(-child\.pid, signal\)/);
   assert.match(executor, /SIGTERM/); assert.match(executor, /SIGKILL/);

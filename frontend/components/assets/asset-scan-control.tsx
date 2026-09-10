@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 
 import { cancelAssetScanAction, getAssetScanStateAction, startAssetScanAction } from "@/app/actions/assets";
 import { Button } from "@/components/ui/button";
+import { ScanNetworkSettings } from "@/components/assets/scan-network-settings";
 import type { AssetScanMode, AssetScanState } from "@/lib/asset-scan-contract";
 
 type Props = Readonly<{
@@ -20,6 +21,7 @@ export function AssetScanControl({ initialState, initialError, canScan }: Props)
   const router = useRouter();
   const [state, setState] = useState(initialState);
   const [open, setOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<AssetScanMode>("deep");
   const [network, setNetwork] = useState(initialState?.networks[0] ?? "");
   const [pending, setPending] = useState(false);
@@ -81,9 +83,17 @@ export function AssetScanControl({ initialState, initialError, canScan }: Props)
     setPending(false);
   }
 
+  async function refreshNetworks() {
+    const result = await getAssetScanStateAction();
+    if (result.data) {
+      setState(result.data);
+      setNetwork((current) => result.data?.networks.includes(current) ? current : result.data?.networks[0] ?? "");
+    }
+  }
+
   return <div className="w-full">
-    {canScan && !running ? <div className="flex justify-end"><Button disabled={!state?.available || Boolean(running)} onClick={() => setOpen(true)}>{t(state?.last ? "scan.repeat" : "scan.action")}</Button></div> : null}
-    {!state?.available ? <p className="mt-2 max-w-sm text-meta text-text-muted">{t(initialError === "unavailable" ? "scan.stateUnavailable" : "scan.unavailable")}</p> : null}
+    {!running ? <div className="flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={() => setSettingsOpen(true)}>{t("scanNetworks.action")}</Button>{canScan ? <Button disabled={!state?.available || Boolean(running)} onClick={() => setOpen(true)}>{t(state?.last ? "scan.repeat" : "scan.action")}</Button> : null}</div> : null}
+    {!state?.available ? <p className="mt-2 max-w-sm text-meta text-text-muted">{t(initialError === "unavailable" ? "scan.stateUnavailable" : state?.networks.length === 0 ? "scan.noEnabledNetworks" : "scan.unavailable")}</p> : null}
     {running ? <div className="w-full rounded-panel border border-accent bg-bg-surface p-5" aria-live="polite">
       <p className="text-center font-medium text-accent">{t("scan.running", { mode: t(`scan.mode.${running.mode}.title`) })}</p>
       <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-center text-meta"><Metric label={t("scan.discovered")} value={running.discovered_count} /><Metric label={t("scan.fingerprinted")} value={`${running.fingerprinted_count} / ${running.discovered_count}`} /><Metric label={t("scan.failed")} value={running.failed_count} /><Metric label={t("scan.elapsed")} value={durationLabel(clock - Date.parse(running.started_at))} /></dl>
@@ -96,12 +106,18 @@ export function AssetScanControl({ initialState, initialError, canScan }: Props)
       <button aria-label={t("common:actions.close")} className="absolute inset-0 bg-bg-base/80" onClick={() => setOpen(false)} type="button" />
       <div className="relative w-full max-w-xl rounded-panel border border-accent bg-bg-surface p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-3"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("scan.eyebrow")}</p><h2 className="mt-2 text-section font-semibold">{t("scan.dialogTitle")}</h2></div><Button variant="secondary" onClick={() => setOpen(false)}>{t("common:actions.close")}</Button></div>
-        <label className="mt-5 grid gap-1 text-meta text-text-secondary"><span>{t("scan.network")}</span>{state.networks.length === 1 ? <span className="rounded-control border border-border bg-bg-base px-3 py-2 font-data text-text-primary">{state.networks[0]}</span> : <select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={network} onChange={(event) => setNetwork(event.target.value)}>{state.networks.map((item) => <option key={item} value={item}>{item}</option>)}</select>}</label>
+        <label className="mt-5 grid gap-1 text-meta text-text-secondary"><span>{t("scan.network")}</span>{state.networks.length === 1 ? <span className="rounded-control border border-border bg-bg-base px-3 py-2 font-data text-text-primary">{networkLabel(state, state.networks[0] ?? "")}</span> : <select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={network} onChange={(event) => setNetwork(event.target.value)}>{state.networks.map((item) => <option key={item} value={item}>{networkLabel(state, item)}</option>)}</select>}</label>
         <fieldset className="mt-5 grid gap-3"><legend className="sr-only">{t("scan.modeLabel")}</legend>{(["quick", "deep"] as const).map((item) => <label className={`cursor-pointer rounded-control border p-4 ${mode === item ? "border-accent" : "border-border"}`} key={item}><span className="flex items-center gap-2"><input checked={mode === item} name="scan-mode" onChange={() => setMode(item)} type="radio" /><strong>{t(`scan.mode.${item}.title`)}</strong></span><span className="mt-1 block pl-6 text-meta text-text-secondary">{t(`scan.mode.${item}.description`)}</span></label>)}</fieldset>
         <Button className="mt-5 w-full" disabled={pending || !network} onClick={() => void start()}>{pending ? t("scan.starting") : t("scan.start", { mode: t(`scan.mode.${mode}.short`) })}</Button>
       </div>
     </div> : null}
+    {settingsOpen ? <ScanNetworkSettings canManage={canScan} onClose={() => setSettingsOpen(false)} onNetworksChanged={refreshNetworks} /> : null}
   </div>;
+}
+
+function networkLabel(state: AssetScanState, cidr: string): string {
+  const option = state.network_options?.find((item) => item.cidr === cidr);
+  return option?.name ? `${option.name} — ${cidr}` : cidr;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
@@ -118,5 +134,5 @@ function timeLabel(value: string | null, locale: string): string {
 }
 
 function safeUiError(value: string): string {
-  return ["SCAN_ALREADY_RUNNING", "SCANNER_UNAVAILABLE", "SCAN_NETWORK_NOT_ALLOWED", "ASSET_SCAN_STATE_FAILED"].includes(value) ? value : "ASSET_SCAN_FAILED";
+  return ["SCAN_ALREADY_RUNNING", "SCANNER_UNAVAILABLE", "SCAN_NETWORK_NOT_ALLOWED", "SCAN_NETWORK_ROUTE_UNAVAILABLE", "ASSET_SCAN_STATE_FAILED"].includes(value) ? value : "ASSET_SCAN_FAILED";
 }

@@ -25,6 +25,7 @@ export type AssetScanRecord = Readonly<{
 export type AssetScanState = Readonly<{
   available: boolean;
   networks: readonly string[];
+  network_options?: readonly Readonly<{ name: string | null; cidr: string; route_kind: "direct" | "routed" }>[];
   current: AssetScanRecord | null;
   last: AssetScanRecord | null;
 }>;
@@ -42,7 +43,7 @@ export function parseAllowedScanNetworks(value: string | undefined): readonly st
   return normalized;
 }
 
-export function validateAssetScanRequest(value: unknown, networks: readonly string[]):
+export function validateAssetScanRequest(value: unknown, networks?: readonly string[]):
   | { ok: true; value: { mode: AssetScanMode; network: string } }
   | { ok: false; code: "INVALID_SCAN_REQUEST" | "SCAN_NETWORK_NOT_ALLOWED" } {
   if (!record(value) || Object.keys(value).some((key) => key !== "mode" && key !== "network") ||
@@ -50,7 +51,7 @@ export function validateAssetScanRequest(value: unknown, networks: readonly stri
     return { ok: false, code: "INVALID_SCAN_REQUEST" };
   }
   const network = normalizePrivateCidr(value.network);
-  if (!network || network !== value.network || !networks.includes(network)) {
+  if (!network || network !== value.network || (networks !== undefined && !networks.includes(network))) {
     return { ok: false, code: "SCAN_NETWORK_NOT_ALLOWED" };
   }
   return { ok: true, value: { mode: value.mode, network } };
@@ -70,8 +71,19 @@ export function normalizePrivateCidr(value: unknown): string | null {
   const size = 2 ** (32 - prefix);
   const base = Math.floor(ip / size) * size;
   const last = base + size - 1;
-  if (ip !== base || !isRfc1918(base) || !isRfc1918(last) || size > ASSET_SCAN_MAX_ADDRESSES) return null;
+  if (!isRfc1918(base) || !isRfc1918(last) || size > ASSET_SCAN_MAX_ADDRESSES) return null;
   return `${formatIpv4(base)}/${prefix}`;
+}
+
+export function representativePrivateIpv4(cidr: string): string | null {
+  const normalized = normalizePrivateCidr(cidr);
+  if (!normalized) return null;
+  const [baseAddress, rawPrefix] = normalized.split("/");
+  const base = parseIpv4(baseAddress ?? "");
+  const prefix = Number(rawPrefix);
+  if (base === null || !Number.isSafeInteger(prefix)) return null;
+  const size = 2 ** (32 - prefix);
+  return formatIpv4(base + (size > 2 ? 1 : 0));
 }
 
 export function normalizePrivateIpv4(value: unknown): string | null {

@@ -4,6 +4,7 @@ SET ROLE jhc_netops_owner;
 \ir ../../backend/migrations/002_asset_intelligence.sql
 \ir ../../backend/migrations/003_active_inventory_scan.sql
 \ir ../../backend/migrations/004_asset_change_history.sql
+\ir ../../backend/migrations/005_scan_network_settings.sql
 GRANT USAGE ON SCHEMA asset TO jhc_netops_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA asset TO jhc_netops_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA asset TO jhc_netops_app;
