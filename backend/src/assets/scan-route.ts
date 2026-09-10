@@ -7,7 +7,7 @@ import { validateAssetScanRequest } from "./scan-contract.js";
 
 export type AssetScanRouteOptions = Readonly<{
   token: string;
-  controller: Pick<AssetScanController, "networks" | "state" | "start" | "cancel">;
+  controller: Pick<AssetScanController, "state" | "start" | "cancel">;
 }>;
 
 export function registerAssetScanRoutes(server: FastifyInstance, options: AssetScanRouteOptions): void {
@@ -25,7 +25,7 @@ export function registerAssetScanRoutes(server: FastifyInstance, options: AssetS
 
   server.post("/api/assets/scan", async (request, reply) => {
     if (!authorized(request.headers.authorization)) return unauthorized(reply);
-    const validated = validateAssetScanRequest(request.body, options.controller.networks);
+    const validated = validateAssetScanRequest(request.body);
     if (!validated.ok) {
       return reply.code(400).send({ error: { code: validated.code, message: "Scan request is invalid or not allowed" } });
     }
@@ -60,7 +60,9 @@ function scanError(
   reply: FastifyReply,
 ) {
   if (error instanceof AssetScanError) {
-    const status = error.code === "SCAN_ALREADY_RUNNING" ? 409 : error.code === "SCANNER_UNAVAILABLE" ? 503 : 404;
+    const status = error.code === "SCAN_ALREADY_RUNNING" ? 409
+      : error.code === "SCANNER_UNAVAILABLE" || error.code === "SCAN_NETWORK_ROUTE_UNAVAILABLE" ? 503
+        : error.code === "SCAN_NETWORK_NOT_ALLOWED" ? 400 : 404;
     return reply.code(status).send({ error: { code: error.code, message: scanMessage(error.code) } });
   }
   logger.error({ request_id: requestId, error_code: "ASSET_SCAN_FAILED" }, "asset scan request failed");
@@ -70,5 +72,7 @@ function scanError(
 function scanMessage(code: AssetScanError["code"]): string {
   if (code === "SCAN_ALREADY_RUNNING") return "Another asset scan is already running";
   if (code === "SCANNER_UNAVAILABLE") return "Asset scanner is not available";
+  if (code === "SCAN_NETWORK_NOT_ALLOWED") return "Scan network is not configured and enabled";
+  if (code === "SCAN_NETWORK_ROUTE_UNAVAILABLE") return "Scan network route is unavailable";
   return "Asset scan is not running";
 }

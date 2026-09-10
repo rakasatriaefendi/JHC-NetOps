@@ -2,6 +2,7 @@ import "server-only";
 
 import { validAssetScanState, type AssetScanMode, type AssetScanRecord, type AssetScanState } from "@/lib/asset-scan-contract";
 import { validAssetChangePayload, type AssetChangeData, type AssetChangeHistoryQuery } from "@/lib/asset-change-contract";
+import { validConfiguredNetworks, validDetectedNetworks, validRoute, type ConfiguredScanNetwork, type DetectedScanNetwork, type ScanNetworkRoute } from "@/lib/scan-network-contract";
 
 export type AssetStatus = "online" | "offline" | "changed" | "unknown";
 export type AssetSort = "name_asc" | "name_desc";
@@ -175,6 +176,45 @@ export async function cancelAssetScan(id: string): Promise<{ data: AssetScanReco
   return mutateAssetScan("DELETE", `/api/assets/scan/${id}`, null);
 }
 
+export async function loadScanNetworks(): Promise<{ data: readonly ConfiguredScanNetwork[] | null; error: string | null }> {
+  const result = await assetBackendRequest("GET", "/api/assets/scan-networks");
+  return result.ok && validConfiguredNetworks(result.payload)
+    ? { data: result.payload.data.networks, error: null }
+    : { data: null, error: result.error ?? "SCAN_NETWORKS_UNAVAILABLE" };
+}
+
+export async function loadDetectedScanNetworks(): Promise<{ data: { available: boolean; networks: readonly DetectedScanNetwork[] } | null; error: string | null }> {
+  const result = await assetBackendRequest("GET", "/api/assets/scan-networks/detected");
+  return result.ok && validDetectedNetworks(result.payload)
+    ? { data: { available: result.payload.data.available, networks: result.payload.data.networks }, error: null }
+    : { data: null, error: result.error ?? "SCAN_NETWORKS_UNAVAILABLE" };
+}
+
+export async function testScanNetwork(cidr: string): Promise<{ data: ScanNetworkRoute | null; error: string | null }> {
+  const result = await assetBackendRequest("POST", "/api/assets/scan-networks/test", { cidr });
+  if (!result.ok || !record(result.payload) || !record(result.payload.data) || !validRoute(result.payload.data)) {
+    return { data: null, error: result.error ?? "SCAN_NETWORKS_UNAVAILABLE" };
+  }
+  return { data: result.payload.data, error: null };
+}
+
+export async function createScanNetwork(name: string, cidr: string, origin: "manual" | "detected" = "manual") {
+  const result = await assetBackendRequest("POST", "/api/assets/scan-networks", { name: name || null, cidr, origin });
+  return { ok: result.ok, error: result.ok ? null : result.error ?? "SCAN_NETWORKS_UNAVAILABLE" };
+}
+
+export async function updateScanNetwork(id: string, change: { name?: string | null; enabled?: boolean }) {
+  if (!validUuid(id)) return { ok: false, error: "INVALID_SCAN_NETWORK_ID" };
+  const result = await assetBackendRequest("PATCH", `/api/assets/scan-networks/${id}`, change);
+  return { ok: result.ok, error: result.ok ? null : result.error ?? "SCAN_NETWORKS_UNAVAILABLE" };
+}
+
+export async function deleteScanNetwork(id: string) {
+  if (!validUuid(id)) return { ok: false, error: "INVALID_SCAN_NETWORK_ID" };
+  const result = await assetBackendRequest("DELETE", `/api/assets/scan-networks/${id}`);
+  return { ok: result.ok, error: result.ok ? null : result.error ?? "SCAN_NETWORKS_UNAVAILABLE" };
+}
+
 async function mutateAssetScan(method: "POST" | "DELETE", path: string, body: object | null) {
   const config = localBackendConfig();
   if (!config) return { data: null, error: "SCANNER_UNAVAILABLE" };
@@ -209,6 +249,34 @@ function localBackendConfig(): { origin: string; token: string } | null {
   const token = process.env.LOCAL_BACKEND_FRONTEND_TOKEN?.trim();
   const origin = backendUrl ? safeLoopbackOrigin(backendUrl) : null;
   return origin && token && token.length >= 32 && token.length <= 512 && !/[\r\n]/.test(token) ? { origin, token } : null;
+}
+
+async function assetBackendRequest(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: object): Promise<{ ok: boolean; payload: unknown; error: string | null }> {
+  const config = localBackendConfig();
+  if (!config) return { ok: false, payload: null, error: "SCAN_NETWORKS_UNAVAILABLE" };
+  try {
+    const response = await fetch(new URL(path, config.origin), {
+      method,
+      headers: { authorization: `Bearer ${config.token}`, ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      cache: "no-store",
+      signal: AbortSignal.timeout(12_000),
+    });
+    const payload: unknown = response.status === 204 ? null : await response.json();
+    return { ok: response.ok, payload, error: response.ok ? null : safeScanNetworkCode(payload) };
+  } catch { return { ok: false, payload: null, error: "SCAN_NETWORKS_UNAVAILABLE" }; }
+}
+
+function safeScanNetworkCode(value: unknown): string {
+  if (!record(value) || !record(value.error) || typeof value.error.code !== "string") return "SCAN_NETWORKS_UNAVAILABLE";
+  return ["INVALID_SCAN_NETWORK", "SCAN_NETWORK_PUBLIC", "SCAN_NETWORK_TOO_BROAD", "INVALID_SCAN_NETWORK_NAME",
+    "INVALID_SCAN_NETWORK_UPDATE", "INVALID_SCAN_NETWORK_ID", "SCAN_NETWORK_DUPLICATE", "SCAN_NETWORK_LIMIT_REACHED",
+    "SCAN_NETWORK_ROUTE_UNAVAILABLE", "SCAN_NETWORK_NOT_FOUND"].includes(value.error.code)
+    ? value.error.code : "SCAN_NETWORKS_UNAVAILABLE";
+}
+
+function validUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function optionalString(value: unknown, maximum: number): boolean {

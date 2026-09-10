@@ -1,6 +1,7 @@
 # P10D Asset Intelligence split plan
 
-Date: 2026-09-09. P10D1-A, P10D1-B, and the narrowed P10D2 Asset Change History are implemented in source; runtime acceptance remains pending.
+Date: 2026-09-09. P10D1-A, P10D1-B, the narrowed P10D2 Asset Change History,
+and P10D3 Scan Network Settings are implemented in source; runtime acceptance remains pending.
 
 ## Product boundary
 

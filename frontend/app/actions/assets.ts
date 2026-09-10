@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
-import { cancelAssetScan, loadAssetChangeHistory, loadAssetScanState, requestAssetScan } from "@/lib/assets";
+import { cancelAssetScan, createScanNetwork, deleteScanNetwork, loadAssetChangeHistory, loadAssetScanState, loadDetectedScanNetworks, loadScanNetworks, requestAssetScan, testScanNetwork, updateScanNetwork } from "@/lib/assets";
 import type { AssetScanMode } from "@/lib/asset-scan-contract";
 
 export async function getAssetScanStateAction() {
@@ -35,4 +35,40 @@ export async function getAssetChangeHistoryAction(assetId: string, page = 1) {
     return { data: null, error: "unavailable" as const };
   }
   return loadAssetChangeHistory({ page: String(page), page_size: "10" }, assetId);
+}
+
+export async function getScanNetworksAction() {
+  await requireApprovedProfile();
+  return loadScanNetworks();
+}
+
+export async function getDetectedScanNetworksAction() {
+  await requireApprovedProfile();
+  return loadDetectedScanNetworks();
+}
+
+export async function testScanNetworkAction(cidr: string) {
+  await requireOperatorProfile();
+  return testScanNetwork(cidr);
+}
+
+export async function createScanNetworkAction(name: string, cidr: string, origin: "manual" | "detected" = "manual") {
+  await requireOperatorProfile();
+  const result = await createScanNetwork(name, cidr, origin);
+  if (result.ok) revalidatePath("/assets");
+  return result;
+}
+
+export async function updateScanNetworkAction(id: string, change: { name?: string | null; enabled?: boolean }) {
+  await requireOperatorProfile();
+  const result = await updateScanNetwork(id, change);
+  if (result.ok) revalidatePath("/assets");
+  return result;
+}
+
+export async function deleteScanNetworkAction(id: string) {
+  await requireOperatorProfile();
+  const result = await deleteScanNetwork(id);
+  if (result.ok) revalidatePath("/assets");
+  return result;
 }

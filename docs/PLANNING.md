@@ -605,5 +605,10 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   ternormalisasi, grouped created/changed events transaksional, read API bounded,
   tab History, riwayat detail aset, dan badge PERANGKAT BARU 24 jam. Deployment
   serta acceptance PostgreSQL/Mini PC tetap menunggu change window operator.
+- [~] P10D3 Scan Network Settings + routed-network source implementation: migration 005,
+  bootstrap `.env` satu kali, allowlist DB durable, deteksi iproute2 opsional,
+  konfigurasi jaringan privat manual, route-only test, strategi Quick direct/routed,
+  API loopback, selector scan aktif, serta UI id/en. Seluruh migration/deploy dan
+  acceptance Mini PC/network nyata tetap pending operator.
 - [ ] P10E Excel, P10F Medical Equipment, dan P11 migrasi domain Supabase tetap
   sengaja deferred.

@@ -44,6 +44,10 @@ case "$mode" in
     valid_network "$target" || { echo "invalid discovery target" >&2; exit 64; }
     exec "$NMAP" -sn -PR --send-ip -T4 -oX - "$target"
     ;;
+  discovery-routed)
+    valid_network "$target" || { echo "invalid discovery target" >&2; exit 64; }
+    exec "$NMAP" -sn -PE -PS22,80,443 -PA80,443 -T4 --max-retries 1 --host-timeout 3s -oX - "$target"
+    ;;
   fingerprint)
     valid_host "$target" || { echo "invalid fingerprint target" >&2; exit 64; }
     exec "$NMAP" -Pn -O -sV --version-light --osscan-guess --open -oX - "$target"

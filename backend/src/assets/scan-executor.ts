@@ -6,7 +6,7 @@ import type { Readable } from "node:stream";
 import { NMAP_XML_MAX_BYTES } from "./nmap-parser.js";
 import { normalizePrivateCidr, normalizePrivateIpv4 } from "./scan-contract.js";
 
-export type NmapExecutionMode = "discovery" | "fingerprint";
+export type NmapExecutionMode = "discovery" | "discovery-routed" | "fingerprint";
 
 export interface NmapExecutor {
   available(): Promise<boolean>;
@@ -32,7 +32,7 @@ export class PrivilegedNmapExecutor implements NmapExecutor {
   }
 
   run(mode: NmapExecutionMode, target: string, signal: AbortSignal): Promise<string> {
-    const normalized = mode === "discovery" ? normalizePrivateCidr(target) : normalizePrivateIpv4(target);
+    const normalized = mode === "fingerprint" ? normalizePrivateIpv4(target) : normalizePrivateCidr(target);
     if (!normalized || normalized !== target) return Promise.reject(new ScanExecutionError("SCAN_TARGET_INVALID"));
     return runChild(this.spawnProcess(this.sudoPath, ["-n", this.helperPath, mode, normalized], {
       detached: process.platform !== "win32",
