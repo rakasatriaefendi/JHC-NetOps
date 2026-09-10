@@ -1,16 +1,17 @@
 # P10D Asset Intelligence split plan
 
-Date: 2026-09-08. P10D1 is implemented in source; P10D2 remains explicitly deferred.
+Date: 2026-09-09. P10D1-A and P10D1-B are implemented in source; P10D2 remains explicitly deferred.
 
 ## Product boundary
 
 Asset Inventory remains the compact entry point. Existing Discovery, Device
 Inspector, Health Watch, Managed SNMP/Ruijie, Observed LAN Hosts, and Diagnostics
-remain authoritative producers. P10D consumes their already-normalized evidence;
-it does not add a second scanner, collector, PM2 process, Flask/MariaDB service,
-port 5002, arbitrary Nmap walk, or automatic network operation.
+remain authoritative producers. P10D1-A consumes their already-normalized evidence.
+P10D1-B adds one explicit active-scan capability inside the existing backend; it
+does not add a second API/service, PM2 process, Flask/MariaDB service, port 5002,
+arbitrary Nmap target/flags, or automatic network operation.
 
-## P10D1 — evidence ingestion and asset intelligence (implemented in source)
+## P10D1-A — retained evidence ingestion (implemented in source)
 
 ### Persistence and reconciliation
 
@@ -65,6 +66,16 @@ records by `node:<uuid>` or the conservative uncorrelated Observed Host key, and
 uses one parameterized PostgreSQL bulk upsert. It never starts Discovery, Device
 Inspector, SNMP, ICMP, Nmap, or another collector. A failed source refresh leaves
 the retained local inventory readable.
+
+## P10D1-B — active inventory enrichment (implemented in source)
+
+An approved Operator/Admin can explicitly start Quick Discovery or Deep Inventory
+Scan from `/assets`. The backend accepts only configured canonical RFC1918 CIDRs,
+uses a fixed root-owned helper interface, parses bounded Nmap XML, and reconciles
+by current MAC then IP into the existing stable-key asset row. Deep fingerprinting
+uses bounded workers and per-host deadlines. One active job is allowed, cancel
+terminates active processes, and restart recovery prevents stale `running` state.
+No raw XML, credentials, P10D2 identity snapshots, or change events are stored.
 
 ## P10D2 — identity reconciliation and Asset Changes history
 

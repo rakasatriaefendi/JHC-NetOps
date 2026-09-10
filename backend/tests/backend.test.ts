@@ -55,6 +55,20 @@ test("asset database configuration is optional, paired, and isolated from Postgr
   });
   assert.equal(configured.assets?.frontendApiToken, "f".repeat(32));
   assert.match(configured.assets?.databaseUrl ?? "", /127\.0\.0\.1:5433\/jhc_netops$/);
+  assert.deepEqual(configured.assets?.scan, {
+    networks: [], helperPath: "/usr/local/libexec/jhc-netops-asset-scan", concurrency: 4,
+    hostTimeoutMs: 45_000, discoveryTimeoutMs: 120_000,
+  });
+
+  const scanner = loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
+    FRONTEND_API_TOKEN: "f".repeat(32),
+    ASSET_SCAN_NETWORKS: "192.168.1.0/24,10.20.0.0/22",
+    ASSET_SCAN_CONCURRENCY: "8",
+  });
+  assert.deepEqual(scanner.assets?.scan.networks, ["192.168.1.0/24", "10.20.0.0/22"]);
+  assert.equal(scanner.assets?.scan.concurrency, 8);
 
   for (const environment of [
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops" },
@@ -64,6 +78,8 @@ test("asset database configuration is optional, paired, and isolated from Postgr
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/montblanc", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://postgres:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@192.168.1.130:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32), ASSET_SCAN_NETWORKS: "8.8.8.0/24" },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32), ASSET_SCAN_CONCURRENCY: "9" },
   ]) assert.throws(() => loadBackendConfig(environment), BackendConfigurationError);
 });
 

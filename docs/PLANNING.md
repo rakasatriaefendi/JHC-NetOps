@@ -597,5 +597,9 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   `network_nodes`, saved Device Inspector fingerprint, Health Watch latest,
   Managed SNMP latest, dan Observed LAN Hosts; stable-key bulk upsert, klasifikasi
   konservatif, Insights, tabel ringkas, serta modal Overview/Network.
+- [x] P10D1-B source implementation: Quick Discovery dan Deep Inventory Scan
+  operator-triggered melalui backend loopback, allowlist CIDR RFC1918, fixed Nmap
+  helper, bounded concurrency/deadline/cancellation, normalisasi XML, serta
+  enrichment idempotent. Deployment dan Mini PC acceptance tetap menunggu operator.
 - [ ] P10D2 identity/change history, P10E Excel, P10F Medical Equipment, dan P11
   migrasi domain Supabase (semuanya sengaja deferred).

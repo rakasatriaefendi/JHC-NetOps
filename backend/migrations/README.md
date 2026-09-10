@@ -6,6 +6,8 @@ PostgreSQL `16/main`, `mercure`, `montblanc`, or Supabase.
 
 Migrations are forward-only and non-destructive. `002_asset_intelligence.sql`
 adds the P10D1 stable source key and bounded normalized evidence fields; it does
-not add P10D2 identity/history tables. Apply migrations through the reviewed
+not add P10D2 identity/history tables. `003_active_inventory_scan.sql` adds the
+`active_scan` source and bounded lifecycle metadata only; raw XML is excluded.
+Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

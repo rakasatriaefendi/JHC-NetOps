@@ -42,7 +42,15 @@ export type AssetRecord = Readonly<{
   os_confidence: "low" | "medium" | "high" | null;
   classification_evidence: readonly Readonly<{ source: string; label: string; value: string }>[];
   open_ports: readonly number[];
-  detected_services: readonly Readonly<{ protocol: "tcp" | "udp"; port: number; name: string }>[];
+  detected_services: readonly Readonly<{
+    protocol: "tcp" | "udp";
+    port: number;
+    name: string;
+    product?: string;
+    version?: string;
+    extra_info?: string;
+    tunnel?: string;
+  }>[];
   latency_ms: number | null;
   evidence_updated_at: string | null;
   network_node_ref: string | null;

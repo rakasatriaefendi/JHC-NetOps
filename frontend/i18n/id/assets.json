@@ -1,7 +1,7 @@
 {
   "eyebrow": "Manajemen aset",
   "title": "Inventaris Aset",
-  "description": "Inventaris ringkas yang diperkaya dari bukti NetOps terotorisasi yang sudah ada. Tidak ada pemindaian jaringan tambahan dari halaman ini.",
+  "description": "Inventaris ringkas yang diperkaya dari bukti NetOps terotorisasi. Pemindaian aktif hanya berjalan setelah operator memulainya secara eksplisit.",
   "loading": "Memuat Inventaris Aset",
   "lastUpdated": "Terakhir diperbarui: {{value}}",
   "summary": { "total": "Total aset", "online": "Online", "offline": "Offline", "changed": "Berubah" },
@@ -9,12 +9,22 @@
   "table": { "no": "No", "hostname": "Hostname", "mac": "MAC", "os": "OS", "ports": "Port", "portCount": "{{count}} terdeteksi", "name": "Nama", "type": "Tipe", "status": "Status", "ip": "IP", "vendor": "Vendor", "lastSeen": "Terakhir terlihat", "action": "Aksi" },
   "status": { "online": "Online", "offline": "Offline", "changed": "Berubah", "unknown": "Tidak diketahui" },
   "types": { "unknown": "Tidak diketahui", "network_device": "Perangkat jaringan", "computer": "Komputer", "computer_workstation": "Komputer / Workstation", "windows_pc_server": "PC / Server Windows", "linux_unix_server": "Linux / Unix / Server", "mac_apple_workstation": "Workstation Mac / Apple", "server": "Server", "server_remote_management": "Server / Remote Management", "nas_storage_server": "NAS / Server Penyimpanan", "printer": "Printer", "switch_network": "Switch / Jaringan", "router_firewall": "Router / Firewall", "access_point": "Access Point", "cctv_camera": "CCTV / Kamera", "voip_gateway": "Gateway VoIP", "industrial_controller": "Kontroler Industri", "iot_smart_device": "IoT / Perangkat Pintar", "medical_device": "Perangkat Medis" },
-  "source": { "manual": "Manual", "discovery": "Discovery", "observed_host": "Observed LAN Host", "device_inspector": "Device Inspector", "managed_telemetry": "Managed SNMP", "import": "Impor" },
+  "source": { "manual": "Manual", "discovery": "Discovery", "observed_host": "Observed LAN Host", "device_inspector": "Device Inspector", "managed_telemetry": "Managed SNMP", "active_scan": "Pemindaian aktif", "import": "Impor" },
   "confidence": { "low": "Rendah", "medium": "Sedang", "high": "Tinggi" },
   "actions": { "details": "Detail", "viewDevice": "Lihat Perangkat", "viewHealth": "Lihat Health Watch", "viewSnmp": "Lihat SNMP", "viewObservedHost": "Lihat Observed Host" },
   "insights": { "title": "Insight Aset", "compactHint": "Buka ringkasan dan filter inventaris", "platform": "OS / Platform", "vendor": "Vendor", "vendorType": "Vendor ke tipe perangkat", "empty": "Ringkasan berbasis bukti akan tampil saat evidence ternormalisasi tersedia.", "unavailable": "Belum ada bukti" },
   "detail": { "title": "Detail aset", "overview": "Ringkasan", "network": "Jaringan", "mac": "MAC", "platform": "Platform", "source": "Sumber / bukti", "confidence": "Keyakinan OS", "confidenceHelp": "Tingkat keyakinan klasifikasi OS berdasarkan bukti jaringan yang tersedia. Bukti MAC privat atau acak menurunkan keyakinan bila relevan.", "vendorHelp": "Vendor diperkirakan dari MAC dan bukti perangkat lain yang tersedia. Sebagian perangkat dapat tetap Tidak diketahui.", "firstSeen": "Pertama terlihat", "latency": "Latency terbaru", "evidenceUpdated": "Bukti diperbarui", "evidence": "Bukti ternormalisasi", "services": "Layanan terdeteksi", "noServices": "Belum ada bukti port atau layanan bounded.", "noLinks": "Belum ada tujuan NetOps terkait yang tersedia untuk aset ini." },
   "empty": { "title": "Tidak ada aset yang cocok", "description": "Hapus filter atau tunggu sampai integrasi terotorisasi menambahkan data inventaris." },
   "errors": { "unconfigured": { "title": "Inventaris Aset belum dikonfigurasi", "description": "Koneksi aset PostgreSQL lokal belum diaktifkan pada lingkungan ini." }, "unavailable": { "title": "Inventaris Aset tidak tersedia", "description": "Backend lokal tidak dapat memuat inventaris. Fitur NetOps yang sudah ada tetap tidak terpengaruh." } },
-  "pagination": { "range": "{{from}}-{{to}} dari {{total}}", "page": "Halaman {{page}} / {{pages}}" }
+  "pagination": { "range": "{{from}}–{{to}} dari {{total}}", "page": "Halaman {{page}} dari {{pages}}" },
+  "scan": {
+    "action": "Scan Jaringan", "eyebrow": "Inventaris aktif", "dialogTitle": "Scan Jaringan", "network": "Jaringan", "modeLabel": "Mode pemindaian",
+    "mode": {
+      "quick": { "title": "Quick Discovery", "short": "Quick Discovery", "description": "Temukan perangkat aktif dan identitas jaringan dasar." },
+      "deep": { "title": "Deep Inventory Scan", "short": "Deep Scan", "description": "Temukan perangkat serta perkaya OS, port, layanan, vendor, dan tipe perangkat." }
+    },
+    "start": "Mulai {{mode}}", "starting": "Memulai…", "running": "{{mode}} sedang berjalan", "discovered": "Ditemukan", "fingerprinted": "Fingerprint", "failed": "Gagal", "elapsed": "Waktu", "current": "Memeriksa {{target}}", "cancel": "Batalkan Scan",
+    "last": "Pemindaian terakhir ({{status}}): {{found}} ditemukan · {{enriched}} diperkaya · {{failed}} gagal · {{time}}", "status": { "running": "berjalan", "completed": "selesai", "failed": "gagal", "cancelled": "dibatalkan" }, "viewSummary": "Lihat Ringkasan", "repeat": "Scan Lagi", "unavailable": "Pemindai jaringan belum tersedia di host NetOps.", "stateUnavailable": "Status pemindai sementara tidak tersedia; Inventaris Aset tetap dapat digunakan.",
+    "errors": { "SCAN_ALREADY_RUNNING": "Pemindaian inventaris lain sedang berjalan.", "SCANNER_UNAVAILABLE": "Pemindai jaringan tidak tersedia.", "SCAN_NETWORK_NOT_ALLOWED": "Jaringan yang dipilih tidak diizinkan.", "ASSET_SCAN_FAILED": "Permintaan pemindaian tidak dapat diselesaikan dengan aman.", "ASSET_SCAN_STATE_FAILED": "Progress pemindaian sementara tidak tersedia." }
+  }
 }

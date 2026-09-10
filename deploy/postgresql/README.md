@@ -50,6 +50,10 @@ sudo -u postgres psql --cluster 16/jhcnetops --dbname jhc_netops \
   --file deploy/postgresql/apply-asset-migration.sql
 ```
 
+The wrapper applies P10C migration 001, P10D1-A migration 002, and P10D1-B
+migration 003 in order. Migration 003 adds only active-scan source/lifecycle
+metadata inside schema `asset`; it does not connect to or alter `16/main`.
+
 The runtime application role has no superuser, database-create, role-create,
 replication, bypass-RLS, or inherited-role privilege. The NOLOGIN schema owner is
 separate. Runtime receives only database CONNECT, schema USAGE, and CRUD on the

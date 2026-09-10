@@ -12,7 +12,9 @@ dan backend failure ditampilkan sebagai state lokal yang bounded.
 P10D1 memperkaya route yang sama dengan satu Asset Insights yang collapsed,
 tabel desktop ringkas (No, Status, IP, Hostname, MAC, Vendor, OS, Type, Ports),
 kartu responsif, dan detail Overview/Network terpusat. Pilihan Insight memfilter
-inventaris yang sama; tidak membuat tabel kedua atau memulai operasi jaringan.
+inventaris yang sama. P10D1-B menambahkan dialog Scan Jaringan yang eksplisit
+untuk Operator/Admin; membuka `/assets` hanya membaca inventory/status dan tidak
+pernah memulai scan. Viewer tetap read-only.
 
 ## Stack
 

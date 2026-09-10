@@ -112,3 +112,18 @@ remain available.
 Migration `002_asset_intelligence.sql` adds hostname, bounded ports/services,
 latency, evidence time, and the idempotent stable source key. It does not add
 P10D2 identity, IP/MAC change, snapshot, or event tables.
+
+## P10D1-B: explicit active inventory scan
+
+The same loopback backend exposes `GET/POST /api/assets/scan` and
+`DELETE /api/assets/scan/:id` under the existing frontend server token. A scan
+can target only canonical RFC1918 IPv4 CIDRs in `ASSET_SCAN_NETWORKS` (maximum
+eight networks and 1,024 addresses each). Empty configuration leaves Asset
+Inventory available while reporting the scanner as unavailable.
+
+Quick Discovery runs one fixed discovery operation. Deep Scan follows discovery
+with fixed per-host fingerprint operations, default concurrency 4 (hard maximum
+8), a 45-second host deadline, and a 120-second discovery deadline. Only one run
+is active; cancellation aborts child processes, and startup marks interrupted
+runs failed. XML is parsed and normalized in memory; raw XML is never persisted.
+See `../docs/P10D1B_ACTIVE_INVENTORY_SCAN.md` for the privilege and rollout model.

@@ -3,6 +3,9 @@ import { Pool } from "pg";
 import { PostgresAssetRepository, ASSET_QUERY_TIMEOUT_MS } from "./assets/repository.js";
 import { SupabaseAssetEvidenceSource } from "./assets/evidence.js";
 import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
+import { AssetScanController } from "./assets/scan-controller.js";
+import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
+import { PostgresAssetScanRepository } from "./assets/scan-repository.js";
 import { SupabaseManagedTelemetryRepository } from "./managed-telemetry/repository.js";
 import { SupabaseNetworkHealthRepository } from "./network-health/repository.js";
 import { SupabaseTrafficRepository } from "./traffic/repository.js";
@@ -34,6 +37,17 @@ async function main(): Promise<void> {
       assetRepository,
     )
     : null;
+  const assetScanController = assetPool && config.assets
+    ? new AssetScanController(
+      new PostgresAssetScanRepository(assetPool),
+      new PrivilegedNmapExecutor(config.assets.scan.helperPath),
+      config.assets.scan.networks,
+      config.assets.scan.concurrency,
+      config.assets.scan.hostTimeoutMs,
+      config.assets.scan.discoveryTimeoutMs,
+    )
+    : null;
+  if (assetScanController?.networks.length) await assetScanController.initialize();
   const server = buildServer({
     ...(config.assets && assetRepository ? {
       assets: {
@@ -42,12 +56,21 @@ async function main(): Promise<void> {
         ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
       },
     } : {}),
+    ...(config.assets && assetScanController ? {
+      assetScan: { token: config.assets.frontendApiToken, controller: assetScanController },
+    } : {}),
     runnerHeartbeat: { token: config.runnerApiToken, repository: heartbeatRepository },
     networkHealth: { token: config.runnerApiToken, repository: healthRepository },
     traffic: { token: config.runnerApiToken, repository: trafficRepository },
     managedTelemetry: { token: config.runnerApiToken, repository: telemetryRepository },
   });
-  if (assetPool) server.addHook("onClose", async () => assetPool.end());
+  if (assetPool) server.addHook("onClose", async () => {
+    try {
+      if (assetScanController) await assetScanController.shutdown();
+    } finally {
+      await assetPool.end();
+    }
+  });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {
     void shutdown(signal).catch(() => {
