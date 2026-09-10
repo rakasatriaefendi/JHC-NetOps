@@ -4,11 +4,17 @@ import test from "node:test";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("Asset Inventory is approved-user server data through the loopback backend only", () => {
+test("Asset Inventory data stays on the loopback backend while existing domain providers supply safe context", () => {
   const page = source("../app/(protected)/assets/page.tsx");
   const loader = source("../lib/assets.ts");
   assert.match(page, /requireApprovedProfile\(\)/);
   assert.match(page, /loadAssetInventory\(query\)/);
+  assert.match(page, /loadNetworkNodes\(supabase\)/);
+  assert.match(page, /from\("diagnostic_runners"\)\.select\("id,display_name,last_seen_at,health_status,capabilities"\)/);
+  assert.match(page, /from\("managed_telemetry_targets"\)\.select\("id,network_nodes!inner\(name,ip_address\)"\)/);
+  assert.match(page, /from\("network_targets"\)\.select\("id"\)\.eq\("enabled", true\)/);
+  assert.match(page, /<NetworkNodesProvider/);
+  assert.match(page, /<DeviceProfileProvider/);
   assert.match(loader, /LOCAL_BACKEND_URL/);
   assert.match(loader, /LOCAL_BACKEND_FRONTEND_TOKEN/);
   assert.match(loader, /\["127\.0\.0\.1", "localhost", "\[::1\]"\]/);
@@ -44,13 +50,33 @@ test("compact inventory exposes P10D columns, Insights, filters, pagination, and
   assert.doesNotMatch(component, /identity|IP_CHANGED|MAC_CHANGED|NEW_DEVICE/);
 });
 
-test("contextual links render only when their stable reference exists", () => {
+test("Asset Detail renders bounded SNMP, Health Watch, and Inspector integration states", () => {
   const component = source("../components/assets/asset-inventory.tsx");
-  assert.match(component, /asset\.network_node_ref \?/);
-  assert.match(component, /asset\.health_target_ref \?/);
-  assert.match(component, /asset\.managed_telemetry_target_ref \?/);
-  assert.match(component, /asset\.observed_host_target_ref \?/);
-  assert.doesNotMatch(component, /Register.*Medical|Inspect Device|Export Excel/);
+  assert.match(component, /validLinkedRef\(asset\.network_node_ref\)/);
+  assert.match(component, /verifiedLinkedRef\(asset\.health_target_ref, healthTargetIds\)/);
+  assert.match(component, /verifiedLinkedRef\(asset\.managed_telemetry_target_ref, managedTargets\.map/);
+  assert.match(component, /context=\{managedTarget\?\.context \?\? null\}/);
+  assert.match(component, /validLinkedRef\(asset\.observed_host_target_ref\)/);
+  assert.match(component, /detail\.integrations\.snmp\.linked/);
+  assert.match(component, /detail\.integrations\.snmp\.unlinked/);
+  assert.match(component, /detail\.integrations\.health\.monitored/);
+  assert.match(component, /detail\.integrations\.health\.unmonitored/);
+  assert.match(component, /\/snmp\?target=\$\{encodeURIComponent\(managedTargetRef\)\}#managed-telemetry-workspace/);
+  assert.match(component, /\/dashboard\?target=\$\{encodeURIComponent\(healthTargetRef\)\}/);
+  assert.doesNotMatch(component, /community|auth_password|priv_password|credential_profile/i);
+  assert.doesNotMatch(component, /Register.*Medical|Export Excel/);
+});
+
+test("Asset Detail launches only the existing bounded Inspector with inventory and operator guards", () => {
+  const component = source("../components/assets/asset-inventory.tsx");
+  const page = source("../app/(protected)/assets/page.tsx");
+  assert.match(component, /nodes\.find\(\(node\) => node\.id === networkNodeRef\)/);
+  assert.match(component, /normalizeNetworkNodeIpv4\(inspectorNode\.ip_address\)/);
+  assert.match(component, /canInspect && inspectorIp && inspectorAvailable \? <Button/);
+  assert.match(component, /openDeviceProfile\(\{ ipAddress: inspectorIp, inspect: true \}\)/);
+  assert.match(page, /canInspect=\{canOperate\}/);
+  assert.match(page, /capabilities\.operations\?\.includes\("device_inspect"\)/);
+  assert.doesNotMatch(component, /functions\.invoke|start_inspection/);
 });
 
 test("asset catalogs are paired and contain compact error and empty states", () => {
@@ -65,6 +91,12 @@ test("asset catalogs are paired and contain compact error and empty states", () 
     assert.equal(typeof catalog.table.portCount, "string");
     assert.equal(typeof catalog.history.newDevice, "string");
     assert.equal(typeof catalog.history.empty, "string");
+    assert.equal(typeof catalog.actions.openInspector, "string");
+    assert.equal(typeof catalog.detail.integrations.snmp.linked, "string");
+    assert.equal(typeof catalog.detail.integrations.snmp.unlinked, "string");
+    assert.equal(typeof catalog.detail.integrations.health.monitored, "string");
+    assert.equal(typeof catalog.detail.integrations.health.unmonitored, "string");
+    assert.equal(typeof catalog.detail.integrations.inspector.inventoryRequired, "string");
   }
 });
 

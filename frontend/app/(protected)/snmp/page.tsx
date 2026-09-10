@@ -9,7 +9,7 @@ import { getServerTranslation } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
 
-type SnmpPageProps = { searchParams: Promise<{ telemetry_notice?: string; telemetry_error?: string }> };
+type SnmpPageProps = { searchParams: Promise<{ telemetry_notice?: string; telemetry_error?: string; target?: string }> };
 
 export default async function SnmpPage({ searchParams }: SnmpPageProps) {
   const { t } = await getServerTranslation("snmp");
@@ -37,7 +37,7 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
       <Summary label={t("page.summary.pollErrors")} value={pollErrors} />
       <Summary label={t("page.summary.interfaces")} value={interfaceCount} />
     </section>
-    <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} observedHosts={telemetry.observedHosts} />
+    <ManagedTelemetryDetail targets={telemetry.data} interfaces={telemetry.interfaces} observedHosts={telemetry.observedHosts} {...(params.target ? { initialTargetId: params.target } : {})} />
     <ManagedTelemetryTargets
       nodes={inventory.data}
       runners={runners}

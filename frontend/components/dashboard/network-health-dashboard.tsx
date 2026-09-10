@@ -17,10 +17,10 @@ import { healthTargetPagination, type HealthStatus, type NetworkHealthEvent, typ
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
 
-export function NetworkHealthDashboard({ targets, events, samples, loadError, isAdmin, discoveryRunners, discoverySessions, trafficIps }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; loadError: boolean; isAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[] }) {
+export function NetworkHealthDashboard({ targets, events, samples, loadError, isAdmin, discoveryRunners, discoverySessions, trafficIps, initialTargetId }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; loadError: boolean; isAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[]; initialTargetId?: string }) {
   const { t, i18n } = useTranslation("dashboard");
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => targets.some((target) => target.id === initialTargetId) ? initialTargetId ?? null : null);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [realtime, setRealtime] = useState(false);
   const selected = targets.find((target) => target.id === selectedId) ?? null;

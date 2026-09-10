@@ -116,6 +116,51 @@ it is not an asset status or stored boolean. Medical Equipment remains P10F.
 | Medical equipment registry | `/medical-equipment` under Asset Management | P10F, separate equipment domain, optional asset link. |
 | Existing SNMP/Ruijie | `/snmp` and existing Device Profile | Unchanged; contextual links only. |
 
+## Final cross-domain linkage
+
+Asset Inventory is the inventory and identity/evidence hub, while the existing
+operational domains remain separate and authoritative:
+
+- Managed SNMP remains read-only telemetry. Asset Detail uses the retained
+  `managed_telemetry_target_ref` only when that target still exists, to open the
+  matching existing SNMP target;
+  no credential value or telemetry table is copied into Asset Inventory.
+- Health Watch remains continuous reachability monitoring. Asset Detail uses the
+  retained `health_target_ref` only when that enabled target still exists, to
+  open the matching existing monitoring target.
+  Online/offline, ping, latency, and reachability transitions remain excluded
+  from Asset Change History event-generating fields.
+- Device Inspector remains bounded, on-demand fingerprint evidence. An
+  Operator/Admin may explicitly launch the existing Inspector from Asset Detail
+  only when the referenced inventory node still exists with a valid IPv4 and a
+  capable runner. Opening Asset Detail itself never starts an inspection.
+
+These links use retained stable UUID references produced by the existing
+evidence adapter. No name/hostname reconciliation or permanent IP-only
+relationship is introduced. The Inspector necessarily uses the current saved
+IPv4 because that is the existing execution contract; the stable inventory-node
+reference gates availability and the runner revalidates authorization.
+
+### Operator-controlled runtime acceptance
+
+After source review, perform this acceptance only on the Mini PC under operator
+control:
+
+1. Open an asset linked to Managed SNMP, confirm the linked state opens the
+   correct target in `/snmp`, and confirm no credential material is displayed.
+2. Open an asset without Managed SNMP and confirm the calm unlinked state.
+3. Open a Health Watch-linked asset, confirm its monitored state opens the
+   correct Dashboard target, then confirm an unmonitored asset stays unlinked.
+4. Cause only an already-approved Health Watch status transition and confirm it
+   does not add an Asset Change event whose `changed_fields` contains `status`.
+5. From an authorized inventory-linked asset, explicitly open Inspector and
+   confirm its target IP/context; merely opening Asset Detail must not create a
+   Device Inspector session, and retained evidence must remain non-destructive.
+6. Recheck Asset Inventory, Asset Detail, Before/After history, and the NEW
+   DEVICE badge.
+7. Recheck P10D3 Scan Networks, the SNMP workspace, and Health Watch without
+   destructive SNMP or monitoring operations.
+
 ## New-user terminology (planned id/en copy)
 
 | Term | English helper | Indonesian helper |
