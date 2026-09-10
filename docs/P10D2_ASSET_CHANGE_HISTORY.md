@@ -25,6 +25,12 @@ ordering produce no event. A host absent from a scan is not changed or marked
 offline. No raw scanner output, credential, token, or arbitrary fingerprint is
 stored.
 
+`status` remains in snapshots as monitoring context and legacy events that list
+it remain readable, but it is not an Asset Change History field for new events.
+A status-only transition emits no event; when status changes alongside identity,
+address, platform, port, or service evidence, only those meaningful fields are
+listed in `changed_fields`.
+
 Existing assets receive no fabricated history because migration 004 performs no
 backfill. Their first post-migration reconciliation has a real before row and
 creates history only if a meaningful persisted value changes.

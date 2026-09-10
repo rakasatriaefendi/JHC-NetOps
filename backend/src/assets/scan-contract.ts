@@ -92,6 +92,20 @@ export function normalizePrivateIpv4(value: unknown): string | null {
   return parsed !== null && isRfc1918(parsed) ? formatIpv4(parsed) : null;
 }
 
+export function isUsableScanHost(value: unknown, requestedNetwork: string): boolean {
+  const network = normalizePrivateCidr(requestedNetwork);
+  const candidate = typeof value === "string" ? parseIpv4(value) : null;
+  if (!network || candidate === null || !isRfc1918(candidate)) return false;
+  const [networkAddress = "", prefixText = ""] = network.split("/");
+  const base = parseIpv4(networkAddress);
+  const prefix = Number(prefixText);
+  if (base === null || !Number.isSafeInteger(prefix)) return false;
+  const size = 2 ** (32 - prefix);
+  const last = base + size - 1;
+  if (candidate < base || candidate > last) return false;
+  return prefix > 30 || candidate !== base && candidate !== last;
+}
+
 function parseIpv4(value: string): number | null {
   const parts = value.split(".");
   if (parts.length !== 4 || parts.some((part) => !/^(?:0|[1-9]\d{0,2})$/.test(part) || Number(part) > 255)) return null;

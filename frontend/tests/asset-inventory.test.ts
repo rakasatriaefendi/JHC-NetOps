@@ -39,6 +39,8 @@ test("compact inventory exposes P10D columns, Insights, filters, pagination, and
   assert.match(component, /"overview" \| "network" \| "history"/);
   assert.match(component, /AssetDetailHistory/);
   assert.match(component, /isNewNetworkAsset/);
+  assert.match(component, /flex min-w-0 items-center gap-2/);
+  assert.match(component, /inline-flex shrink-0 whitespace-nowrap/);
   assert.doesNotMatch(component, /identity|IP_CHANGED|MAC_CHANGED|NEW_DEVICE/);
 });
 

@@ -96,7 +96,11 @@ export class PostgresAssetScanRepository implements AssetScanRepository {
       const value = previous ? mergeActiveScanObservation(previous, observation) : observation;
       merged.set(value.stable_source_key, value);
     }
-    return this.#assets.ingest([...merged.values()], signal, { scanRunId, eventSource: "active_scan" });
+    return this.#assets.ingest([...merged.values()], signal, {
+      scanRunId,
+      eventSource: "active_scan",
+      observationsPremerged: true,
+    });
   }
 }
 

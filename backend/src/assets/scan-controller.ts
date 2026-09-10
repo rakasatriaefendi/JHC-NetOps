@@ -97,7 +97,7 @@ export class AssetScanController {
       const discoveryXml = await runBounded(
         this.executor, active.routeKind === "routed" ? "discovery-routed" : "discovery", active.record.network, active.abort.signal, this.discoveryTimeoutMs,
       );
-      const discovered = parseNmapXml(discoveryXml).slice(0, ASSET_SCAN_MAX_HOSTS);
+      const discovered = parseNmapXml(discoveryXml, active.record.network).slice(0, ASSET_SCAN_MAX_HOSTS);
       active.record = { ...active.record, discovered_count: discovered.length };
       await this.#persist(active.record);
       if (active.record.mode === "quick") {
@@ -122,7 +122,7 @@ export class AssetScanController {
             const xml = await runBounded(
               this.executor, "fingerprint", host.ip_address, active.abort.signal, this.hostTimeoutMs,
             );
-            const fingerprint = parseNmapXml(xml).find((item) => item.ip_address === host.ip_address) ?? null;
+            const fingerprint = parseNmapXml(xml, active.record.network).find((item) => item.ip_address === host.ip_address) ?? null;
             results[index] = fingerprint;
             active.record = fingerprint
               ? { ...active.record, fingerprinted_count: active.record.fingerprinted_count + 1 }

@@ -72,6 +72,53 @@ test("asset snapshot diff ignores ordering and reports only meaningful changed f
   assert.deepEqual(diffAssetSnapshots(before, multiple), ["hostname", "vendor", "device_type"]);
 });
 
+test("volatile status-only transitions do not produce asset change history", () => {
+  const transitions = [
+    ["online", "unknown"],
+    ["unknown", "online"],
+    ["online", "changed"],
+  ] as const;
+
+  for (const [beforeStatus, afterStatus] of transitions) {
+    const before = normalizeAssetChangeSnapshot({ ...BASE, status: beforeStatus });
+    const after = normalizeAssetChangeSnapshot({ ...BASE, status: afterStatus });
+    assert.deepEqual(diffAssetSnapshots(before, after), []);
+    assert.equal(prepareAssetChangeEvent({
+      assetId: "11111111-1111-4111-8111-111111111111",
+      stableKey: "node:one",
+      source: "observed_host",
+      scanRunId: null,
+      observedAt: "2026-09-09T10:30:00Z",
+      before,
+      after,
+    }), null);
+  }
+});
+
+test("status changes do not contaminate meaningful asset change fields", () => {
+  const before = normalizeAssetChangeSnapshot(BASE);
+  const macAndStatus = normalizeAssetChangeSnapshot({ ...BASE, mac_address: "AA:BB:CC:DD:EE:FF", status: "unknown" });
+  assert.deepEqual(diffAssetSnapshots(before, macAndStatus), ["mac_address"]);
+  assert.deepEqual(prepareAssetChangeEvent({
+    assetId: "11111111-1111-4111-8111-111111111111",
+    stableKey: "node:one",
+    source: "observed_host",
+    scanRunId: null,
+    observedAt: "2026-09-09T10:30:00Z",
+    before,
+    after: macAndStatus,
+  })?.changed_fields, ["mac_address"]);
+
+  const multipleAndStatus = normalizeAssetChangeSnapshot({
+    ...BASE,
+    name: "Distribution Switch",
+    platform: "Updated Network OS",
+    open_ports: [22, 80, 443],
+    status: "changed",
+  });
+  assert.deepEqual(diffAssetSnapshots(before, multipleAndStatus), ["name", "platform", "open_ports"]);
+});
+
 test("event keys are deterministic and change with normalized event facts", () => {
   const after = normalizeAssetChangeSnapshot(BASE);
   const input = { stableKey: "active_scan:mac:00:11:22:33:44:55", eventType: "created" as const, source: "active_scan", scanRunId: "11111111-1111-4111-8111-111111111111", observedAt: "2026-09-09T10:00:00Z", changedFields: [], before: null, after };
@@ -86,6 +133,7 @@ test("created and grouped changed events are deterministic while identical retri
   assert.ok(created);
   assert.equal(created.event_type, "created");
   assert.deepEqual(created.changed_fields, []);
+  assert.equal(created.after_state.status, "online");
   assert.equal(created.scan_run_id, "22222222-2222-4222-8222-222222222222");
   assert.equal(prepareAssetChangeEvent({ assetId: created.asset_id, stableKey: created.asset_stable_key, source: created.source, scanRunId: created.scan_run_id, observedAt: created.observed_at, before: original, after: original }), null);
 
@@ -145,6 +193,25 @@ test("asset change query contract allowlists filters and bounds pagination", () 
     { extra: "x" }, { q: "x".repeat(101) }, { event_type: "deleted" }, { source: "raw_scan" },
     { changed_field: "latency_ms" }, { page: "0" }, { page_size: "1000" },
   ]) assert.equal(validateAssetChangeQuery(value).ok, false);
+});
+
+test("legacy status change events remain readable through the existing contract", async () => {
+  assert.equal(ASSET_CHANGE_FIELDS.includes("status"), true);
+  assert.equal(validateAssetChangeQuery({ changed_field: "status" }).ok, true);
+  const legacyEvent: AssetChangeEvent = {
+    ...EVENT,
+    event_type: "changed",
+    changed_fields: ["status"],
+    before_state: normalizeAssetChangeSnapshot({ ...BASE, status: "online" }),
+    after_state: normalizeAssetChangeSnapshot({ ...BASE, status: "unknown" }),
+  };
+  const server = buildServer({ logger: false, assetChanges: { token: TOKEN, repository: new FakeAssetChanges([legacyEvent]) } });
+  const response = await server.inject({ method: "GET", url: "/api/assets/events?changed_field=status", headers: auth() });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().data.events[0].changed_fields, ["status"]);
+  assert.equal(response.json().data.events[0].before_state.status, "online");
+  assert.equal(response.json().data.events[0].after_state.status, "unknown");
+  await server.close();
 });
 
 test("asset change endpoints require auth, validate filters and return deterministic bounded history", async () => {

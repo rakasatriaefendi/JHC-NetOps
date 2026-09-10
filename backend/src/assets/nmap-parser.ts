@@ -1,4 +1,4 @@
-import { ASSET_SCAN_MAX_HOSTS, normalizePrivateIpv4 } from "./scan-contract.js";
+import { ASSET_SCAN_MAX_HOSTS, isUsableScanHost, normalizePrivateCidr, normalizePrivateIpv4 } from "./scan-contract.js";
 
 export const NMAP_XML_MAX_BYTES = 2 * 1024 * 1024;
 export const NMAP_PORT_LIMIT = 32;
@@ -31,8 +31,9 @@ export type NmapHost = Readonly<{
   os_matches: readonly NmapOsEvidence[];
 }>;
 
-export function parseNmapXml(xml: string): NmapHost[] {
-  if (!xml || Buffer.byteLength(xml, "utf8") > NMAP_XML_MAX_BYTES || !/<nmaprun\b/.test(xml) || !/<\/nmaprun>\s*$/.test(xml)) {
+export function parseNmapXml(xml: string, requestedNetwork: string): NmapHost[] {
+  const network = normalizePrivateCidr(requestedNetwork);
+  if (!network || !xml || Buffer.byteLength(xml, "utf8") > NMAP_XML_MAX_BYTES || !/<nmaprun\b/.test(xml) || !/<\/nmaprun>\s*$/.test(xml)) {
     throw new Error("NMAP_OUTPUT_INVALID");
   }
   const hosts = new Map<string, NmapHost>();
@@ -41,7 +42,7 @@ export function parseNmapXml(xml: string): NmapHost[] {
     if (!/<status\b[^>]*\bstate="up"/.test(body)) continue;
     const addressTags = [...body.matchAll(/<address\b([^>]*)\/?\s*>/g)].map((item) => attributes(item[1] ?? ""));
     const ip = normalizePrivateIpv4(addressTags.find((item) => item.addrtype === "ipv4")?.addr);
-    if (!ip) continue;
+    if (!ip || !isUsableScanHost(ip, network)) continue;
     const macTag = addressTags.find((item) => item.addrtype === "mac");
     const hostnameTag = /<hostname\b([^>]*)\/?\s*>/.exec(body);
     const timesTag = /<times\b([^>]*)\/?\s*>/.exec(body);

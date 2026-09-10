@@ -64,6 +64,11 @@ export function normalizeScannedHost(discovery: NmapHost, fingerprint: NmapHost 
     health_target_ref: null,
     managed_telemetry_target_ref: null,
     observed_host_target_ref: null,
+    field_evidence: {
+      name: hostname ? "observed" : "fallback",
+      device_type: classified.deviceType === "unknown" ? "unobserved" : "inferred",
+      services: fingerprint ? "complete" : "unobserved",
+    },
   };
 }
 
@@ -111,6 +116,7 @@ export function mergeActiveScanObservation(existing: AssetObservation, scanned: 
     ? scanned.classification_confidence
     : existing.classification_confidence;
   const mergedVendor = normalizeVendor(scanned.vendor) ?? normalizeVendor(existing.vendor);
+  const completeServiceEvidence = scanned.field_evidence?.services === "complete";
   return {
     ...existing,
     stable_source_key: existing.stable_source_key,
@@ -128,10 +134,15 @@ export function mergeActiveScanObservation(existing: AssetObservation, scanned: 
     classification_confidence: mergedClassificationConfidence,
     os_confidence: scanOsWins ? scanned.os_confidence : existing.os_confidence,
     classification_evidence: mergeEvidence(existing.classification_evidence, scanned.classification_evidence),
-    open_ports: scanned.open_ports.length ? uniqueNumbers([...existing.open_ports, ...scanned.open_ports]) : existing.open_ports,
-    detected_services: scanned.detected_services.length ? mergeServices(existing.detected_services, scanned.detected_services) : existing.detected_services,
+    open_ports: completeServiceEvidence
+      ? scanned.open_ports
+      : scanned.open_ports.length ? uniqueNumbers([...existing.open_ports, ...scanned.open_ports]) : existing.open_ports,
+    detected_services: completeServiceEvidence
+      ? scanned.detected_services
+      : scanned.detected_services.length ? mergeServices(existing.detected_services, scanned.detected_services) : existing.detected_services,
     latency_ms: scanned.latency_ms ?? existing.latency_ms,
     evidence_updated_at: latest(existing.evidence_updated_at, scanned.evidence_updated_at),
+    ...(scanned.field_evidence ? { field_evidence: scanned.field_evidence } : {}),
   };
 }
 
