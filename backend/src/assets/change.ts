@@ -17,6 +17,18 @@ export const ASSET_CHANGE_FIELDS = [
 
 export type AssetChangeField = (typeof ASSET_CHANGE_FIELDS)[number];
 
+const ASSET_EVENT_GENERATING_FIELDS = [
+  "name",
+  "hostname",
+  "ip_address",
+  "mac_address",
+  "vendor",
+  "platform",
+  "device_type",
+  "open_ports",
+  "detected_services",
+] as const satisfies readonly AssetChangeField[];
+
 export type AssetChangeSnapshot = Readonly<{
   name: string;
   hostname: string | null;
@@ -72,7 +84,7 @@ export function normalizeAssetChangeSnapshot<T extends SnapshotInput>(value: T):
 }
 
 export function diffAssetSnapshots(before: AssetChangeSnapshot, after: AssetChangeSnapshot): AssetChangeField[] {
-  return ASSET_CHANGE_FIELDS.filter((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
+  return ASSET_EVENT_GENERATING_FIELDS.filter((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
 }
 
 export function assetChangeEventKey(value: Readonly<{
