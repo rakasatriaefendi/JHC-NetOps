@@ -16,11 +16,11 @@ import {
   type ManagedTelemetryTarget,
 } from "@/lib/managed-telemetry";
 
-type Props = { targets: ManagedTelemetryTarget[]; interfaces: ManagedInterfaceLatest[]; observedHosts: ManagedObservedHostLatest[] };
+type Props = { targets: ManagedTelemetryTarget[]; interfaces: ManagedInterfaceLatest[]; observedHosts: ManagedObservedHostLatest[]; initialTargetId?: string };
 
-export function ManagedTelemetryDetail({ targets, interfaces, observedHosts }: Props) {
+export function ManagedTelemetryDetail({ targets, interfaces, observedHosts, initialTargetId }: Props) {
   const { t, i18n } = useTranslation("snmp");
-  const [selectedId, setSelectedId] = useState(targets[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState(() => targets.some((target) => target.id === initialTargetId) ? initialTargetId ?? "" : targets[0]?.id ?? "");
   const [interfacesExpanded, setInterfacesExpanded] = useState(false);
   const selected = targets.find((target) => target.id === selectedId) ?? targets[0];
   const selectedInterfaces = useMemo(
@@ -33,7 +33,7 @@ export function ManagedTelemetryDetail({ targets, interfaces, observedHosts }: P
   );
   const summarizedInterfaces = useMemo(() => interfaceSummary(selectedInterfaces), [selectedInterfaces]);
 
-  return <section className="mt-12 border-t border-border pt-8">
+  return <section className="mt-12 scroll-mt-6 border-t border-border pt-8" id="managed-telemetry-workspace">
     <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("detail.eyebrow")}</p>
     <h2 className="mt-2 text-heading font-semibold">{t("detail.title")}</h2>
     {targets.length === 0 ? <div className="mt-6 rounded-control border border-border bg-bg-surface p-6 text-text-secondary">{t("detail.empty")}</div> : <>

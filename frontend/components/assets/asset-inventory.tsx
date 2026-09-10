@@ -6,11 +6,14 @@ import { useTranslation } from "react-i18next";
 
 import { getAssetChangeHistoryAction } from "@/app/actions/assets";
 import { AssetChangeList } from "@/components/assets/asset-change-history-panel";
+import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
+import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { Button } from "@/components/ui/button";
 import { AssetScanControl } from "@/components/assets/asset-scan-control";
 import { isNewNetworkAsset, type AssetChangeData } from "@/lib/asset-change-contract";
 import type { AssetScanState } from "@/lib/asset-scan-contract";
 import type { AssetInventoryData, AssetInventoryQuery, AssetRecord, AssetStatus } from "@/lib/assets";
+import { normalizeNetworkNodeIpv4 } from "@/lib/network-nodes";
 
 const chevronLeft = "◀";
 const chevronRight = "▶";
@@ -22,11 +25,15 @@ type Props = {
   scanState: AssetScanState | null;
   scanError: "unconfigured" | "unavailable" | null;
   canScan: boolean;
+  canInspect: boolean;
+  inspectorAvailable: boolean;
+  managedTargets: { id: string; context: string | null }[];
+  healthTargetIds: string[];
 };
 
 const control = "min-w-0 rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none";
 
-export function AssetInventory({ data, error, query, scanState, scanError, canScan }: Props) {
+export function AssetInventory({ data, error, query, scanState, scanError, canScan, canInspect, inspectorAvailable, managedTargets, healthTargetIds }: Props) {
   const { t, i18n } = useTranslation("assets");
   const [selected, setSelected] = useState<AssetRecord | null>(null);
   const locale = i18n.language === "en" ? "en-US" : "id-ID";
@@ -86,7 +93,7 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
       </div>
     </> : null}
 
-    {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} serverTime={data?.server_time ?? new Date(0).toISOString()} onClose={() => setSelected(null)} /> : null}
+    {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} serverTime={data?.server_time ?? new Date(0).toISOString()} canInspect={canInspect} inspectorAvailable={inspectorAvailable} managedTargets={managedTargets} healthTargetIds={healthTargetIds} onClose={() => setSelected(null)} /> : null}
   </section>;
 }
 
@@ -104,14 +111,21 @@ function InsightGroup({ title, items }: { title: string; items: readonly { label
   return <div><h2 className="text-meta font-medium uppercase tracking-wide text-text-secondary">{title}</h2>{items.length ? <div className="mt-2 flex flex-wrap gap-2">{items.slice(0, 8).map((item) => <Link className="rounded-full border border-border px-3 py-1.5 text-meta hover:border-accent hover:text-accent" href={item.href} key={`${item.label}-${item.href}`}>{item.label} <span className="font-data text-text-muted">{item.count}</span></Link>)}</div> : <p className="mt-2 text-meta text-text-muted">{t("insights.unavailable")}</p>}</div>;
 }
 
-function AssetDetail({ asset, locale, serverTime, onClose }: { asset: AssetRecord; locale: string; serverTime: string; onClose: () => void }) {
+function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable, managedTargets, healthTargetIds, onClose }: { asset: AssetRecord; locale: string; serverTime: string; canInspect: boolean; inspectorAvailable: boolean; managedTargets: { id: string; context: string | null }[]; healthTargetIds: string[]; onClose: () => void }) {
   const { t } = useTranslation("assets");
+  const { openDeviceProfile } = useDeviceProfile();
+  const { nodes } = useNetworkNodes();
   const [tab, setTab] = useState<"overview" | "network" | "history">("overview");
+  const networkNodeRef = validLinkedRef(asset.network_node_ref);
+  const healthTargetRef = verifiedLinkedRef(asset.health_target_ref, healthTargetIds);
+  const managedTargetRef = verifiedLinkedRef(asset.managed_telemetry_target_ref, managedTargets.map((target) => target.id));
+  const managedTarget = managedTargets.find((target) => target.id === managedTargetRef);
+  const observedHostTargetRef = validLinkedRef(asset.observed_host_target_ref);
+  const inspectorNode = networkNodeRef ? nodes.find((node) => node.id === networkNodeRef) : null;
+  const inspectorIp = inspectorNode ? normalizeNetworkNodeIpv4(inspectorNode.ip_address) : null;
   const links = [
-    asset.network_node_ref ? { href: "/devices", label: t("actions.viewDevice") } : null,
-    asset.health_target_ref ? { href: "/dashboard", label: t("actions.viewHealth") } : null,
-    asset.managed_telemetry_target_ref ? { href: "/snmp#managed-telemetry", label: t("actions.viewSnmp") } : null,
-    asset.observed_host_target_ref ? { href: `/snmp/${asset.observed_host_target_ref}/hosts`, label: t("actions.viewObservedHost") } : null,
+    networkNodeRef ? { href: "/devices", label: t("actions.viewDevice") } : null,
+    observedHostTargetRef ? { href: `/snmp/${observedHostTargetRef}/hosts`, label: t("actions.viewObservedHost") } : null,
   ].filter((item): item is { href: string; label: string } => item !== null);
   return <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t("detail.title")}><button className="absolute inset-0 bg-bg-base/80" type="button" aria-label={t("common:actions.close")} onClick={onClose} /><aside className="relative max-h-[calc(100vh-2rem)] w-full max-w-4xl overflow-y-auto rounded-panel border border-accent bg-bg-surface p-4 shadow-2xl md:p-6">
     <div className="flex items-start justify-between gap-4"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("detail.title")}</p><h2 className="mt-2 text-section font-semibold">{asset.hostname ?? asset.name}</h2>{isNewNetworkAsset(asset, serverTime) ? <NewDeviceBadge /> : null}<p className="mt-1 text-meta text-text-muted">{asset.name}</p></div><Button variant="secondary" onClick={onClose}>{t("common:actions.close")}</Button></div>
@@ -120,8 +134,27 @@ function AssetDetail({ asset, locale, serverTime, onClose }: { asset: AssetRecor
       <p className="mt-1 text-meta text-text-muted">{t("detail.vendorHelp")}</p>{asset.classification_evidence.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.evidence")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.classification_evidence.map((item, index) => <li className="rounded-control border border-border bg-bg-base p-3 text-meta" key={`${item.source}-${item.label}-${index}`}><span className="font-medium">{item.label}</span><span className="mt-1 block text-text-muted">{item.value} · {item.source}</span></li>)}</ul></div> : null}</>
       : tab === "network" ? <div className="mt-5"><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("detail.latency")} value={asset.latency_ms === null ? "-" : `${asset.latency_ms.toFixed(2)} ms`} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("detail.evidenceUpdated")} value={dateLabel(asset.evidence_updated_at, locale)} /></dl>{asset.detected_services.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.services")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.detected_services.map((service) => <li className="rounded-control border border-border bg-bg-base p-3" key={`${service.protocol}-${service.port}`}><div><span>{service.name}</span><span className="ml-2 font-data text-meta text-text-muted">{service.protocol.toUpperCase()}/{service.port}</span></div>{service.product || service.version || service.extra_info ? <p className="mt-1 text-meta text-text-secondary">{[service.product, service.version, service.extra_info].filter(Boolean).join(" · ")}</p> : null}</li>)}</ul></div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noServices")}</p>}</div>
         : <AssetDetailHistory assetId={asset.id} locale={locale} />}
-    {links.length ? <div className="mt-5 flex flex-wrap gap-2">{links.map((link) => <Link className="rounded-control border border-border px-4 py-2 text-body font-medium text-text-primary transition-colors hover:border-accent hover:text-accent" href={link.href} key={link.href}>{link.label}</Link>)}</div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noLinks")}</p>}
+    <section className="mt-6 border-t border-border pt-5" aria-labelledby="asset-integrations-title">
+      <h3 className="text-section font-semibold" id="asset-integrations-title">{t("detail.integrations.title")}</h3>
+      <p className="mt-1 text-meta text-text-muted">{t("detail.integrations.description")}</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <IntegrationCard title={t("detail.integrations.snmp.title")} status={t(managedTargetRef ? "detail.integrations.snmp.linked" : "detail.integrations.snmp.unlinked")} context={managedTarget?.context ?? null} description={t(managedTargetRef ? "detail.integrations.snmp.linkedDescription" : "detail.integrations.snmp.unlinkedDescription")}>
+          {managedTargetRef ? <Link className={integrationActionClass} href={`/snmp?target=${encodeURIComponent(managedTargetRef)}#managed-telemetry-workspace`}>{t("actions.viewSnmp")}</Link> : null}
+        </IntegrationCard>
+        <IntegrationCard title={t("detail.integrations.health.title")} status={t(healthTargetRef ? "detail.integrations.health.monitored" : "detail.integrations.health.unmonitored")} description={t(healthTargetRef ? "detail.integrations.health.monitoredDescription" : "detail.integrations.health.unmonitoredDescription")}>
+          {healthTargetRef ? <Link className={integrationActionClass} href={`/dashboard?target=${encodeURIComponent(healthTargetRef)}`}>{t("actions.viewHealth")}</Link> : null}
+        </IntegrationCard>
+        <IntegrationCard title={t("detail.integrations.inspector.title")} status={t(canInspect && inspectorIp && inspectorAvailable ? "detail.integrations.inspector.available" : "detail.integrations.inspector.unavailable")} description={t(!networkNodeRef || !inspectorIp ? "detail.integrations.inspector.inventoryRequired" : !canInspect ? "detail.integrations.inspector.operatorRequired" : !inspectorAvailable ? "detail.integrations.inspector.runnerUnavailable" : "detail.integrations.inspector.description")}>
+          {canInspect && inspectorIp && inspectorAvailable ? <Button variant="secondary" onClick={() => openDeviceProfile({ ipAddress: inspectorIp, inspect: true })}>{t("actions.openInspector")}</Button> : null}
+        </IntegrationCard>
+      </div>
+    </section>
+    {links.length ? <div className="mt-5 flex flex-wrap gap-2">{links.map((link) => <Link className={integrationActionClass} href={link.href} key={link.href}>{link.label}</Link>)}</div> : null}
   </aside></div>;
+}
+
+function IntegrationCard({ title, status, context = null, description, children }: { title: string; status: string; context?: string | null; description: string; children: React.ReactNode }) {
+  return <div className="rounded-control border border-border bg-bg-base p-4"><p className="text-meta font-medium uppercase tracking-wide text-text-secondary">{title}</p><p className="mt-2 font-medium text-text-primary">{status}</p>{context ? <p className="mt-1 break-words font-data text-meta text-text-secondary">{context}</p> : null}<p className="mt-1 text-meta text-text-muted">{description}</p>{children ? <div className="mt-3">{children}</div> : null}</div>;
 }
 
 function AssetDetailHistory({ assetId, locale }: { assetId: string; locale: string }) {
@@ -175,3 +208,6 @@ function PageLink({ href, disabled, children, ariaLabel }: { href: string; disab
   return <Link className="rounded-control border border-border px-3 py-2 text-text-primary hover:border-accent hover:text-accent transition-colors" href={href} scroll={false} aria-label={ariaLabel}>{children}</Link>;
 }
 function hasFilters(query: AssetInventoryQuery) { return Boolean(query.q || query.device_type || query.vendor || query.platform || query.status || query.sort || query.page || query.page_size); }
+function validLinkedRef(value: string | null) { return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : null; }
+function verifiedLinkedRef(value: string | null, availableIds: string[]) { const valid = validLinkedRef(value); return valid && availableIds.includes(valid) ? valid : null; }
+const integrationActionClass = "inline-flex rounded-control border border-border px-4 py-2 text-body font-medium text-text-primary transition-colors hover:border-accent hover:text-accent";

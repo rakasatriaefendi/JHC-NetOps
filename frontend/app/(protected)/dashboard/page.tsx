@@ -14,9 +14,10 @@ import { getServerTranslation } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ target?: string }> }) {
   const { t } = await getServerTranslation("dashboard");
   const { supabase, profile } = await requireApprovedProfile();
+  const params = await searchParams;
   const canOperate = canOperateNetwork(profile.role);
   const health = await loadNetworkHealth(supabase);
   const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
@@ -49,6 +50,7 @@ export default async function DashboardPage() {
           discoveryRunners={traffic.data.runners}
           discoverySessions={discovery.data}
           trafficIps={observedTrafficIps(traffic.data.snapshots)}
+          {...(params.target ? { initialTargetId: params.target } : {})}
         />
         <DiagnosticsSummary data={diagnostics.data} loadError={diagnostics.error} />
         </DeviceProfileProvider>
