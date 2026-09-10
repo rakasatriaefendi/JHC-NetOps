@@ -112,7 +112,7 @@ test("vendor normalization rejects garbage, repairs known truncation and preserv
   assert.equal(normalizeVendor("Shenzhen Example Technology Company Limited"), "Shenzhen Example Technology Company Limited");
 });
 
-test("active evidence enriches by existing identity without wiping stronger/operator evidence", () => {
+test("successful Deep evidence replaces measured services without wiping stronger operator identity", () => {
   const scanned = normalized("192.168.1.40", ports([service(22, "ssh", "OpenSSH", "9.6")]) + os("Linux", 80, "general purpose", "Linux"), "00:11:22:33:44:58", "Useful Vendor");
   const existing: AssetObservation = {
     ...scanned, stable_source_key: "node:11111111-1111-4111-8111-111111111111", name: "Operator Name", hostname: null,
@@ -128,9 +128,43 @@ test("active evidence enriches by existing identity without wiping stronger/oper
   assert.equal(merged.status, "offline");
   assert.equal(merged.platform, "Windows");
   assert.equal(merged.first_seen_at, existing.first_seen_at);
-  assert.deepEqual(merged.open_ports, [22, 443]);
-  assert.equal(merged.detected_services.length, 2);
+  assert.deepEqual(merged.open_ports, [22]);
+  assert.deepEqual(merged.detected_services.map((service) => service.port), [22]);
   assert.deepEqual(mergeActiveScanObservation(merged, scanned), merged);
+});
+
+test("Quick and failed Deep observations preserve prior Deep-only enrichment", () => {
+  const priorDeep = normalized("192.168.1.41", ports([service(22, "ssh", "OpenSSH"), service(443, "https", "nginx")]) + os("Linux", 95, "general purpose", "Linux"));
+  const discovery = parseNmapXml(nmapRun(host("192.168.1.41", '<address addr="00:11:22:33:44:55" addrtype="mac" vendor="Example Vendor"/>')), NETWORK)[0];
+  assert.ok(discovery);
+  const quickOrFailedDeep = normalizeScannedHost(discovery, null, "2026-09-10T00:00:00.000Z");
+
+  for (const observation of [quickOrFailedDeep, { ...quickOrFailedDeep, last_seen_at: "2026-09-10T00:01:00.000Z" }]) {
+    const merged = mergeActiveScanObservation(priorDeep, observation);
+    assert.deepEqual(merged.open_ports, priorDeep.open_ports);
+    assert.deepEqual(merged.detected_services, priorDeep.detected_services);
+    assert.equal(merged.device_type, priorDeep.device_type);
+  }
+});
+
+test("successful Deep can explicitly clear services and replace supported classification", () => {
+  const existing = normalized("192.168.1.42", ports([service(22, "ssh", "OpenSSH"), service(443, "https", "nginx")]));
+  const discovery = parseNmapXml(nmapRun(host("192.168.1.42", '<address addr="00:11:22:33:44:55" addrtype="mac" vendor="Ruijie"/>')), NETWORK)[0];
+  const emptyFingerprint = parseNmapXml(nmapRun(host("192.168.1.42", os("Network switch", 95, "switch", "embedded"))), NETWORK)[0];
+  assert.ok(discovery); assert.ok(emptyFingerprint);
+  const measuredEmpty = normalizeScannedHost(discovery, emptyFingerprint, "2026-09-10T00:00:00.000Z");
+  const merged = mergeActiveScanObservation({ ...existing, device_type: "network_device", classification_confidence: "medium" }, measuredEmpty);
+  assert.deepEqual(merged.open_ports, []);
+  assert.deepEqual(merged.detected_services, []);
+  assert.equal(merged.device_type, "switch_network");
+});
+
+test("active scan still updates IP and MAC identity evidence", () => {
+  const existing = normalized("192.168.1.42", ports([service(22, "ssh", "OpenSSH")]), "00:11:22:33:44:55");
+  const scanned = normalized("192.168.1.43", ports([service(22, "ssh", "OpenSSH")]), "00:11:22:33:44:66");
+  const merged = mergeActiveScanObservation(existing, scanned);
+  assert.equal(merged.ip_address, "192.168.1.43");
+  assert.equal(merged.mac_address, "00:11:22:33:44:66");
 });
 
 test("controller supports one bounded scan, partial host failure, cancellation and restart recovery", async () => {

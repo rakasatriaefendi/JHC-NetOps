@@ -40,6 +40,8 @@ test("History workspace has bounded asset filters and operator-friendly values",
   assert.match(panel, /changeValue/);
   assert.match(panel, /before_state/);
   assert.match(panel, /after_state/);
+  assert.match(panel, /assetChanges\.before/);
+  assert.match(panel, /assetChanges\.after/);
   assert.doesNotMatch(panel, /JSON\.stringify/);
   assert.match(page, /loadAssetChangeHistory\(query\)/);
   assert.match(tabs, /tabs\.assets/);
@@ -56,6 +58,8 @@ test("asset change catalogs remain paired in Indonesian and English", () => {
     assert.equal(typeof history.assetChanges.title, "string");
     assert.equal(typeof history.assetChanges.assetCreated, "string");
     assert.equal(typeof history.assetChanges.createdVia, "string");
+    assert.equal(typeof history.assetChanges.before, "string");
+    assert.equal(typeof history.assetChanges.after, "string");
     for (const field of ["name", "hostname", "ip_address", "mac_address", "vendor", "platform", "device_type", "status", "open_ports", "detected_services"]) {
       assert.equal(typeof history.assetChanges.fields[field], "string");
     }
