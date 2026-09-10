@@ -2,6 +2,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import type { AssetListQuery, AssetListResponse, AssetRecord, AssetSummary } from "./contract.js";
 import { normalizeAssetChangeSnapshot, prepareAssetChangeEvent, type AssetChangeEventWrite } from "./change.js";
+import { mergeAssetEvidence } from "./evidence-merge.js";
 import type { AssetObservation } from "./evidence.js";
 
 export const ASSET_QUERY_TIMEOUT_MS = 5_000;
@@ -15,6 +16,7 @@ export interface AssetRepository {
 export type AssetIngestContext = Readonly<{
   scanRunId?: string | null;
   eventSource?: AssetObservation["source"];
+  observationsPremerged?: boolean;
 }>;
 
 export class PostgresAssetRepository implements AssetRepository {
@@ -94,6 +96,12 @@ export class PostgresAssetRepository implements AssetRepository {
       signal.throwIfAborted();
       const beforeResult = await loadAssetsForChange(client, stableKeys);
       const beforeByKey = new Map(beforeResult.rows.map((row) => [row.stable_source_key, row]));
+      const effectiveObservations = context.observationsPremerged
+        ? observations
+        : observations.map((observation) => {
+          const before = beforeByKey.get(observation.stable_source_key);
+          return before ? mergeAssetEvidence(existingObservation(before), observation) : observation;
+        });
       const result = await client.query<{ id: string; stable_source_key: string }>({
         text: `INSERT INTO asset.assets (
         stable_source_key, name, hostname, device_type, status, ip_address, mac_address,
@@ -147,7 +155,7 @@ export class PostgresAssetRepository implements AssetRepository {
         observed_host_target_ref = COALESCE(EXCLUDED.observed_host_target_ref, asset.assets.observed_host_target_ref),
         updated_at = now()
         RETURNING id::text, stable_source_key`,
-        values: [JSON.stringify(observations)],
+        values: [JSON.stringify(effectiveObservations)],
       });
       signal.throwIfAborted();
       const afterResult = await loadAssetsForChange(client, stableKeys);
@@ -279,6 +287,35 @@ function normalizeAsset(row: AssetRow): AssetRecord {
     health_target_ref: row.health_target_ref,
     managed_telemetry_target_ref: row.managed_telemetry_target_ref,
     observed_host_target_ref: row.observed_host_target_ref,
+  };
+}
+
+function existingObservation(row: ChangeAssetRow): AssetObservation {
+  const normalized = normalizeAsset(row);
+  return {
+    stable_source_key: row.stable_source_key,
+    name: normalized.name,
+    hostname: normalized.hostname,
+    device_type: normalized.device_type,
+    status: normalized.status,
+    ip_address: normalized.ip_address,
+    mac_address: normalized.mac_address,
+    vendor: normalized.vendor,
+    platform: normalized.platform,
+    first_seen_at: normalized.first_seen_at,
+    last_seen_at: normalized.last_seen_at,
+    source: normalized.source as AssetObservation["source"],
+    classification_confidence: normalized.classification_confidence,
+    os_confidence: normalized.os_confidence,
+    classification_evidence: normalized.classification_evidence,
+    open_ports: normalized.open_ports,
+    detected_services: normalized.detected_services,
+    latency_ms: normalized.latency_ms,
+    evidence_updated_at: normalized.evidence_updated_at,
+    network_node_ref: normalized.network_node_ref,
+    health_target_ref: normalized.health_target_ref,
+    managed_telemetry_target_ref: normalized.managed_telemetry_target_ref,
+    observed_host_target_ref: normalized.observed_host_target_ref,
   };
 }
 

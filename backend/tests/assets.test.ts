@@ -4,7 +4,9 @@ import test from "node:test";
 
 import type { AssetListQuery, AssetListResponse, AssetRecord } from "../src/assets/contract.js";
 import { validateAssetListQuery } from "../src/assets/contract.js";
+import { diffAssetSnapshots, normalizeAssetChangeSnapshot } from "../src/assets/change.js";
 import { buildAssetObservations, classifyAsset, type AssetEvidenceSnapshot, type AssetObservation } from "../src/assets/evidence.js";
+import { mergeAssetEvidence } from "../src/assets/evidence-merge.js";
 import { BoundedAssetSynchronizer } from "../src/assets/ingestion.js";
 import type { AssetRepository } from "../src/assets/repository.js";
 import { buildServer } from "../src/server.js";
@@ -156,6 +158,69 @@ test("existing evidence becomes one conservative idempotent asset without raw pa
   assert.doesNotMatch(JSON.stringify(first), /credential|community|raw_payload/i);
 });
 
+test("observed-host refresh preserves richer name, classification and Deep service evidence", () => {
+  const deep = assetObservation({
+    name: "staging-jhc",
+    hostname: "staging-jhc",
+    device_type: "switch_network",
+    source: "active_scan",
+    classification_confidence: "high",
+    open_ports: [22, 80, 443],
+    detected_services: [
+      { protocol: "tcp", port: 22, name: "ssh" },
+      { protocol: "tcp", port: 80, name: "http" },
+      { protocol: "tcp", port: 443, name: "https" },
+    ],
+  });
+  const observedHost = assetObservation({
+    name: "192.168.1.130",
+    hostname: null,
+    device_type: "unknown",
+    source: "observed_host",
+    classification_confidence: "low",
+    open_ports: [],
+    detected_services: [],
+    last_seen_at: "2026-09-10T01:00:00.000Z",
+    evidence_updated_at: "2026-09-10T01:00:00.000Z",
+    field_evidence: { name: "fallback", device_type: "unobserved", services: "unobserved" },
+  });
+
+  const merged = mergeAssetEvidence(deep, observedHost);
+  assert.equal(merged.name, "staging-jhc");
+  assert.equal(merged.device_type, "switch_network");
+  assert.deepEqual(merged.open_ports, [22, 80, 443]);
+  assert.deepEqual(merged.detected_services, deep.detected_services);
+  assert.deepEqual(diffAssetSnapshots(normalizeAssetChangeSnapshot(deep), normalizeAssetChangeSnapshot(merged)), []);
+});
+
+test("repeated lower-information refresh is stable and creates no asset history churn", () => {
+  const deep = assetObservation({ name: "lab-switch", hostname: "lab-switch", device_type: "switch_network", source: "active_scan",
+    classification_confidence: "high", open_ports: [22, 443], detected_services: [{ protocol: "tcp", port: 22, name: "ssh" }, { protocol: "tcp", port: 443, name: "https" }] });
+  const observedHost = assetObservation({ name: "192.168.1.130", source: "observed_host", last_seen_at: "2026-09-10T01:00:00.000Z",
+    evidence_updated_at: "2026-09-10T01:00:00.000Z", field_evidence: { name: "fallback", device_type: "unobserved", services: "unobserved" } });
+  const once = mergeAssetEvidence(deep, observedHost);
+  const twice = mergeAssetEvidence(once, observedHost);
+  assert.deepEqual(normalizeAssetChangeSnapshot(once), normalizeAssetChangeSnapshot(twice));
+  assert.deepEqual(diffAssetSnapshots(normalizeAssetChangeSnapshot(once), normalizeAssetChangeSnapshot(twice)), []);
+});
+
+test("Device Inspector is additive while explicit manual identity remains authoritative", () => {
+  const existing = assetObservation({ name: "Operator Switch", device_type: "switch_network", source: "manual",
+    network_node_ref: "22222222-2222-4222-8222-222222222222", classification_confidence: "high",
+    open_ports: [22, 443], detected_services: [{ protocol: "tcp", port: 22, name: "ssh" }, { protocol: "tcp", port: 443, name: "https" }] });
+  const inspector = assetObservation({ name: "192.168.1.130", device_type: "unknown", source: "device_inspector",
+    open_ports: [80], detected_services: [{ protocol: "tcp", port: 80, name: "http" }],
+    field_evidence: { name: "fallback", device_type: "unobserved", services: "partial" } });
+  const inspected = mergeAssetEvidence(existing, inspector);
+  assert.equal(inspected.name, "Operator Switch");
+  assert.equal(inspected.device_type, "switch_network");
+  assert.deepEqual(inspected.open_ports, [22, 80, 443]);
+
+  const manualClear = assetObservation({ ...inspected, source: "manual", device_type: "unknown",
+    field_evidence: { name: "authoritative", device_type: "authoritative", services: "unobserved" } });
+  assert.equal(mergeAssetEvidence(inspected, manualClear).device_type, "unknown");
+});
+
 test("classification does not call a print-port-only host a printer and private MAC lowers inferred confidence", () => {
   const input = { nodeType: null, fingerprintType: null, vendor: null, hostname: "host", platform: null, services: [{ protocol: "tcp" as const, port: 9100, name: "unknown" }], macKind: "locally_administered" as const, sourceConfidence: "high" as const };
   assert.equal(classifyAsset(input).deviceType, "unknown");
@@ -208,6 +273,14 @@ test("asset evidence remains bounded and cannot start a network operation", () =
   assert.ok(observations.every((item) => item.classification_evidence.length <= 32 && item.open_ports.length <= 32));
 });
 
+test("asset persistence merges field evidence before bulk upsert while active scans remain premerged", () => {
+  const repository = readFileSync(new URL("../src/assets/repository.ts", import.meta.url), "utf8");
+  const scanRepository = readFileSync(new URL("../src/assets/scan-repository.ts", import.meta.url), "utf8");
+  assert.match(repository, /mergeAssetEvidence\(existingObservation\(before\), observation\)/);
+  assert.match(repository, /JSON\.stringify\(effectiveObservations\)/);
+  assert.match(scanRepository, /observationsPremerged: true/);
+});
+
 test("PostgreSQL provisioning handles an existing dedicated cluster without touching 16/main", () => {
   const cluster = readFileSync(new URL("../../deploy/postgresql/provision-jhcnetops-cluster.sh", import.meta.url), "utf8");
   const application = readFileSync(new URL("../../deploy/postgresql/provision-jhcnetops-application.sh", import.meta.url), "utf8");
@@ -225,3 +298,32 @@ test("PostgreSQL provisioning handles an existing dedicated cluster without touc
   assert.match(rollback, /IF EXISTS \(SELECT 1 FROM asset\.assets\)/);
   assert.doesNotMatch(cluster + application + grants + rollback, /pg_ctlcluster\s+(?:"?16"?\s+"?main"?|16\/main)|--cluster\s+16\/main/);
 });
+
+function assetObservation(overrides: Partial<AssetObservation> = {}): AssetObservation {
+  return {
+    stable_source_key: "observed:33333333-3333-4333-8333-333333333333:192.168.1.130",
+    name: "192.168.1.130",
+    hostname: null,
+    device_type: "unknown",
+    status: "online",
+    ip_address: "192.168.1.130",
+    mac_address: "00:11:22:33:44:55",
+    vendor: null,
+    platform: null,
+    first_seen_at: "2026-09-01T00:00:00.000Z",
+    last_seen_at: "2026-09-09T00:00:00.000Z",
+    source: "observed_host",
+    classification_confidence: "low",
+    os_confidence: null,
+    classification_evidence: [],
+    open_ports: [],
+    detected_services: [],
+    latency_ms: null,
+    evidence_updated_at: "2026-09-09T00:00:00.000Z",
+    network_node_ref: null,
+    health_target_ref: null,
+    managed_telemetry_target_ref: null,
+    observed_host_target_ref: "33333333-3333-4333-8333-333333333333",
+    ...overrides,
+  };
+}

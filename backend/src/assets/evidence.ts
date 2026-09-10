@@ -16,6 +16,12 @@ export type AssetService = Readonly<{
   tunnel?: string;
 }>;
 
+export type AssetFieldEvidence = Readonly<{
+  name: "authoritative" | "observed" | "fallback";
+  device_type: "authoritative" | "inferred" | "unobserved";
+  services: "complete" | "partial" | "unobserved";
+}>;
+
 export type AssetObservation = Readonly<{
   stable_source_key: string;
   name: string;
@@ -40,6 +46,7 @@ export type AssetObservation = Readonly<{
   health_target_ref: string | null;
   managed_telemetry_target_ref: string | null;
   observed_host_target_ref: string | null;
+  field_evidence?: AssetFieldEvidence;
 }>;
 
 export type AssetEvidenceSnapshot = Readonly<{
@@ -125,6 +132,8 @@ type Draft = {
   managedRef: string | null;
   observedRef: string | null;
   fingerprintType: string | null;
+  nameEvidence: AssetFieldEvidence["name"];
+  servicesEvidence: AssetFieldEvidence["services"];
 };
 
 export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetObservation[] {
@@ -171,6 +180,8 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
       managedRef: null,
       observedRef: null,
       fingerprintType: boundedIdentifier(fingerprint?.likely_device_type),
+      nameEvidence: "authoritative",
+      servicesEvidence: fingerprint && Array.isArray(fingerprint.observed_services) ? "partial" : "unobserved",
     };
     drafts.set(draft.stableKey, draft);
     nodeById.set(id, draft);
@@ -255,6 +266,8 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
         managedRef: null,
         observedRef: targetId,
         fingerprintType: null,
+        nameEvidence: boundedText(row.netbios_name, 200) ? "observed" : "fallback",
+        servicesEvidence: "unobserved",
       };
       drafts.set(key, draft);
       if (nodeId) nodeById.set(nodeId, draft);
@@ -314,6 +327,11 @@ function finalizeDraft(draft: Draft): AssetObservation {
     health_target_ref: draft.healthRef,
     managed_telemetry_target_ref: draft.managedRef,
     observed_host_target_ref: draft.observedRef,
+    field_evidence: {
+      name: draft.nameEvidence,
+      device_type: draft.nodeType ? "authoritative" : classified.deviceType === "unknown" ? "unobserved" : "inferred",
+      services: draft.servicesEvidence,
+    },
   };
 }
 
