@@ -22,6 +22,7 @@ Jangan menyimpang dari dokumen tersebut tanpa persetujuan pemilik project.
 | [PANDUAN.md](PANDUAN.md) | Panduan penggunaan harian LAN Diagnostics dan runner. |
 | [PORTABLE_DEVELOPMENT.md](PORTABLE_DEVELOPMENT.md) | Fixture Managed Telemetry lokal yang eksplisit, read-only, dan terisolasi dari data produksi. |
 | [P10D_SPLIT_PLAN.md](P10D_SPLIT_PLAN.md) | Rencana P10D1 intelligence/Insights dan P10D2 identity/Asset Changes tanpa scanner baru. |
+| [P10E_ASSET_REPORTING.md](P10E_ASSET_REPORTING.md) | Kontrak, batas, keamanan, dan acceptance operator untuk ekspor Excel Asset Inventory. |
 | [UBUNTU_DEPLOYMENT_READINESS.md](UBUNTU_DEPLOYMENT_READINESS.md) | Status adapter P8A native Ubuntu, konfigurasi ZIP-release, dan gap validasi/always-on Mini PC. |
 | [UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md) | Template systemd P8B, config shared, port guard, update release, dan rollback native Ubuntu. |
 | [reference/feature-audit.md](reference/feature-audit.md) | Audit sumber legacy dan keputusan bertahap P10C-P10F. |

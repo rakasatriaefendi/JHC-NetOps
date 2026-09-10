@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { getAssetChangeHistoryAction } from "@/app/actions/assets";
 import { AssetChangeList } from "@/components/assets/asset-change-history-panel";
+import { AssetExportButton } from "@/components/assets/asset-export-button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,10 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
         <p className="mt-2 text-text-secondary">{t("description")}</p>
       </div>
       <div className="w-full xl:justify-self-end">
-        <AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <AssetExportButton disabled={!data} query={query} />
+          <AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />
+        </div>
         {data ? <p className="mt-3 text-right text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}
       </div>
     </div>

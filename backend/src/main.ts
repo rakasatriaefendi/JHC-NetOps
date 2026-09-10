@@ -7,6 +7,7 @@ import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
 import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
 import { PostgresAssetScanRepository } from "./assets/scan-repository.js";
+import { PostgresAssetReportRepository } from "./assets/report-repository.js";
 import { LinuxIpRouteAdapter } from "./assets/scan-network-adapter.js";
 import { ScanNetworkManager } from "./assets/scan-network-manager.js";
 import { PostgresScanNetworkRepository } from "./assets/scan-network-repository.js";
@@ -66,6 +67,13 @@ async function main(): Promise<void> {
     } : {}),
     ...(config.assets && assetPool ? {
       assetChanges: { token: config.assets.frontendApiToken, repository: new PostgresAssetChangeRepository(assetPool) },
+    } : {}),
+    ...(config.assets && assetPool ? {
+      assetReport: {
+        token: config.assets.frontendApiToken,
+        repository: new PostgresAssetReportRepository(assetPool),
+        ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
+      },
     } : {}),
     ...(config.assets && assetScanController ? {
       assetScan: { token: config.assets.frontendApiToken, controller: assetScanController },

@@ -57,6 +57,8 @@ export type AssetInventoryQuery = Readonly<{
   page_size?: string;
 }>;
 
+export type AssetReportDownload = Readonly<{ bytes: ArrayBuffer; filename: string }>;
+
 export async function loadAssetInventory(query: AssetInventoryQuery): Promise<
   { data: AssetInventoryData | null; error: "unconfigured" | "unavailable" | null }
 > {
@@ -88,6 +90,39 @@ export async function loadAssetInventory(query: AssetInventoryQuery): Promise<
   }
 }
 
+export async function loadAssetInventoryReport(query: AssetInventoryQuery, language: "id" | "en"): Promise<
+  { data: AssetReportDownload | null; error: "unconfigured" | "unavailable" | null }
+> {
+  const config = localBackendConfig();
+  if (!config) return { data: null, error: "unconfigured" };
+  const url = new URL("/api/assets/export.xlsx", config.origin);
+  for (const key of ["q", "device_type", "vendor", "platform", "status", "sort"] as const) {
+    const value = query[key];
+    if (typeof value === "string" && value) url.searchParams.set(key, value);
+  }
+  url.searchParams.set("lang", language);
+  try {
+    const response = await fetch(url, {
+      headers: { authorization: `Bearer ${config.token}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok || response.headers.get("content-type")?.split(";")[0] !== "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+      return { data: null, error: "unavailable" };
+    }
+    const declaredLength = Number(response.headers.get("content-length") ?? 0);
+    if (!Number.isSafeInteger(declaredLength) || declaredLength < 0 || declaredLength > 20 * 1024 * 1024) {
+      return { data: null, error: "unavailable" };
+    }
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > 20 * 1024 * 1024) return { data: null, error: "unavailable" };
+    const filename = reportFilename(response.headers.get("content-disposition"));
+    return filename ? { data: { bytes, filename }, error: null } : { data: null, error: "unavailable" };
+  } catch {
+    return { data: null, error: "unavailable" };
+  }
+}
+
 function safeLoopbackOrigin(value: string): string | null {
   try {
     const url = new URL(value);
@@ -95,6 +130,11 @@ function safeLoopbackOrigin(value: string): string | null {
         url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) return null;
     return url.origin;
   } catch { return null; }
+}
+
+function reportFilename(value: string | null): string | null {
+  const match = value?.match(/^attachment; filename="(JHC-NetOps-Asset-Inventory-\d{4}-\d{2}-\d{2}\.xlsx)"$/);
+  return match?.[1] ?? null;
 }
 
 function validAssetPayload(value: unknown): value is { data: AssetInventoryData } {

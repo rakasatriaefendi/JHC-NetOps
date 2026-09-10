@@ -29,7 +29,7 @@ or enabled. See
 | Discovery | Operator/Admin-triggered, bounded discovery of hosts visible to the current local runner. | Not continuous monitoring, inventory creation, port scanning, or topology discovery. |
 | Devices | One operator inventory with contextual Health Watch configuration. | Inventory identity and detected identity are separate; dependent configuration blocks inventory deletion. |
 | SNMP | Latest read-only Managed Telemetry and Observed LAN Hosts first, followed by target configuration. | Known targets and local credential-profile references only. |
-| Asset Inventory | Compact local asset summary, evidence-backed Insights, filters, paging, Overview/Network detail, and explicit Quick/Deep enrichment. | Active scan is Operator/Admin-only and allowlisted; identity history/reporting remain P10D2/P10E. |
+| Asset Inventory | Compact local asset summary, evidence-backed Insights, filters, paging, Overview/Network detail, explicit Quick/Deep enrichment, and bounded Excel reporting. | Active scan is Operator/Admin-only and allowlisted; reports reuse current inventory criteria and never contain credentials. |
 | Admin | User approval and account access control. | Monitoring configuration lives on Devices and SNMP, not Admin. |
 
 Role dan status akses adalah dua dimensi terpisah. Viewer memiliki visibilitas
@@ -80,6 +80,7 @@ Supabase Auth + Database + Realtime + control-plane Edge Functions
         |
 Loopback Fastify backend <--- Local Runner (Node.js)
         |-- P10C/P10D1 Asset API + bounded evidence sync ---> dedicated local PostgreSQL asset.*
+        |-- P10E bounded XLSX report (no persisted report files)
         |-- explicit P10D1-B scan ---> root-owned fixed-argument Nmap helper
         |-- Windows: PowerShell context + PING.EXE + wsl.exe --exec
         `-- Linux: ip -j context + ping + native child process

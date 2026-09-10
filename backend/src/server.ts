@@ -3,6 +3,7 @@ import { registerAssetRoutes, type AssetRouteOptions } from "./assets/route.js";
 import { registerAssetChangeRoutes, type AssetChangeRouteOptions } from "./assets/change-route.js";
 import { registerAssetScanRoutes, type AssetScanRouteOptions } from "./assets/scan-route.js";
 import { registerScanNetworkRoutes, type ScanNetworkRouteOptions } from "./assets/scan-network-route.js";
+import { registerAssetReportRoute, type AssetReportRouteOptions } from "./assets/report-route.js";
 import { registerManagedTelemetryRoute, type ManagedTelemetryRouteOptions } from "./managed-telemetry/route.js";
 import { registerNetworkHealthRoute, type NetworkHealthRouteOptions } from "./network-health/route.js";
 import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
@@ -15,6 +16,7 @@ type BuildServerOptions = Readonly<{
   assets?: AssetRouteOptions;
   assetChanges?: AssetChangeRouteOptions;
   assetScan?: AssetScanRouteOptions;
+  assetReport?: AssetReportRouteOptions;
   scanNetworks?: ScanNetworkRouteOptions;
   logger?: boolean;
   managedTelemetry?: ManagedTelemetryRouteOptions;
@@ -68,6 +70,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.assets) registerAssetRoutes(server, options.assets);
   if (options.assetChanges) registerAssetChangeRoutes(server, options.assetChanges);
   if (options.assetScan) registerAssetScanRoutes(server, options.assetScan);
+  if (options.assetReport) registerAssetReportRoute(server, options.assetReport);
   if (options.scanNetworks) registerScanNetworkRoutes(server, options.scanNetworks);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({

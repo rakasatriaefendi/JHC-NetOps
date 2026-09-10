@@ -147,3 +147,14 @@ safe. Read-only history is exposed through `GET /api/assets/events` and
 `GET /api/assets/:id/events` using the existing frontend-server bearer token.
 See `../docs/P10D2_ASSET_CHANGE_HISTORY.md` for exact semantics and the pending
 Mini PC acceptance checklist.
+
+## P10E: bounded Asset Inventory Excel report
+
+`GET /api/assets/export.xlsx` is a frontend-server-token protected route. It
+reuses the exact Asset Inventory search/filter/sort SQL but intentionally rejects
+UI pagination parameters. The synchronous report is capped at 2,000 assets,
+10,000 newest-first meaningful history events, 20 MiB, and a 12-second report
+deadline. It returns Summary, Assets, and Change History sheets and does not save
+generated files. Formula-like operator/network strings are neutralized as plain
+spreadsheet text; SNMP credentials and runtime secrets are never selected or
+rendered. See `../docs/P10E_ASSET_REPORTING.md`.

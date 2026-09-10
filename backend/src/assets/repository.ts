@@ -4,6 +4,7 @@ import type { AssetListQuery, AssetListResponse, AssetRecord, AssetSummary } fro
 import { normalizeAssetChangeSnapshot, prepareAssetChangeEvent, type AssetChangeEventWrite } from "./change.js";
 import { mergeAssetEvidence } from "./evidence-merge.js";
 import type { AssetObservation } from "./evidence.js";
+import { assetListOrder, assetListWhere } from "./query.js";
 
 export const ASSET_QUERY_TIMEOUT_MS = 5_000;
 
@@ -24,9 +25,9 @@ export class PostgresAssetRepository implements AssetRepository {
 
   async list(query: AssetListQuery, signal: AbortSignal): Promise<AssetListResponse> {
     signal.throwIfAborted();
-    const { where, values } = filters(query);
+    const { where, values } = assetListWhere(query);
     const offset = (query.page - 1) * query.pageSize;
-    const order = query.sort === "name_desc" ? "lower(name) DESC, id DESC" : "lower(name) ASC, id ASC";
+    const order = assetListOrder(query);
     const listValues = [...values, query.pageSize, offset];
     const limitIndex = values.length + 1;
     const offsetIndex = values.length + 2;
@@ -197,7 +198,7 @@ type InsightRow = QueryResultRow & { value: string; count: string };
 type VendorTypeRow = QueryResultRow & { vendor: string; device_type: string; count: string };
 type ChangeAssetRow = AssetRow & { stable_source_key: string };
 
-const ASSET_COLUMNS = `id, name, hostname, device_type, status, host(ip_address) AS ip_address,
+export const ASSET_COLUMNS = `id, name, hostname, device_type, status, host(ip_address) AS ip_address,
   mac_address::text AS mac_address, vendor, platform, first_seen_at::text, last_seen_at::text,
   source, classification_confidence, os_confidence, classification_evidence, open_ports, detected_services,
   latency_ms::float8 AS latency_ms, evidence_updated_at::text, network_node_ref::text,
@@ -231,38 +232,7 @@ async function insertAssetChangeEvents(client: PoolClient, events: readonly Asse
   });
 }
 
-function filters(query: AssetListQuery): { where: string; values: unknown[] } {
-  const clauses: string[] = [];
-  const values: unknown[] = [];
-  if (query.search) {
-    values.push(`%${query.search.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
-    clauses.push(`(name ILIKE $${values.length} ESCAPE '\\'
-      OR coalesce(hostname, '') ILIKE $${values.length} ESCAPE '\\'
-      OR host(ip_address) ILIKE $${values.length} ESCAPE '\\'
-      OR coalesce(mac_address::text, '') ILIKE $${values.length} ESCAPE '\\'
-      OR coalesce(vendor, '') ILIKE $${values.length} ESCAPE '\\'
-      OR coalesce(platform, '') ILIKE $${values.length} ESCAPE '\\')`);
-  }
-  if (query.deviceType) {
-    values.push(query.deviceType);
-    clauses.push(`device_type = $${values.length}`);
-  }
-  if (query.vendor) {
-    values.push(query.vendor);
-    clauses.push(`vendor = $${values.length}`);
-  }
-  if (query.platform) {
-    values.push(query.platform);
-    clauses.push(`platform = $${values.length}`);
-  }
-  if (query.status) {
-    values.push(query.status);
-    clauses.push(`status = $${values.length}`);
-  }
-  return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", values };
-}
-
-function normalizeAsset(row: AssetRow): AssetRecord {
+export function normalizeAsset(row: AssetRow): AssetRecord {
   return {
     id: row.id,
     name: row.name,
