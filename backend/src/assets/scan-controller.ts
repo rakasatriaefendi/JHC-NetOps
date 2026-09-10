@@ -81,13 +81,13 @@ export class AssetScanController {
       const discoveryXml = await runBounded(
         this.executor, "discovery", active.record.network, active.abort.signal, this.discoveryTimeoutMs,
       );
-      const discovered = parseNmapXml(discoveryXml).slice(0, ASSET_SCAN_MAX_HOSTS);
+      const discovered = parseNmapXml(discoveryXml, active.record.network).slice(0, ASSET_SCAN_MAX_HOSTS);
       active.record = { ...active.record, discovered_count: discovered.length };
       await this.#persist(active.record);
       if (active.record.mode === "quick") {
         active.abort.signal.throwIfAborted();
         const observedAt = this.now().toISOString();
-        await this.repository.ingest(discovered.map((host) => normalizeScannedHost(host, null, observedAt)), AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
+        await this.repository.ingest(discovered.map((host) => normalizeScannedHost(host, null, observedAt)), active.record.id, AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
         active.abort.signal.throwIfAborted();
         await this.#complete(active, "completed");
         return;
@@ -106,7 +106,7 @@ export class AssetScanController {
             const xml = await runBounded(
               this.executor, "fingerprint", host.ip_address, active.abort.signal, this.hostTimeoutMs,
             );
-            const fingerprint = parseNmapXml(xml).find((item) => item.ip_address === host.ip_address) ?? null;
+            const fingerprint = parseNmapXml(xml, active.record.network).find((item) => item.ip_address === host.ip_address) ?? null;
             results[index] = fingerprint;
             active.record = fingerprint
               ? { ...active.record, fingerprinted_count: active.record.fingerprinted_count + 1 }
@@ -122,7 +122,7 @@ export class AssetScanController {
       await Promise.all(Array.from({ length: Math.min(this.concurrency, discovered.length || 1) }, worker));
       if (active.abort.signal.aborted) throw new ScanExecutionError("NMAP_CANCELLED");
       const observedAt = this.now().toISOString();
-      await this.repository.ingest(discovered.map((host, index) => normalizeScannedHost(host, results[index] ?? null, observedAt)), AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
+      await this.repository.ingest(discovered.map((host, index) => normalizeScannedHost(host, results[index] ?? null, observedAt)), active.record.id, AbortSignal.timeout(ASSET_SCAN_PERSIST_TIMEOUT_MS));
       active.abort.signal.throwIfAborted();
       await this.#complete(active, "completed");
     } catch (error) {

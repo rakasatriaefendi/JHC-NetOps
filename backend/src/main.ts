@@ -1,6 +1,7 @@
 import { BackendConfigurationError, loadBackendConfig } from "./config.js";
 import { Pool } from "pg";
 import { PostgresAssetRepository, ASSET_QUERY_TIMEOUT_MS } from "./assets/repository.js";
+import { PostgresAssetChangeRepository } from "./assets/change-repository.js";
 import { SupabaseAssetEvidenceSource } from "./assets/evidence.js";
 import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
@@ -55,6 +56,9 @@ async function main(): Promise<void> {
         repository: assetRepository,
         ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
       },
+    } : {}),
+    ...(config.assets && assetPool ? {
+      assetChanges: { token: config.assets.frontendApiToken, repository: new PostgresAssetChangeRepository(assetPool) },
     } : {}),
     ...(config.assets && assetScanController ? {
       assetScan: { token: config.assets.frontendApiToken, controller: assetScanController },

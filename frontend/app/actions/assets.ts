@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
-import { cancelAssetScan, loadAssetScanState, requestAssetScan } from "@/lib/assets";
+import { cancelAssetScan, loadAssetChangeHistory, loadAssetScanState, requestAssetScan } from "@/lib/assets";
 import type { AssetScanMode } from "@/lib/asset-scan-contract";
 
 export async function getAssetScanStateAction() {
@@ -26,4 +26,13 @@ export async function cancelAssetScanAction(id: string) {
   const result = await cancelAssetScan(id);
   revalidatePath("/assets");
   return result;
+}
+
+export async function getAssetChangeHistoryAction(assetId: string, page = 1) {
+  await requireApprovedProfile();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(assetId) ||
+      !Number.isSafeInteger(page) || page < 1) {
+    return { data: null, error: "unavailable" as const };
+  }
+  return loadAssetChangeHistory({ page: String(page), page_size: "10" }, assetId);
 }

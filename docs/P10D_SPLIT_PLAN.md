@@ -1,6 +1,6 @@
 # P10D Asset Intelligence split plan
 
-Date: 2026-09-09. P10D1-A and P10D1-B are implemented in source; P10D2 remains explicitly deferred.
+Date: 2026-09-09. P10D1-A, P10D1-B, and the narrowed P10D2 Asset Change History are implemented in source; runtime acceptance remains pending.
 
 ## Product boundary
 
@@ -77,37 +77,25 @@ uses bounded workers and per-host deadlines. One active job is allowed, cancel
 terminates active processes, and restart recovery prevents stale `running` state.
 No raw XML, credentials, P10D2 identity snapshots, or change events are stored.
 
-## P10D2 — identity reconciliation and Asset Changes history
+## P10D2 — bounded Asset Changes history (implemented in source)
 
 ### Persistence
 
-Add isolated tables such as `asset.identities`, `asset.ip_history`,
-`asset.observation_snapshots`, and `asset.change_events`. Exact keys are decided
-after fixtures prove collision behavior. Requirements:
-
-- MAC is one identity signal, not universally permanent or unique.
-- Preserve current and previous IP with append-only bounded IP history.
-- Observation snapshots are immutable normalized facts; later evidence does not
-  rewrite older snapshots.
-- Emit deduplicated `NEW_DEVICE`, `IP_CHANGED`, and `MAC_CHANGED` transitions.
-- `MAC_CHANGED` is evidence of a changed IP-to-MAC association, not an automatic
-  incident or security alert.
-- Handle DHCP reuse, device replacement, virtualization, and private/randomized
-  MAC evidence conservatively.
+Migration 004 adds only `asset.change_events`. Application reconciliation writes
+one permanent `created` event for a genuinely inserted row, or one grouped
+`changed` event for meaningful allowlisted field differences. It deliberately
+does not add identity/IP-history tables, infer identity collisions, or backfill
+existing assets. Stable keys preserve the existing P10D1 identity semantics.
+Normalized snapshots exclude timestamps, latency, confidence, internal links,
+raw scanner output, and credentials. See `P10D2_ASSET_CHANGE_HISTORY.md`.
 
 ### History and detail UX
 
-Add `Asset Changes` beside the existing `Diagnostics` History view—not below the
-Asset Inventory table. It contains compact summary values for Known Identities,
-IP Changed, MAC Changed, New Device, and Observation Snapshots, followed by one
-search/filter/paginated event table: Type, MAC, Before, After, Detected, Details.
-
-The centered Asset detail dialog gains an Identity view and contextual history,
-without becoming a permanent side panel. Medical Equipment linkage remains P10F.
-
-P10D2 acceptance requires deterministic identity collision/change/deduplication
-tests, append-only snapshot/history tests, pagination/filter tests, plain-language
-helper text, and proof that no change event mutates Health/Traffic/SNMP severity.
+`Asset Changes` is a third `/history` tab with search, event-type and changed-field
+filters plus bounded paging. The centered Asset detail dialog gains contextual
+history on demand. A derived 24-hour PERANGKAT BARU / NEW DEVICE badge uses
+backend `server_time`, `first_seen_at`, and qualifying network evidence sources;
+it is not an asset status or stored boolean. Medical Equipment remains P10F.
 
 ## Requested legacy capability placement
 

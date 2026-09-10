@@ -1,6 +1,7 @@
 import "server-only";
 
 import { validAssetScanState, type AssetScanMode, type AssetScanRecord, type AssetScanState } from "@/lib/asset-scan-contract";
+import { validAssetChangePayload, type AssetChangeData, type AssetChangeHistoryQuery } from "@/lib/asset-change-contract";
 
 export type AssetStatus = "online" | "offline" | "changed" | "unknown";
 export type AssetSort = "name_asc" | "name_desc";
@@ -123,6 +124,27 @@ function validAsset(item: unknown): boolean {
     && Array.isArray(item.classification_evidence) && item.classification_evidence.length <= 32
     && item.classification_evidence.every((evidence) => record(evidence) && typeof evidence.source === "string"
       && typeof evidence.label === "string" && typeof evidence.value === "string");
+}
+
+export async function loadAssetChangeHistory(query: AssetChangeHistoryQuery, assetId: string | null = null): Promise<
+  { data: AssetChangeData | null; error: "unconfigured" | "unavailable" | null }
+> {
+  const config = localBackendConfig();
+  if (!config) return { data: null, error: "unconfigured" };
+  if (assetId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(assetId)) {
+    return { data: null, error: "unavailable" };
+  }
+  const url = new URL(assetId ? `/api/assets/${assetId}/events` : "/api/assets/events", config.origin);
+  for (const key of ["q", "event_type", "source", "changed_field", "page", "page_size"] as const) {
+    const value = query[key];
+    if (typeof value === "string" && value) url.searchParams.set(key, value);
+  }
+  try {
+    const response = await fetch(url, { headers: { authorization: `Bearer ${config.token}` }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
+    if (!response.ok) return { data: null, error: "unavailable" };
+    const payload: unknown = await response.json();
+    return validAssetChangePayload(payload) ? { data: payload.data, error: null } : { data: null, error: "unavailable" };
+  } catch { return { data: null, error: "unavailable" }; }
 }
 
 export async function loadAssetScanState(): Promise<{ data: AssetScanState | null; error: "unconfigured" | "unavailable" | null }> {

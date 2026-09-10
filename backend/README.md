@@ -110,8 +110,7 @@ PostgreSQL bulk upsert. Refresh failure is non-destructive: retained local rows
 remain available.
 
 Migration `002_asset_intelligence.sql` adds hostname, bounded ports/services,
-latency, evidence time, and the idempotent stable source key. It does not add
-P10D2 identity, IP/MAC change, snapshot, or event tables.
+latency, evidence time, and the idempotent stable source key.
 
 ## P10D1-B: explicit active inventory scan
 
@@ -127,3 +126,13 @@ with fixed per-host fingerprint operations, default concurrency 4 (hard maximum
 is active; cancellation aborts child processes, and startup marks interrupted
 runs failed. XML is parsed and normalized in memory; raw XML is never persisted.
 See `../docs/P10D1B_ACTIVE_INVENTORY_SCAN.md` for the privilege and rollout model.
+
+## P10D2: bounded Asset Change History
+
+Migration `004_asset_change_history.sql` adds append-only normalized history.
+Asset reconciliation and its event write share one PostgreSQL transaction;
+per-stable-key advisory locks and a deterministic unique event key make retries
+safe. Read-only history is exposed through `GET /api/assets/events` and
+`GET /api/assets/:id/events` using the existing frontend-server bearer token.
+See `../docs/P10D2_ASSET_CHANGE_HISTORY.md` for exact semantics and the pending
+Mini PC acceptance checklist.

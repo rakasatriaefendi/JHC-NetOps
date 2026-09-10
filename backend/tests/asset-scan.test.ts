@@ -8,7 +8,7 @@ import { normalizeScannedHost, mergeActiveScanObservation } from "../src/assets/
 import { AssetScanController, AssetScanError } from "../src/assets/scan-controller.js";
 import { ScanExecutionError, type NmapExecutionMode, type NmapExecutor } from "../src/assets/scan-executor.js";
 import type { AssetScanRepository } from "../src/assets/scan-repository.js";
-import { normalizePrivateCidr, validateAssetScanRequest, type AssetScanMode, type AssetScanRecord } from "../src/assets/scan-contract.js";
+import { isUsableScanHost, normalizePrivateCidr, validateAssetScanRequest, type AssetScanMode, type AssetScanRecord } from "../src/assets/scan-contract.js";
 import { buildServer } from "../src/server.js";
 
 const TOKEN = "a".repeat(32);
@@ -21,6 +21,19 @@ test("scan contract accepts only canonical bounded RFC1918 networks and allowlis
   assert.deepEqual(validateAssetScanRequest({ mode: "deep", network: NETWORK }, [NETWORK]), { ok: true, value: { mode: "deep", network: NETWORK } });
   assert.equal(validateAssetScanRequest({ mode: "deep", network: "10.0.0.0/24" }, [NETWORK]).ok, false);
   assert.equal(validateAssetScanRequest({ mode: "deep", network: NETWORK, flags: "--script all" }, [NETWORK]).ok, false);
+});
+
+test("usable scan hosts exclude network, broadcast and out-of-scope addresses while preserving /31 and /32", () => {
+  assert.equal(isUsableScanHost("192.168.1.0", "192.168.1.0/24"), false);
+  assert.equal(isUsableScanHost("192.168.1.255", "192.168.1.0/24"), false);
+  assert.equal(isUsableScanHost("192.168.1.1", "192.168.1.0/24"), true);
+  assert.equal(isUsableScanHost("192.168.1.254", "192.168.1.0/24"), true);
+  assert.equal(isUsableScanHost("192.168.2.1", "192.168.1.0/24"), false);
+  assert.equal(isUsableScanHost("192.168.1.0", "192.168.1.0/30"), false);
+  assert.equal(isUsableScanHost("192.168.1.3", "192.168.1.0/30"), false);
+  assert.equal(isUsableScanHost("192.168.1.0", "192.168.1.0/31"), true);
+  assert.equal(isUsableScanHost("192.168.1.1", "192.168.1.0/31"), true);
+  assert.equal(isUsableScanHost("192.168.1.9", "192.168.1.9/32"), true);
 });
 
 test("missing network configuration keeps the scanner unavailable without invoking an executor", async () => {
@@ -43,13 +56,24 @@ test("quick XML parses multiple hosts with bounded IP, MAC, vendor, hostname and
     ${host("192.168.1.10", '<address addr="00:11:22:33:44:55" addrtype="mac" vendor="RaspberryPiF"/><hostnames><hostname name="lab-pi"/></hostnames><times srtt="1250"/>')}
     ${host("192.168.1.11", "")}
     <host><status state="down"/><address addr="192.168.1.12" addrtype="ipv4"/></host>
-    <host><status state="up"/><address addr="8.8.8.8" addrtype="ipv4"/></host>`));
+    <host><status state="up"/><address addr="8.8.8.8" addrtype="ipv4"/></host>`), NETWORK);
   assert.equal(hosts.length, 2);
   assert.deepEqual(hosts[0], {
     ip_address: "192.168.1.10", mac_address: "00:11:22:33:44:55", vendor: "RaspberryPiF", hostname: "lab-pi",
     latency_ms: 1.25, services: [], os_matches: [],
   });
   assert.equal(hosts[1]?.mac_address, null);
+});
+
+test("quick parser filters network, broadcast and outside-CIDR results before host bounds", () => {
+  const hosts = parseNmapXml(nmapRun([
+    host("192.168.1.0", ""),
+    host("192.168.1.1", ""),
+    host("192.168.1.254", ""),
+    host("192.168.1.255", ""),
+    host("192.168.2.1", ""),
+  ].join("")), NETWORK);
+  assert.deepEqual(hosts.map((item) => item.ip_address), ["192.168.1.1", "192.168.1.254"]);
 });
 
 test("deep XML normalizes Windows, Linux, macOS, network, NAS, printer and unknown evidence conservatively", () => {
@@ -125,6 +149,7 @@ test("controller supports one bounded scan, partial host failure, cancellation a
   assert.equal(repository.lastRecord?.fingerprinted_count, 1);
   assert.equal(repository.lastRecord?.failed_count, 1);
   assert.equal(repository.ingested.length, 2);
+  assert.deepEqual(repository.ingestScanRunIds, [started.id]);
   assert.equal(started.id, repository.lastRecord?.id);
 
   const blocking = new BlockingExecutor();
@@ -138,6 +163,34 @@ test("controller supports one bounded scan, partial host failure, cancellation a
   await cancelController.start("quick", NETWORK);
   await cancelController.shutdown();
   assert.equal(cancelRepository.lastRecord?.status, "cancelled");
+});
+
+test("invalid discovery hosts never become Deep fingerprint candidates", async () => {
+  const repository = new FakeScanRepository();
+  const executor = new FixtureExecutor({
+    [`discovery:${NETWORK}`]: nmapRun(host("192.168.1.0", "") + host("192.168.1.1", "") + host("192.168.1.255", "")),
+    "fingerprint:192.168.1.1": nmapRun(host("192.168.1.1", ports([service(22, "ssh", "OpenSSH")]))),
+  });
+  const controller = new AssetScanController(repository, executor, [NETWORK], 2, 5_000, 5_000, () => new Date(STARTED));
+  await controller.start("deep", NETWORK);
+  await waitForIdle(controller);
+  assert.deepEqual(executor.calls, [`discovery:${NETWORK}`, "fingerprint:192.168.1.1"]);
+  assert.equal(repository.lastRecord?.discovered_count, 1);
+  assert.deepEqual(repository.ingested.map((item) => item.ip_address), ["192.168.1.1"]);
+});
+
+test("broadcast discovery cannot replace a valid asset IP through MAC reconciliation", async () => {
+  const repository = new MacReconcilingFakeScanRepository("192.168.1.250", "04:eb:40:ed:a6:0e");
+  const broadcastMac = '<address addr="04:EB:40:ED:A6:0E" addrtype="mac"/>';
+  const executor = new FixtureExecutor({
+    [`discovery:${NETWORK}`]: nmapRun(host("192.168.1.0", broadcastMac) + host("192.168.1.255", broadcastMac)),
+  });
+  const controller = new AssetScanController(repository, executor, [NETWORK], 1, 5_000, 5_000, () => new Date(STARTED));
+  await controller.start("quick", NETWORK);
+  await waitForIdle(controller);
+  assert.equal(repository.lastRecord?.discovered_count, 0);
+  assert.equal(repository.existingIp, "192.168.1.250");
+  assert.deepEqual(repository.ingested, []);
 });
 
 test("malformed Nmap output fails safely without ingesting raw output", async () => {
@@ -196,6 +249,7 @@ test("migration and privileged helper remain bounded, fixed-argument and isolate
 class FakeScanRepository implements AssetScanRepository {
   recovered = false;
   ingested: AssetObservation[] = [];
+  ingestScanRunIds: string[] = [];
   lastRecord: AssetScanRecord | null = null;
   async recoverInterrupted(): Promise<void> { this.recovered = true; }
   async create(mode: AssetScanMode, network: string, startedAt: string): Promise<AssetScanRecord> {
@@ -204,16 +258,27 @@ class FakeScanRepository implements AssetScanRepository {
   }
   async update(record: AssetScanRecord): Promise<void> { this.lastRecord = record; }
   async last(): Promise<AssetScanRecord | null> { return this.lastRecord?.status === "running" ? null : this.lastRecord; }
-  async ingest(observations: readonly AssetObservation[], signal: AbortSignal): Promise<number> {
-    signal.throwIfAborted(); this.ingested.push(...observations); return observations.length;
+  async ingest(observations: readonly AssetObservation[], scanRunId: string, signal: AbortSignal): Promise<number> {
+    signal.throwIfAborted(); this.ingested.push(...observations); this.ingestScanRunIds.push(scanRunId); return observations.length;
+  }
+}
+
+class MacReconcilingFakeScanRepository extends FakeScanRepository {
+  constructor(public existingIp: string, private readonly existingMac: string) { super(); }
+  override async ingest(observations: readonly AssetObservation[], scanRunId: string, signal: AbortSignal): Promise<number> {
+    const matched = observations.find((observation) => observation.mac_address === this.existingMac);
+    if (matched?.ip_address) this.existingIp = matched.ip_address;
+    return super.ingest(observations, scanRunId, signal);
   }
 }
 
 class FixtureExecutor implements NmapExecutor {
+  calls: string[] = [];
   constructor(private readonly fixtures: Readonly<Record<string, string | Error>>) {}
   async available(): Promise<boolean> { return true; }
   async run(mode: NmapExecutionMode, target: string, signal: AbortSignal): Promise<string> {
     signal.throwIfAborted();
+    this.calls.push(`${mode}:${target}`);
     const value = this.fixtures[`${mode}:${target}`];
     if (value instanceof Error) throw value;
     if (typeof value !== "string") throw new ScanExecutionError("NMAP_FAILED");
@@ -249,8 +314,8 @@ class TimeoutFingerprintExecutor implements NmapExecutor {
 }
 
 function normalized(ip: string, inner: string, mac = "00:11:22:33:44:55", vendor = "Example Vendor") {
-  const discovery = parseNmapXml(nmapRun(host(ip, `<address addr="${mac}" addrtype="mac" vendor="${vendor}"/>`)))[0];
-  const fingerprint = parseNmapXml(nmapRun(host(ip, inner)))[0];
+  const discovery = parseNmapXml(nmapRun(host(ip, `<address addr="${mac}" addrtype="mac" vendor="${vendor}"/>`)), NETWORK)[0];
+  const fingerprint = parseNmapXml(nmapRun(host(ip, inner)), NETWORK)[0];
   assert.ok(discovery); assert.ok(fingerprint);
   return normalizeScannedHost(discovery, fingerprint, STARTED);
 }
@@ -299,7 +364,7 @@ test("regression: operator classification wins over scan classification", () => 
 
 test("regression: canonical scanner type output only - no windows_pc_server or linux_unix_server", () => {
   const windows = normalized("192.168.1.80", ports([
-    service(135, "msrpc", "Microsoft Windows RPC"), service(139, "netbios-ssn"), service(445, "microsoft-ds"),
+    service(135, "msrpc", "Microsoft Windows RPC"), service(139, "netbios-ssn", null), service(445, "microsoft-ds", null),
   ]) + os("Windows 10", 90, "general purpose", "Windows"));
   assert.equal(windows.device_type, "unknown");
   assert.notEqual(windows.device_type, "windows_pc_server");

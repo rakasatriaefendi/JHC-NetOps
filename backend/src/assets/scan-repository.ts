@@ -10,7 +10,7 @@ export interface AssetScanRepository {
   create(mode: AssetScanMode, network: string, startedAt: string, signal: AbortSignal): Promise<AssetScanRecord>;
   update(record: AssetScanRecord, signal: AbortSignal): Promise<void>;
   last(signal: AbortSignal): Promise<AssetScanRecord | null>;
-  ingest(observations: readonly AssetObservation[], signal: AbortSignal): Promise<number>;
+  ingest(observations: readonly AssetObservation[], scanRunId: string, signal: AbortSignal): Promise<number>;
 }
 
 export class PostgresAssetScanRepository implements AssetScanRepository {
@@ -61,7 +61,7 @@ export class PostgresAssetScanRepository implements AssetScanRepository {
     return result.rows[0] ? normalizeScan(result.rows[0]) : null;
   }
 
-  async ingest(observations: readonly AssetObservation[], signal: AbortSignal): Promise<number> {
+  async ingest(observations: readonly AssetObservation[], scanRunId: string, signal: AbortSignal): Promise<number> {
     signal.throwIfAborted();
     if (!observations.length) return 0;
     const macs = observations.map((item) => item.mac_address).filter((item): item is string => Boolean(item));
@@ -96,7 +96,7 @@ export class PostgresAssetScanRepository implements AssetScanRepository {
       const value = previous ? mergeActiveScanObservation(previous, observation) : observation;
       merged.set(value.stable_source_key, value);
     }
-    return this.#assets.ingest([...merged.values()], signal);
+    return this.#assets.ingest([...merged.values()], signal, { scanRunId, eventSource: "active_scan" });
   }
 }
 
