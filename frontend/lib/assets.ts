@@ -284,7 +284,7 @@ function safeBackendCode(value: unknown): string {
     ? value.error.code : "ASSET_SCAN_FAILED";
 }
 
-function localBackendConfig(): { origin: string; token: string } | null {
+export function localBackendConfig(): { origin: string; token: string } | null {
   const backendUrl = process.env.LOCAL_BACKEND_URL?.trim();
   const token = process.env.LOCAL_BACKEND_FRONTEND_TOKEN?.trim();
   const origin = backendUrl ? safeLoopbackOrigin(backendUrl) : null;

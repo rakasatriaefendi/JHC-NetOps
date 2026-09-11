@@ -97,6 +97,11 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
       </div>
     </> : null}
 
+    {data ? <aside className="mt-6 flex flex-col gap-4 rounded-panel border border-border bg-bg-surface p-4 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="asset-report-cta-title">
+      <div><h2 className="font-medium" id="asset-report-cta-title">{t("report.ctaTitle")}</h2><p className="mt-1 text-meta text-text-secondary">{t("report.ctaDescription", { count: data.pagination.total })}</p></div>
+      <AssetExportButton query={query} />
+    </aside> : null}
+
     {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} serverTime={data?.server_time ?? new Date(0).toISOString()} canInspect={canInspect} inspectorAvailable={inspectorAvailable} managedTargets={managedTargets} healthTargetIds={healthTargetIds} onClose={() => setSelected(null)} /> : null}
   </section>;
 }

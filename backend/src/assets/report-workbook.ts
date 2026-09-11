@@ -4,17 +4,23 @@ import type { AssetRecord, AssetStatus } from "./contract.js";
 import { ExcelJS, type ExcelWorkbook, type ExcelWorksheet } from "./exceljs.js";
 import type { AssetReportQuery } from "./report-contract.js";
 import type { AssetReportData } from "./report-repository.js";
+import { DEFAULT_REPORT_BRANDING, type ReportBrandingSnapshot } from "../report-branding/contract.js";
 
 export type AssetWorkbookResult = Readonly<{ buffer: Buffer; filename: string }>;
 
-export async function buildAssetWorkbook(data: AssetReportData, query: AssetReportQuery, generatedAt: Date): Promise<AssetWorkbookResult> {
+export async function buildAssetWorkbook(
+  data: AssetReportData,
+  query: AssetReportQuery,
+  generatedAt: Date,
+  branding: ReportBrandingSnapshot = { branding: DEFAULT_REPORT_BRANDING, logo: null },
+): Promise<AssetWorkbookResult> {
   const labels = REPORT_LABELS[query.language];
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "JHC NetOps Asset Inventory";
   workbook.created = generatedAt;
   workbook.modified = generatedAt;
 
-  addSummarySheet(workbook, data, query, generatedAt, labels);
+  addSummarySheet(workbook, data, query, generatedAt, labels, branding);
   addAssetsSheet(workbook, data.assets, labels);
   addHistorySheet(workbook, data.history, data.assets, labels);
 
@@ -35,37 +41,64 @@ function addSummarySheet(
   query: AssetReportQuery,
   generatedAt: Date,
   labels: ReportLabels,
+  branding: ReportBrandingSnapshot,
 ) {
   const sheet = workbook.addWorksheet(labels.sheets.summary);
-  sheet.columns = [{ width: 34 }, { width: 58 }];
-  sheet.addRow([labels.reportTitle, "JHC NetOps Asset Inventory"]);
+  sheet.columns = [{ width: 34 }, { width: 68 }];
+  const textColumn = branding.logo ? "B" : "A";
+  if (!branding.logo) {
+    sheet.mergeCells("A1:B1");
+    sheet.mergeCells("A2:B2");
+    sheet.mergeCells("A3:B3");
+  } else {
+    const imageId = workbook.addImage({
+      base64: `data:${branding.logo.mimeType};base64,${branding.logo.bytes.toString("base64")}`,
+      extension: branding.logo.extension,
+    });
+    const maxWidth = 120;
+    const maxHeight = 66;
+    const scale = Math.min(maxWidth / branding.logo.width, maxHeight / branding.logo.height, 1);
+    sheet.addImage(imageId, { tl: { col: 0.12, row: 0.15 }, ext: { width: branding.logo.width * scale, height: branding.logo.height * scale } });
+  }
+  sheet.getCell(`${textColumn}1`).value = safeText(labels.assetReportTitle);
+  sheet.getCell(`${textColumn}2`).value = safeText(branding.branding.institution_name);
+  sheet.getCell(`${textColumn}3`).value = branding.branding.division_name ? safeText(branding.branding.division_name) : "";
+  sheet.getRow(1).height = 28;
+  sheet.getRow(2).height = 22;
+  sheet.getRow(3).height = branding.branding.division_name ? 20 : 8;
+  sheet.getCell(`${textColumn}1`).font = { bold: true, size: 18, color: { argb: "FF123D3B" } };
+  sheet.getCell(`${textColumn}2`).font = { bold: true, size: 13 };
+  sheet.addRow([]);
+  addSummarySection(sheet, labels.reportInformation);
+  sheet.addRow([labels.institution, safeText(branding.branding.institution_name)]);
+  if (branding.branding.division_name) sheet.addRow([labels.division, safeText(branding.branding.division_name)]);
   sheet.addRow([labels.generatedAt, generatedAt]);
-  sheet.getCell("B2").numFmt = labels.timestampFormat;
+  sheet.getCell(`B${sheet.rowCount}`).numFmt = labels.timestampFormat;
   sheet.addRow([labels.matchingAssets, data.matchingAssetCount]);
   sheet.addRow([labels.exportedAssets, data.assets.length]);
   sheet.addRow([labels.exportedHistory, data.history.length]);
   sheet.addRow([labels.assetLimit, data.assetsTruncated ? labels.truncated : labels.notTruncated]);
   sheet.addRow([labels.historyLimit, data.historyTruncated ? labels.truncated : labels.notTruncated]);
   sheet.addRow([]);
-  sheet.addRow([labels.criteria, labels.value]);
+  addSummarySection(sheet, labels.criteria);
   sheet.addRow([labels.search, safeOrAll(query.inventory.search, labels.all)]);
-  sheet.addRow([labels.deviceType, safeOrAll(query.inventory.deviceType, labels.all)]);
+  sheet.addRow([labels.deviceType, query.inventory.deviceType ? deviceTypeLabel(query.inventory.deviceType, labels) : labels.all]);
   sheet.addRow([labels.vendor, safeOrAll(query.inventory.vendor, labels.all)]);
   sheet.addRow([labels.os, safeOrAll(query.inventory.platform, labels.all)]);
   sheet.addRow([labels.status, query.inventory.status ? labels.statuses[query.inventory.status] : labels.all]);
   sheet.addRow([labels.sort, query.inventory.sort === "name_desc" ? labels.nameDesc : labels.nameAsc]);
   sheet.addRow([]);
-  sheet.addRow([labels.statusCounts, labels.count]);
+  addSummarySection(sheet, labels.statusCounts);
   for (const status of ["online", "offline", "changed", "unknown"] as const) {
     sheet.addRow([labels.statuses[status], data.assets.filter((asset) => asset.status === status).length]);
   }
   sheet.addRow([]);
-  sheet.addRow([labels.deviceTypeCounts, labels.count]);
+  addSummarySection(sheet, labels.deviceTypeCounts);
   for (const [deviceType, count] of groupedCounts(data.assets.map((asset) => asset.device_type))) {
-    sheet.addRow([safeText(deviceType), count]);
+    sheet.addRow([safeText(deviceTypeLabel(deviceType, labels)), count]);
   }
   sheet.addRow([]);
-  sheet.addRow([labels.evidenceCompleteness, labels.count]);
+  addSummarySection(sheet, labels.evidenceCompleteness);
   sheet.addRow([labels.vendorKnown, data.assets.filter((asset) => known(asset.vendor)).length]);
   sheet.addRow([labels.vendorUnknown, data.assets.filter((asset) => !known(asset.vendor)).length]);
   sheet.addRow([labels.osKnown, data.assets.filter((asset) => known(asset.platform)).length]);
@@ -91,7 +124,7 @@ function addAssetsSheet(workbook: ExcelWorkbook, assets: readonly AssetRecord[],
       safeOptional(asset.mac_address),
       safeOptional(asset.vendor),
       safeOptional(asset.platform),
-      safeText(humanEnum(asset.device_type)),
+      safeText(deviceTypeLabel(asset.device_type, labels)),
       labels.statuses[asset.status],
       asset.os_confidence ? labels.confidence[asset.os_confidence] : "-",
       excelTimestamp(asset.first_seen_at),
@@ -149,13 +182,37 @@ function styleDataSheet(sheet: ExcelWorksheet, columnCount: number, widths: numb
 }
 
 function styleSummary(sheet: ExcelWorksheet) {
-  for (const rowNumber of [1, 9, 17, 23]) {
-    const row = sheet.getRow(rowNumber);
-    row.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B68" } };
+  sheet.eachRow((row) => {
+    for (let column = 1; column <= 2; column += 1) {
+      const cell = row.getCell(column);
+      cell.alignment = {
+        ...cell.alignment,
+        vertical: cell.alignment?.vertical ?? "top",
+        wrapText: true,
+      };
+    }
+
+    // Keep the first column bold without overwriting cell-level font colors.
+    // Using `sheet.getColumn(1).font = { bold: true }` here would replace
+    // the white font applied to summary section headers with Excel's
+    // default black font.
+    const labelCell = row.getCell(1);
+    labelCell.font = { ...labelCell.font, bold: true };
+  });
+}
+
+function addSummarySection(sheet: ExcelWorksheet, label: string) {
+  const row = sheet.addRow([label, ""]);
+
+  // Apply the section style per cell so the fill/font survives later
+  // worksheet styling and renders consistently in Excel-compatible viewers.
+  for (let column = 1; column <= 2; column += 1) {
+    const cell = row.getCell(column);
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B68" } };
+    cell.alignment = { vertical: "middle", wrapText: true };
   }
-  sheet.getColumn(1).font = { bold: true };
-  sheet.eachRow((row) => { row.alignment = { vertical: "top", wrapText: true }; });
+  row.height = 24;
 }
 
 function snapshotSummary(snapshot: AssetChangeSnapshot, fields: readonly AssetChangeField[], labels: ReportLabels, created = false): string {
@@ -186,6 +243,9 @@ function safeText(value: string): string { return sanitizeSpreadsheetText(value)
 function safeOptional(value: string | null): string { return value ? safeText(value) : "-"; }
 function safeOrAll(value: string | null, fallback: string): string { return value ? safeText(value) : fallback; }
 function humanEnum(value: string): string { return value.replaceAll("_", " "); }
+function deviceTypeLabel(value: string, labels: ReportLabels): string {
+  return labels.deviceTypes[value as keyof typeof labels.deviceTypes] ?? humanEnum(value);
+}
 function known(value: string | null): boolean { return Boolean(value && !["unknown", "n/a", "none", "null", "-"].includes(value.trim().toLowerCase())); }
 
 function groupedCounts(values: string[]): [string, number][] {
@@ -197,7 +257,7 @@ function groupedCounts(values: string[]): [string, number][] {
 const REPORT_LABELS = {
   en: {
     sheets: { summary: "Summary", assets: "Assets", history: "Change History" },
-    reportTitle: "Report title", generatedAt: "Generated at", matchingAssets: "Total matching assets", exportedAssets: "Assets exported", exportedHistory: "History events exported",
+    assetReportTitle: "Asset Inventory Report", reportInformation: "Report Information", institution: "Institution", division: "Division / Department", generatedAt: "Generated at", matchingAssets: "Total matching assets", exportedAssets: "Assets exported", exportedHistory: "History events exported",
     assetLimit: "Asset export limit", historyLimit: "History export limit", truncated: "Reached - report contains the first bounded records", notTruncated: "Not reached",
     criteria: "Active criteria", value: "Value", search: "Search", deviceType: "Device type", vendor: "Vendor", os: "OS / Platform", status: "Status", sort: "Sort", all: "All", nameAsc: "Name A-Z", nameDesc: "Name Z-A",
     statusCounts: "Status counts (exported assets)", deviceTypeCounts: "Device type counts (exported assets)", evidenceCompleteness: "Evidence completeness", count: "Count", vendorKnown: "Known vendor", vendorUnknown: "Unknown vendor", osKnown: "Known OS", osUnknown: "Unknown OS",
@@ -208,10 +268,11 @@ const REPORT_LABELS = {
     confidence: { low: "Low", medium: "Medium", high: "High" }, eventTypes: { created: "Created", changed: "Changed" },
     sources: { manual: "Manual", discovery: "Discovery", observed_host: "Observed LAN Host", device_inspector: "Device Inspector", managed_telemetry: "Managed SNMP", active_scan: "Active scan", import: "Import" } as Record<AssetChangeSource, string>,
     fields: { name: "Name", hostname: "Hostname", ip_address: "IP address", mac_address: "MAC address", vendor: "Vendor", platform: "OS / Platform", device_type: "Device type", status: "Status", open_ports: "Open ports", detected_services: "Detected services" } as Record<AssetChangeField, string>,
+    deviceTypes: { unknown: "Unknown", network_device: "Network device", computer: "Computer", computer_workstation: "Computer / Workstation", windows_pc_server: "Windows PC / Server", linux_unix_server: "Linux / Unix / Server", mac_apple_workstation: "Mac / Apple Workstation", server: "Server", server_remote_management: "Server / Remote Management", nas_storage_server: "NAS / Storage Server", printer: "Printer", switch_network: "Switch / Network", router_firewall: "Router / Firewall", access_point: "Access Point", cctv_camera: "CCTV / Camera", voip_gateway: "VoIP Gateway", industrial_controller: "Industrial Controller", iot_smart_device: "IoT / Smart Device", medical_device: "Medical Device" },
   },
   id: {
     sheets: { summary: "Ringkasan", assets: "Aset", history: "Riwayat Perubahan" },
-    reportTitle: "Judul laporan", generatedAt: "Dibuat pada", matchingAssets: "Total aset yang cocok", exportedAssets: "Aset diekspor", exportedHistory: "Peristiwa riwayat diekspor",
+    assetReportTitle: "Laporan Inventaris Aset", reportInformation: "Informasi Laporan", institution: "Instansi", division: "Divisi / Departemen", generatedAt: "Dibuat pada", matchingAssets: "Total aset yang cocok", exportedAssets: "Aset diekspor", exportedHistory: "Peristiwa riwayat diekspor",
     assetLimit: "Batas ekspor aset", historyLimit: "Batas ekspor riwayat", truncated: "Tercapai - laporan memuat data pertama sesuai batas", notTruncated: "Tidak tercapai",
     criteria: "Kriteria aktif", value: "Nilai", search: "Pencarian", deviceType: "Tipe perangkat", vendor: "Vendor", os: "OS / Platform", status: "Status", sort: "Urutan", all: "Semua", nameAsc: "Nama A-Z", nameDesc: "Nama Z-A",
     statusCounts: "Jumlah status (aset diekspor)", deviceTypeCounts: "Jumlah tipe perangkat (aset diekspor)", evidenceCompleteness: "Kelengkapan bukti", count: "Jumlah", vendorKnown: "Vendor diketahui", vendorUnknown: "Vendor tidak diketahui", osKnown: "OS diketahui", osUnknown: "OS tidak diketahui",
@@ -222,6 +283,7 @@ const REPORT_LABELS = {
     confidence: { low: "Rendah", medium: "Sedang", high: "Tinggi" }, eventTypes: { created: "Dibuat", changed: "Berubah" },
     sources: { manual: "Manual", discovery: "Discovery", observed_host: "Observed LAN Host", device_inspector: "Device Inspector", managed_telemetry: "SNMP Terkelola", active_scan: "Pemindaian aktif", import: "Impor" } as Record<AssetChangeSource, string>,
     fields: { name: "Nama", hostname: "Hostname", ip_address: "Alamat IP", mac_address: "Alamat MAC", vendor: "Vendor", platform: "OS / Platform", device_type: "Tipe perangkat", status: "Status", open_ports: "Port terbuka", detected_services: "Layanan terdeteksi" } as Record<AssetChangeField, string>,
+    deviceTypes: { unknown: "Tidak diketahui", network_device: "Perangkat jaringan", computer: "Komputer", computer_workstation: "Komputer / Workstation", windows_pc_server: "PC / Server Windows", linux_unix_server: "Linux / Unix / Server", mac_apple_workstation: "Workstation Mac / Apple", server: "Server", server_remote_management: "Server / Remote Management", nas_storage_server: "NAS / Server Penyimpanan", printer: "Printer", switch_network: "Switch / Jaringan", router_firewall: "Router / Firewall", access_point: "Access Point", cctv_camera: "CCTV / Kamera", voip_gateway: "Gateway VoIP", industrial_controller: "Kontroler Industri", iot_smart_device: "IoT / Perangkat Pintar", medical_device: "Perangkat Medis" },
   },
 } as const;
 

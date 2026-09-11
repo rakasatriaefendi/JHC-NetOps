@@ -4,7 +4,7 @@
   "description": "Inventaris ringkas yang diperkaya dari bukti NetOps terotorisasi. Pemindaian aktif hanya berjalan setelah operator memulainya secara eksplisit.",
   "loading": "Memuat Inventaris Aset",
   "lastUpdated": "Terakhir diperbarui: {{value}}",
-  "report": { "action": "Ekspor Excel", "exporting": "Mengekspor…", "success": "Laporan berhasil diunduh.", "error": "Ekspor laporan gagal. Silakan coba lagi." },
+  "report": { "action": "Ekspor Excel", "exporting": "Mengekspor…", "success": "Laporan berhasil diunduh.", "error": "Ekspor laporan gagal. Silakan coba lagi.", "ctaTitle": "Unduh tampilan inventaris ini", "ctaDescription": "Ekspor seluruh {{count}} aset yang cocok beserta riwayat perubahan terbatasnya sebagai laporan Excel beridentitas." },
   "summary": { "total": "Total aset", "online": "Online", "offline": "Offline", "changed": "Berubah" },
   "filters": { "search": "Cari", "searchPlaceholder": "Hostname, IP, MAC, vendor, atau OS", "type": "Tipe perangkat", "allTypes": "Semua perangkat", "status": "Status", "allStatuses": "Semua status", "sort": "Urutkan", "nameAsc": "Nama A-Z", "nameDesc": "Nama Z-A", "apply": "Terapkan", "clear": "Hapus filter", "remove": "Hapus filter" },
   "table": { "no": "No", "hostname": "Hostname", "mac": "MAC", "os": "OS", "ports": "Port", "portCount": "{{count}} terdeteksi", "name": "Nama", "type": "Tipe", "status": "Status", "ip": "IP", "vendor": "Vendor", "lastSeen": "Terakhir terlihat", "action": "Aksi" },

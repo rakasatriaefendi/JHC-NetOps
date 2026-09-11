@@ -80,7 +80,8 @@ Supabase Auth + Database + Realtime + control-plane Edge Functions
         |
 Loopback Fastify backend <--- Local Runner (Node.js)
         |-- P10C/P10D1 Asset API + bounded evidence sync ---> dedicated local PostgreSQL asset.*
-        |-- P10E bounded XLSX report (no persisted report files)
+        |-- P10E bounded branded XLSX report (no persisted report files)
+        |-- report identity/logo -> REPORT_BRANDING_DIR outside releases
         |-- explicit P10D1-B scan ---> root-owned fixed-argument Nmap helper
         |-- Windows: PowerShell context + PING.EXE + wsl.exe --exec
         `-- Linux: ip -j context + ping + native child process

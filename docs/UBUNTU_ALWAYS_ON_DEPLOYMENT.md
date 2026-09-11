@@ -13,6 +13,7 @@ enable, start, dan restart pada Mini PC harus dilakukan manual setelah review.
 - environment runner: `/var/www/jhc/jhc_noc/shared/runner/.env`;
 - environment frontend: `/var/www/jhc/jhc_noc/shared/frontend/.env`;
 - environment backend: `/var/www/jhc/jhc_noc/shared/backend/.env`;
+- branding laporan: `/var/www/jhc/jhc_noc/shared/branding`;
 - state runner: `/var/www/jhc/jhc_noc/shared/state`;
 - log aplikasi runner: `/var/www/jhc/jhc_noc/shared/logs`;
 - Node: `/home/mini-pc/.nvm/versions/node/v22.23.2/bin/node`.
@@ -57,6 +58,20 @@ Jangan menyimpan config nyata, community, username SNMPv3, auth password, privac
 password, service-role key, atau token di release maupun Git.
 
 ## Environment recurring data plane lokal P10B
+
+Untuk P10E-B, buat direktori persistent `shared/branding` yang dimiliki account
+service dengan permission terbatas, lalu tambahkan server-only berikut ke
+`shared/backend/.env`:
+
+```dotenv
+REPORT_BRANDING_DIR=/var/www/jhc/jhc_noc/shared/branding
+```
+
+Direktori ini berada di luar `current`, `releases/`, dan `candidate/`; jangan
+menyalin logo ke release SHA. Backend akan membuat `branding.json` dan satu logo
+kanonik `report-logo.png` atau `report-logo.jpg`. Hentikan service NetOps sebelum
+menyiapkan path/environment, lalu jalankan kembali hanya melalui prosedur release
+yang direview. Frontend tidak pernah mengakses filesystem tersebut secara langsung.
 
 Saat rollout P10B direview, isi `/var/www/jhc/jhc_noc/shared/backend/.env` dengan
 `HOST=127.0.0.1`, `PORT=3402`, `RUNNER_API_TOKEN`, `SUPABASE_URL`, dan

@@ -10,6 +10,8 @@ import {
 } from "./report-contract.js";
 import type { AssetReportRepository } from "./report-repository.js";
 import { buildAssetWorkbook } from "./report-workbook.js";
+import type { ReportBrandingStore } from "../report-branding/storage.js";
+import { DEFAULT_REPORT_BRANDING, type ReportBrandingSnapshot } from "../report-branding/contract.js";
 
 export const ASSET_REPORT_TIMEOUT_MS = 12_000;
 export const ASSET_REPORT_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -20,6 +22,7 @@ export type AssetReportRouteOptions = Readonly<{
   synchronizer?: AssetSynchronizer;
   timeoutMs?: number;
   now?: () => Date;
+  branding?: ReportBrandingStore;
 }>;
 
 export function registerAssetReportRoute(server: FastifyInstance, options: AssetReportRouteOptions): void {
@@ -47,7 +50,15 @@ export function registerAssetReportRoute(server: FastifyInstance, options: Asset
         signal,
       );
       signal.throwIfAborted();
-      const report = await buildAssetWorkbook(data, validated.value, (options.now ?? (() => new Date()))());
+      let branding: ReportBrandingSnapshot = { branding: DEFAULT_REPORT_BRANDING, logo: null };
+      if (options.branding) {
+        try {
+          branding = await options.branding.readSnapshot();
+        } catch {
+          request.log.warn({ request_id: request.id, error_code: "REPORT_BRANDING_READ_FAILED" }, "report branding unavailable; using safe default");
+        }
+      }
+      const report = await buildAssetWorkbook(data, validated.value, (options.now ?? (() => new Date()))(), branding);
       if (report.buffer.byteLength > ASSET_REPORT_MAX_BYTES) throw new Error("Asset report exceeds the bounded response size");
       return reply
         .header("content-type", ASSET_REPORT_MIME)

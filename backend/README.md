@@ -157,4 +157,9 @@ UI pagination parameters. The synchronous report is capped at 2,000 assets,
 deadline. It returns Summary, Assets, and Change History sheets and does not save
 generated files. Formula-like operator/network strings are neutralized as plain
 spreadsheet text; SNMP credentials and runtime secrets are never selected or
-rendered. See `../docs/P10E_ASSET_REPORTING.md`.
+rendered. Runtime report identity is stored outside disposable releases through
+`REPORT_BRANDING_DIR` (local default: ignored `data/report-branding`). Admin
+mutations use the protected Next.js boundary and token-protected local routes;
+PNG/JPEG logos are signature-checked and capped at 10 MiB. Generate an offline
+fixture workbook with `npm run preview:asset-report`. See
+`../docs/P10E_ASSET_REPORTING.md`.

@@ -41,6 +41,8 @@ runner/config.local.json
 runner/config.local.json.*
 runner/data/
 runner/logs/
+/backend/data/report-branding/
+/backend/test-output/
 
 # Local agent buffers and runtime data
 /data/

@@ -15,6 +15,7 @@ import type { AssetReportData, AssetReportRepository } from "../src/assets/repor
 import { normalizeReportEvent } from "../src/assets/report-repository.js";
 import { buildAssetWorkbook, sanitizeSpreadsheetText } from "../src/assets/report-workbook.js";
 import { buildServer } from "../src/server.js";
+import type { ReportBrandingSnapshot } from "../src/report-branding/contract.js";
 
 const TOKEN = "r".repeat(32);
 const QUERY: AssetListQuery = { search: "core", deviceType: "switch_network", vendor: "Ruijie", platform: "Network OS", status: "online", sort: "name_desc", page: 1, pageSize: 10 };
@@ -53,9 +54,11 @@ test("workbook contains readable bounded sheets, headers, counts, filters and ti
   await workbook.xlsx.load(Uint8Array.from(report.buffer).buffer);
   assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ["Summary", "Assets", "Change History"]);
   const summary = workbook.getWorksheet("Summary")!;
-  assert.equal(summary.getCell("B3").value, 1);
-  assert.equal(summary.getCell("B4").value, 1);
-  assert.equal(summary.getCell("B10").value, "core");
+  assert.equal(summary.getCell("A1").value, "Asset Inventory Report");
+  assert.equal(summary.getCell("A2").value, "JHC NetOps");
+  assert.equal(summary.getCell("B8").value, 1);
+  assert.equal(summary.getCell("B9").value, 1);
+  assert.equal(summary.getCell("B15").value, "core");
   const assets = workbook.getWorksheet("Assets")!;
   assert.equal(assets.getCell("A1").value, "No");
   assert.equal(assets.getCell("R1").value, "Health Watch Monitored");
@@ -92,8 +95,29 @@ test("null fields and empty datasets export safely while truncation is explicit"
   await workbook.xlsx.load(Uint8Array.from(report.buffer).buffer);
   assert.equal(workbook.getWorksheet("Aset")!.rowCount, 1);
   assert.equal(workbook.getWorksheet("Riwayat Perubahan")!.rowCount, 1);
-  assert.equal(workbook.getWorksheet("Ringkasan")!.getCell("B3").value, 2_500);
-  assert.match(String(workbook.getWorksheet("Ringkasan")!.getCell("B6").value), /Tercapai/);
+  assert.equal(workbook.getWorksheet("Ringkasan")!.getCell("B8").value, 2_500);
+  assert.match(String(workbook.getWorksheet("Ringkasan")!.getCell("B11").value), /Tercapai/);
+});
+
+test("workbook applies localized branding, taxonomy labels, section contrast and an aspect-ratio logo", async () => {
+  const logo = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const branding: ReportBrandingSnapshot = {
+    branding: { institution_name: "JHC Hospital", division_name: "IT Division", logo_available: true, logo_mime_type: "image/png", updated_at: "2026-09-10T00:00:00Z" },
+    logo: { bytes: logo, mimeType: "image/png", extension: "png", width: 2, height: 1 },
+  };
+  const report = await buildAssetWorkbook(reportData(), { inventory: QUERY, language: "id" }, new Date("2026-09-10T00:00:00Z"), branding);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Uint8Array.from(report.buffer).buffer);
+  const summary = workbook.getWorksheet("Ringkasan")!;
+  assert.equal(summary.getCell("B1").value, "Laporan Inventaris Aset");
+  assert.equal(summary.getCell("B2").value, "JHC Hospital");
+  assert.equal(summary.getCell("B3").value, "IT Division");
+  assert.equal(summary.getCell("B6").value, "JHC Hospital");
+  assert.equal(summary.getCell("B7").value, "IT Division");
+  assert.equal(summary.getImages().length, 1);
+  assert.equal(summary.getCell("A5").value, "Informasi Laporan");
+  assert.equal(summary.getRow(5).font.color?.argb, "FFFFFFFF");
+  assert.equal(workbook.getWorksheet("Aset")!.getCell("I2").value, "Switch / Jaringan");
 });
 
 test("legacy status-only events are excluded and mixed events retain meaningful fields", () => {

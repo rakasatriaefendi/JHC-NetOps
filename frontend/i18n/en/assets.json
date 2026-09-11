@@ -4,7 +4,7 @@
   "description": "A compact inventory enriched from authorized NetOps evidence. Active scans run only after an operator explicitly starts one.",
   "loading": "Loading Asset Inventory",
   "lastUpdated": "Last updated: {{value}}",
-  "report": { "action": "Export Excel", "exporting": "Exporting…", "success": "Report downloaded.", "error": "Report export failed. Please try again." },
+  "report": { "action": "Export Excel", "exporting": "Exporting…", "success": "Report downloaded.", "error": "Report export failed. Please try again.", "ctaTitle": "Download this inventory view", "ctaDescription": "Export all {{count}} matching assets and their bounded change history as a branded Excel report." },
   "summary": { "total": "Total assets", "online": "Online", "offline": "Offline", "changed": "Changed" },
   "filters": { "search": "Search", "searchPlaceholder": "Hostname, IP, MAC, vendor, or OS", "type": "Device type", "allTypes": "All devices", "status": "Status", "allStatuses": "All statuses", "sort": "Sort", "nameAsc": "Name A-Z", "nameDesc": "Name Z-A", "apply": "Apply", "clear": "Clear filters", "remove": "Remove filter" },
   "table": { "no": "No", "hostname": "Hostname", "mac": "MAC", "os": "OS", "ports": "Ports", "portCount": "{{count}} detected", "name": "Name", "type": "Type", "status": "Status", "ip": "IP", "vendor": "Vendor", "lastSeen": "Last seen", "action": "Action" },

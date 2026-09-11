@@ -11,6 +11,9 @@ test("Asset Inventory exposes the localized server-generated Excel action", () =
   const button = source("../components/assets/asset-export-button.tsx");
   const route = source("../app/(protected)/assets/export/route.ts");
   assert.match(inventory, /<AssetExportButton disabled=\{!data\} query=\{query\}/);
+  assert.match(inventory, /asset-report-cta-title/);
+  assert.match(inventory, /report\.ctaDescription/);
+  assert.ok((inventory.match(/<AssetExportButton/g) ?? []).length >= 2);
   assert.match(button, /report\.exporting/);
   assert.match(button, /setState\("success"\)/);
   assert.match(button, /setState\("error"\)/);
@@ -18,6 +21,23 @@ test("Asset Inventory exposes the localized server-generated Excel action", () =
   assert.match(route, /requireApprovedProfile\(\)/);
   assert.match(route, /loadAssetInventoryReport/);
   assert.doesNotMatch(button + route, /LOCAL_BACKEND_FRONTEND_TOKEN|service_role|credential|community|auth_password|priv_password/i);
+});
+
+test("Admin-only report branding UI uses bounded local backend routes without exposing storage paths", () => {
+  const page = source("../app/(protected)/admin/page.tsx");
+  const component = source("../components/admin/report-branding-settings.tsx");
+  const route = source("../app/(protected)/admin/report-branding/route.ts");
+  const logoRoute = source("../app/(protected)/admin/report-branding/logo/route.ts");
+  assert.match(page, /requireAdminProfile\(\)/);
+  assert.match(page, /<ReportBrandingSettings initial=\{branding\.data\}/);
+  assert.match(component, /accept="\.png,\.jpg,\.jpeg,image\/png,image\/jpeg"/);
+  assert.match(component, /REPORT_BRANDING_LOGO_MAX_BYTES/);
+  assert.match(component, /branding\.replaceLogo/);
+  assert.match(component, /branding\.removeLogo/);
+  assert.match(route, /requireAdminProfile\(\)/);
+  assert.match(logoRoute, /requireAdminProfile\(\)/);
+  assert.match(logoRoute, /form\.keys\(\)/);
+  assert.doesNotMatch(page + component + route + logoRoute, /REPORT_BRANDING_DIR|service_role|shared\/branding/i);
 });
 
 test("export propagates active filters and sort but never the current UI page", () => {
