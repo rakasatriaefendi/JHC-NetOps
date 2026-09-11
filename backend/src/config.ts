@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { ASSET_SCAN_MAX_CONCURRENCY, parseAllowedScanNetworks } from "./assets/scan-contract.js";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -13,6 +15,7 @@ export type BackendConfig = Readonly<{
   assets: Readonly<{
     databaseUrl: string;
     frontendApiToken: string;
+    reportBrandingDir: string;
     scan: Readonly<{
       networks: readonly string[];
       helperPath: string;
@@ -59,10 +62,19 @@ export function loadBackendConfig(
     ? Object.freeze({
       databaseUrl: parseAssetDatabaseUrl(databaseUrl),
       frontendApiToken: requiredSecret(frontendApiToken, "FRONTEND_API_TOKEN", 32, 512),
+      reportBrandingDir: parseReportBrandingDir(environment.REPORT_BRANDING_DIR),
       scan: parseAssetScanConfig(environment),
     })
     : null;
   return Object.freeze({ host, port, runnerApiToken, supabaseUrl, supabaseServiceRoleKey, assets });
+}
+
+function parseReportBrandingDir(value: string | undefined): string {
+  const configured = value?.trim();
+  if (configured && (configured.length > 1024 || /[\u0000-\u001f\u007f]/.test(configured))) {
+    throw new BackendConfigurationError("REPORT_BRANDING_DIR is invalid");
+  }
+  return resolve(configured || "data/report-branding");
 }
 
 function parseAssetScanConfig(environment: Readonly<Record<string, string | undefined>>) {

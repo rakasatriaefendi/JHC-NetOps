@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resolve } from "node:path";
 
 import { BackendConfigurationError, loadBackendConfig } from "../src/config.js";
 import {
@@ -59,6 +60,15 @@ test("asset database configuration is optional, paired, and isolated from Postgr
     networks: [], helperPath: "/usr/local/libexec/jhc-netops-asset-scan", concurrency: 4,
     hostTimeoutMs: 45_000, discoveryTimeoutMs: 120_000,
   });
+  assert.equal(configured.assets?.reportBrandingDir, resolve("data/report-branding"));
+
+  const branded = loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
+    FRONTEND_API_TOKEN: "f".repeat(32),
+    REPORT_BRANDING_DIR: "/var/www/jhc/jhc_noc/shared/branding",
+  });
+  assert.equal(branded.assets?.reportBrandingDir, resolve("/var/www/jhc/jhc_noc/shared/branding"));
 
   const scanner = loadBackendConfig({
     ...VALID_ENVIRONMENT,

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { getAssetChangeHistoryAction } from "@/app/actions/assets";
 import { AssetChangeList } from "@/components/assets/asset-change-history-panel";
+import { AssetExportButton } from "@/components/assets/asset-export-button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,10 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
         <p className="mt-2 text-text-secondary">{t("description")}</p>
       </div>
       <div className="w-full xl:justify-self-end">
-        <AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <AssetExportButton disabled={!data} query={query} />
+          <AssetScanControl canScan={canScan} initialError={scanError} initialState={scanState} />
+        </div>
         {data ? <p className="mt-3 text-right text-meta text-text-muted">{t("lastUpdated", { value: timeLabel(data.server_time, locale) })}</p> : null}
       </div>
     </div>
@@ -92,6 +96,11 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
         </div>
       </div>
     </> : null}
+
+    {data ? <aside className="mt-6 flex flex-col gap-4 rounded-panel border border-border bg-bg-surface p-4 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="asset-report-cta-title">
+      <div><h2 className="font-medium" id="asset-report-cta-title">{t("report.ctaTitle")}</h2><p className="mt-1 text-meta text-text-secondary">{t("report.ctaDescription", { count: data.pagination.total })}</p></div>
+      <AssetExportButton query={query} />
+    </aside> : null}
 
     {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} serverTime={data?.server_time ?? new Date(0).toISOString()} canInspect={canInspect} inspectorAvailable={inspectorAvailable} managedTargets={managedTargets} healthTargetIds={healthTargetIds} onClose={() => setSelected(null)} /> : null}
   </section>;

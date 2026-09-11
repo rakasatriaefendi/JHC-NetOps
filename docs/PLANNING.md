@@ -610,5 +610,11 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   konfigurasi jaringan privat manual, route-only test, strategi Quick direct/routed,
   API loopback, selector scan aktif, serta UI id/en. Seluruh migration/deploy dan
   acceptance Mini PC/network nyata tetap pending operator.
-- [ ] P10E Excel, P10F Medical Equipment, dan P11 migrasi domain Supabase tetap
-  sengaja deferred.
+- [~] P10E Asset Reporting source implementation: ekspor `.xlsx` server-side
+  memakai query search/filter/sort Asset Inventory yang sama tanpa pagination,
+  sheet Summary/Assets/Change History, batas 2.000 aset/10.000 event/20 MiB,
+  formula-injection guard, branding institusi/divisi/logo runtime yang portable,
+  storage filesystem persistent, Admin UI, fixture preview, serta UI id/en.
+  Deployment dan runtime acceptance Mini PC tetap menunggu operator.
+- [ ] P10F Medical Equipment dan P11 migrasi domain Supabase tetap sengaja
+  deferred.

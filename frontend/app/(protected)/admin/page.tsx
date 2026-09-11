@@ -2,6 +2,8 @@ import { UserAccessControl } from "@/components/admin/user-access-control";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireAdminProfile, type Profile } from "@/lib/auth";
 import { getServerTranslation } from "@/i18n/server";
+import { ReportBrandingSettings } from "@/components/admin/report-branding-settings";
+import { loadReportBranding } from "@/lib/report-branding";
 
 type AdminPageProps = {
   searchParams: Promise<{
@@ -14,11 +16,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const { t, locale } = await getServerTranslation("admin");
   const { supabase, userId } = await requireAdminProfile();
   const params = await searchParams;
-  const { data } = await supabase
+  const [{ data }, branding] = await Promise.all([supabase
     .from("profiles")
     .select("id, email, full_name, role, status, created_at, approved_at, approved_by")
     .order("created_at", { ascending: true })
-    .returns<Profile[]>();
+    .returns<Profile[]>(), loadReportBranding()]);
   const profiles = data ?? [];
   const approvedCount = profiles.filter(
     (profile) => profile.status === "approved",
@@ -60,6 +62,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           {t("page.saveError")}
         </p>
       ) : null}
+
+      <ReportBrandingSettings initial={branding.data} />
 
       <section className="mt-6 grid gap-4">
         {profiles.length === 0 ? (

@@ -27,6 +27,16 @@ Auto-detection bersifat opsional; Viewer dapat membaca konfigurasi tetapi tidak
 dapat mengubah atau memulai scan. Dialog Scan Jaringan hanya menawarkan network
 yang aktif dan saat ini memiliki rute direct/routed.
 
+P10E menambahkan aksi Ekspor Excel/Export Excel pada header `/assets`. Route
+Next.js yang protected meneruskan hanya search/filter/sort aktif ke backend
+loopback dan mengunduh workbook server-generated; pagination UI tidak ikut agar
+semua hasil yang cocok masuk dalam batas report. Browser tidak menerima token
+backend, koneksi PostgreSQL, atau credential SNMP. Admin juga memiliki panel
+Branding Laporan untuk nama institusi, divisi opsional, serta logo PNG/JPEG.
+Mutasi melewati route server yang memeriksa role Admin; path filesystem tidak
+pernah dikirimkan ke browser. Asset Inventory mempertahankan quick action di
+header dan CTA ekspor setelah tabel dengan query/filter/sort yang sama.
+
 ## Stack
 
 - Next.js 16 dan React 19.

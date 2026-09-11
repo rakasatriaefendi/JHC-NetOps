@@ -7,6 +7,7 @@ import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
 import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
 import { PostgresAssetScanRepository } from "./assets/scan-repository.js";
+import { PostgresAssetReportRepository } from "./assets/report-repository.js";
 import { LinuxIpRouteAdapter } from "./assets/scan-network-adapter.js";
 import { ScanNetworkManager } from "./assets/scan-network-manager.js";
 import { PostgresScanNetworkRepository } from "./assets/scan-network-repository.js";
@@ -15,6 +16,7 @@ import { SupabaseNetworkHealthRepository } from "./network-health/repository.js"
 import { SupabaseTrafficRepository } from "./traffic/repository.js";
 import { buildServer, createGracefulShutdown } from "./server.js";
 import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
+import { FileReportBrandingStore } from "./report-branding/storage.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
@@ -35,6 +37,7 @@ async function main(): Promise<void> {
     application_name: "jhc-netops-backend-assets",
   }) : null;
   const assetRepository = assetPool ? new PostgresAssetRepository(assetPool) : null;
+  const reportBranding = config.assets ? new FileReportBrandingStore(config.assets.reportBrandingDir) : null;
   const assetSynchronizer = assetRepository
     ? new BoundedAssetSynchronizer(
       new SupabaseAssetEvidenceSource(config.supabaseUrl, config.supabaseServiceRoleKey),
@@ -67,11 +70,22 @@ async function main(): Promise<void> {
     ...(config.assets && assetPool ? {
       assetChanges: { token: config.assets.frontendApiToken, repository: new PostgresAssetChangeRepository(assetPool) },
     } : {}),
+    ...(config.assets && assetPool ? {
+      assetReport: {
+        token: config.assets.frontendApiToken,
+        repository: new PostgresAssetReportRepository(assetPool),
+        ...(reportBranding ? { branding: reportBranding } : {}),
+        ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
+      },
+    } : {}),
     ...(config.assets && assetScanController ? {
       assetScan: { token: config.assets.frontendApiToken, controller: assetScanController },
     } : {}),
     ...(config.assets && scanNetworkManager ? {
       scanNetworks: { token: config.assets.frontendApiToken, manager: scanNetworkManager },
+    } : {}),
+    ...(config.assets && reportBranding ? {
+      reportBranding: { token: config.assets.frontendApiToken, store: reportBranding },
     } : {}),
     runnerHeartbeat: { token: config.runnerApiToken, repository: heartbeatRepository },
     networkHealth: { token: config.runnerApiToken, repository: healthRepository },

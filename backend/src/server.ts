@@ -3,10 +3,12 @@ import { registerAssetRoutes, type AssetRouteOptions } from "./assets/route.js";
 import { registerAssetChangeRoutes, type AssetChangeRouteOptions } from "./assets/change-route.js";
 import { registerAssetScanRoutes, type AssetScanRouteOptions } from "./assets/scan-route.js";
 import { registerScanNetworkRoutes, type ScanNetworkRouteOptions } from "./assets/scan-network-route.js";
+import { registerAssetReportRoute, type AssetReportRouteOptions } from "./assets/report-route.js";
 import { registerManagedTelemetryRoute, type ManagedTelemetryRouteOptions } from "./managed-telemetry/route.js";
 import { registerNetworkHealthRoute, type NetworkHealthRouteOptions } from "./network-health/route.js";
 import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
 import { registerTrafficRoute, type TrafficRouteOptions } from "./traffic/route.js";
+import { registerReportBrandingRoutes, type ReportBrandingRouteOptions } from "./report-branding/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -15,12 +17,14 @@ type BuildServerOptions = Readonly<{
   assets?: AssetRouteOptions;
   assetChanges?: AssetChangeRouteOptions;
   assetScan?: AssetScanRouteOptions;
+  assetReport?: AssetReportRouteOptions;
   scanNetworks?: ScanNetworkRouteOptions;
   logger?: boolean;
   managedTelemetry?: ManagedTelemetryRouteOptions;
   networkHealth?: NetworkHealthRouteOptions;
   runnerHeartbeat?: RunnerHeartbeatRouteOptions;
   traffic?: TrafficRouteOptions;
+  reportBranding?: ReportBrandingRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -68,7 +72,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.assets) registerAssetRoutes(server, options.assets);
   if (options.assetChanges) registerAssetChangeRoutes(server, options.assetChanges);
   if (options.assetScan) registerAssetScanRoutes(server, options.assetScan);
+  if (options.assetReport) registerAssetReportRoute(server, options.assetReport);
   if (options.scanNetworks) registerScanNetworkRoutes(server, options.scanNetworks);
+  if (options.reportBranding) registerReportBrandingRoutes(server, options.reportBranding);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {
