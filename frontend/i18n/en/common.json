@@ -2,7 +2,7 @@
   "appName": "NetOps Monitor",
   "networkVisibility": "Network visibility",
   "language": { "label": "Language" },
-  "nav": { "networkOperations": "Network operations", "dashboard": "Dashboard", "traffic": "Traffic", "history": "History", "alerts": "Alerts", "devices": "Devices", "snmp": "SNMP", "diagnostics": "LAN Diagnostics", "assets": "Asset Inventory", "assetManagement": "Asset management", "administration": "Administration", "admin": "Admin", "main": "Main navigation", "open": "Open navigation", "close": "Close navigation" },
+  "nav": { "networkOperations": "Network operations", "dashboard": "Dashboard", "traffic": "Traffic", "history": "History", "alerts": "Alerts", "devices": "Devices", "snmp": "SNMP", "diagnostics": "LAN Diagnostics", "assets": "Asset Inventory", "medicalEquipment": "Medical Equipment", "assetManagement": "Asset management", "administration": "Administration", "admin": "Admin", "main": "Main navigation", "open": "Open navigation", "close": "Close navigation" },
   "actions": { "signIn": "Sign in", "register": "Register", "signOut": "Sign out", "close": "Close", "cancel": "Cancel", "save": "Save", "edit": "Edit", "delete": "Delete", "retry": "Try again", "previous": "Previous", "next": "Next", "view": "View", "open": "Open" },
   "status": { "pending": "Awaiting approval", "approved": "Active", "rejected": "Suspended", "online": "Online", "offline": "Offline", "degraded": "Degraded", "unknown": "Unknown", "available": "Available", "unavailable": "Unavailable", "active": "Active", "resolved": "Resolved", "enabled": "Enabled", "disabled": "Disabled" },
   "roles": { "admin": "Admin", "operator": "Operator", "viewer": "Viewer" },

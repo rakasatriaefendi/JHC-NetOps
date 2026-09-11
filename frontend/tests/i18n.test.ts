@@ -81,7 +81,7 @@ test("language persistence and client/server refresh wiring remain allow-listed"
 });
 
 test("all namespaces have valid paired local catalogs", () => {
-  const namespaces = ["common", "auth", "dashboard", "traffic", "history", "alerts", "devices", "snmp", "diagnostics", "admin", "assets"];
+  const namespaces = ["common", "auth", "dashboard", "traffic", "history", "alerts", "devices", "snmp", "diagnostics", "admin", "assets", "medical"];
   for (const namespace of namespaces) {
     assert.equal(typeof readCatalog("id", namespace), "object");
     assert.equal(typeof readCatalog("en", namespace), "object");

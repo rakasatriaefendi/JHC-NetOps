@@ -16,6 +16,7 @@ export type BackendConfig = Readonly<{
     databaseUrl: string;
     frontendApiToken: string;
     reportBrandingDir: string;
+    medicalDueSoonDays: number;
     scan: Readonly<{
       networks: readonly string[];
       helperPath: string;
@@ -63,6 +64,7 @@ export function loadBackendConfig(
       databaseUrl: parseAssetDatabaseUrl(databaseUrl),
       frontendApiToken: requiredSecret(frontendApiToken, "FRONTEND_API_TOKEN", 32, 512),
       reportBrandingDir: parseReportBrandingDir(environment.REPORT_BRANDING_DIR),
+      medicalDueSoonDays: boundedInteger(environment.MEDICAL_DUE_SOON_DAYS, 30, 1, 180, "MEDICAL_DUE_SOON_DAYS"),
       scan: parseAssetScanConfig(environment),
     })
     : null;

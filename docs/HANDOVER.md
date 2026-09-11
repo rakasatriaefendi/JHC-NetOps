@@ -370,6 +370,9 @@ still be recorded during P8 validation; Windows commands do not apply to Linux.
 - [ ] `PORTABLE_DEV_MODE` is OFF for normal operation.
 - [ ] Frontend tests, lint, typecheck, and production build pass.
 - [ ] Safe stop/restart and local-state recovery procedure is known.
+- [ ] P10F migration 006 has been applied only to dedicated PostgreSQL
+  `16/jhcnetops`, and Medical Equipment Viewer/Operator behavior has been
+  accepted using `P10F_MEDICAL_EQUIPMENT.md` (runtime acceptance is pending).
 - [ ] P10B rollback is known: stop runner, remove both `LOCAL_BACKEND_*`, restart
   into Edge rollback mode, verify recurring loops, then stop local backend if desired.
 

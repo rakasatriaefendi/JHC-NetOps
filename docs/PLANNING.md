@@ -616,5 +616,9 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   formula-injection guard, branding institusi/divisi/logo runtime yang portable,
   storage filesystem persistent, Admin UI, fixture preview, serta UI id/en.
   Deployment dan runtime acceptance Mini PC tetap menunggu operator.
-- [ ] P10F Medical Equipment dan P11 migrasi domain Supabase tetap sengaja
-  deferred.
+- [~] P10F Medical Equipment source implementation: additive migration 006,
+  loopback backend contracts/repository/routes, generated calibration/service
+  record IDs, derived due states, localized responsive registry/detail UI,
+  Operator/Admin mutation guards, and Asset Detail reverse context are complete.
+  Dedicated Mini PC migration and runtime acceptance remain pending.
+- [ ] P11 migrasi domain Supabase tetap sengaja deferred.

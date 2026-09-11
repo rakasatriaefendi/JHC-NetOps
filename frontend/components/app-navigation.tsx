@@ -22,6 +22,7 @@ const navigation = [
   ] },
   { key: "assetManagement", items: [
     { href: "/assets", key: "assets" },
+    { href: "/medical-equipment", key: "medicalEquipment" },
   ] },
 ] as const;
 
@@ -51,7 +52,7 @@ export function AppNavigation({ fullName, role }: AppNavigationProps) {
           <div className="flex flex-col gap-1">{group.items.map((link) => {
             const active = link.href === "/snmp"
               ? pathname === "/snmp" || /^\/snmp\/[^/]+\/hosts$/.test(pathname)
-              : pathname === link.href;
+              : link.href === "/medical-equipment" ? pathname === link.href || pathname.startsWith(`${link.href}/`) : pathname === link.href;
             const className = `rounded-control border px-3 py-2 text-left text-body font-medium transition-colors ${active ? "border-accent bg-accent/10 text-accent" : "border-transparent text-text-secondary hover:border-border hover:text-text-primary"}`;
             return <Link href={link.href} onClick={() => setOpen(false)} className={className} key={link.key}>{t(`nav.${link.key}`)}</Link>;
           })}</div>

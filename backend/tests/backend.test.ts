@@ -61,6 +61,15 @@ test("asset database configuration is optional, paired, and isolated from Postgr
     hostTimeoutMs: 45_000, discoveryTimeoutMs: 120_000,
   });
   assert.equal(configured.assets?.reportBrandingDir, resolve("data/report-branding"));
+  assert.equal(configured.assets?.medicalDueSoonDays, 30);
+
+  const medicalThreshold = loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
+    FRONTEND_API_TOKEN: "f".repeat(32),
+    MEDICAL_DUE_SOON_DAYS: "45",
+  });
+  assert.equal(medicalThreshold.assets?.medicalDueSoonDays, 45);
 
   const branded = loadBackendConfig({
     ...VALID_ENVIRONMENT,
@@ -90,6 +99,7 @@ test("asset database configuration is optional, paired, and isolated from Postgr
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@192.168.1.130:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32), ASSET_SCAN_NETWORKS: "8.8.8.0/24" },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32), ASSET_SCAN_CONCURRENCY: "9" },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32), MEDICAL_DUE_SOON_DAYS: "181" },
   ]) assert.throws(() => loadBackendConfig(environment), BackendConfigurationError);
 });
 

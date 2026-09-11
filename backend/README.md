@@ -163,3 +163,14 @@ mutations use the protected Next.js boundary and token-protected local routes;
 PNG/JPEG logos are signature-checked and capped at 10 MiB. Generate an offline
 fixture workbook with `npm run preview:asset-report`. See
 `../docs/P10E_ASSET_REPORTING.md`.
+
+## P10F: Medical Equipment registry
+
+The loopback backend exposes authenticated routes under
+`/api/medical-equipment` for the registry, calibration records, unified service
+history, bounded network-asset search, and batched reverse links. Migration
+`006_medical_equipment.sql` stays inside the isolated `16/jhcnetops` cluster.
+It does not copy IP/MAC identity or trigger a network probe. Due states are
+derived on read with bounded `MEDICAL_DUE_SOON_DAYS` (default 30). Human record
+IDs use PostgreSQL sequences (`CAL-YYYY-######` and `SRV-YYYY-######`), not
+count/max queries. See `../docs/P10F_MEDICAL_EQUIPMENT.md`.

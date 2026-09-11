@@ -6,6 +6,7 @@ import { canOperateNetwork } from "@/lib/authorization";
 import type { InspectorRunner } from "@/lib/device-inspector";
 import { loadAssetInventory, loadAssetScanState, type AssetInventoryQuery } from "@/lib/assets";
 import { loadNetworkNodes } from "@/lib/network-nodes";
+import { loadMedicalNetworkLinks } from "@/lib/medical-equipment";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
     supabase.from("network_targets").select("id").eq("enabled", true).returns<{ id: string }[]>(),
   ]);
   const canOperate = canOperateNetwork(profile.role);
+  const medicalLinksResult = result.data ? await loadMedicalNetworkLinks(result.data.items.map((asset) => asset.id)) : { data: [], error: null };
   const runners = runnersResult.data ?? [];
   const inspectorAvailable = runners.some((runner) => runner.capabilities.operations?.includes("device_inspect"));
   const managedTargets = (managedTargetsResult.data ?? []).map((target) => {
@@ -40,6 +42,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
           inspectorAvailable={inspectorAvailable}
           managedTargets={managedTargets}
           healthTargetIds={(healthTargetsResult.data ?? []).map((target) => target.id)}
+          medicalLinks={medicalLinksResult.data ?? []}
           canScan={canOperate}
           data={result.data}
           error={result.error}

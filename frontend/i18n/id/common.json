@@ -2,7 +2,7 @@
   "appName": "NetOps Monitor",
   "networkVisibility": "Visibilitas jaringan",
   "language": { "label": "Bahasa" },
-  "nav": { "networkOperations": "Operasi jaringan", "dashboard": "Dashboard", "traffic": "Traffic", "history": "Riwayat", "alerts": "Peringatan", "devices": "Perangkat", "snmp": "SNMP", "diagnostics": "Diagnostik LAN", "assets": "Inventaris Aset", "assetManagement": "Manajemen aset", "administration": "Administrasi", "admin": "Admin", "main": "Navigasi utama", "open": "Buka navigasi", "close": "Tutup navigasi" },
+  "nav": { "networkOperations": "Operasi jaringan", "dashboard": "Dashboard", "traffic": "Traffic", "history": "Riwayat", "alerts": "Peringatan", "devices": "Perangkat", "snmp": "SNMP", "diagnostics": "Diagnostik LAN", "assets": "Inventaris Aset", "medicalEquipment": "Alat Medis", "assetManagement": "Manajemen aset", "administration": "Administrasi", "admin": "Admin", "main": "Navigasi utama", "open": "Buka navigasi", "close": "Tutup navigasi" },
   "actions": { "signIn": "Masuk", "register": "Daftar", "signOut": "Keluar", "close": "Tutup", "cancel": "Batal", "save": "Simpan", "edit": "Edit", "delete": "Hapus", "retry": "Coba lagi", "previous": "Sebelumnya", "next": "Berikutnya", "view": "Lihat", "open": "Buka" },
   "status": { "pending": "Menunggu persetujuan", "approved": "Aktif", "rejected": "Ditangguhkan", "online": "Online", "offline": "Offline", "degraded": "Terdegradasi", "unknown": "Tidak diketahui", "available": "Tersedia", "unavailable": "Tidak tersedia", "active": "Aktif", "resolved": "Terselesaikan", "enabled": "Aktif", "disabled": "Nonaktif" },
   "roles": { "admin": "Admin", "operator": "Operator", "viewer": "Viewer" },

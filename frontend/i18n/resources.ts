@@ -10,6 +10,7 @@ import discoveryEn from "@/i18n/en/discovery.json";
 import historyEn from "@/i18n/en/history.json";
 import snmpEn from "@/i18n/en/snmp.json";
 import trafficEn from "@/i18n/en/traffic.json";
+import medicalEn from "@/i18n/en/medical.json";
 import adminId from "@/i18n/id/admin.json";
 import alertsId from "@/i18n/id/alerts.json";
 import assetsId from "@/i18n/id/assets.json";
@@ -22,11 +23,12 @@ import discoveryId from "@/i18n/id/discovery.json";
 import historyId from "@/i18n/id/history.json";
 import snmpId from "@/i18n/id/snmp.json";
 import trafficId from "@/i18n/id/traffic.json";
+import medicalId from "@/i18n/id/medical.json";
 
-export const namespaces = ["common", "auth", "dashboard", "traffic", "history", "alerts", "devices", "snmp", "diagnostics", "discovery", "admin", "assets"] as const;
+export const namespaces = ["common", "auth", "dashboard", "traffic", "history", "alerts", "devices", "snmp", "diagnostics", "discovery", "admin", "assets", "medical"] as const;
 export type AppNamespace = (typeof namespaces)[number];
 
 export const resources = {
-  id: { common: commonId, auth: authId, dashboard: dashboardId, traffic: trafficId, history: historyId, alerts: alertsId, devices: devicesId, snmp: snmpId, diagnostics: diagnosticsId, discovery: discoveryId, admin: adminId, assets: assetsId },
-  en: { common: commonEn, auth: authEn, dashboard: dashboardEn, traffic: trafficEn, history: historyEn, alerts: alertsEn, devices: devicesEn, snmp: snmpEn, diagnostics: diagnosticsEn, discovery: discoveryEn, admin: adminEn, assets: assetsEn },
+  id: { common: commonId, auth: authId, dashboard: dashboardId, traffic: trafficId, history: historyId, alerts: alertsId, devices: devicesId, snmp: snmpId, diagnostics: diagnosticsId, discovery: discoveryId, admin: adminId, assets: assetsId, medical: medicalId },
+  en: { common: commonEn, auth: authEn, dashboard: dashboardEn, traffic: trafficEn, history: historyEn, alerts: alertsEn, devices: devicesEn, snmp: snmpEn, diagnostics: diagnosticsEn, discovery: discoveryEn, admin: adminEn, assets: assetsEn, medical: medicalEn },
 } as const;
