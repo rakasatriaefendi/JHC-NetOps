@@ -58,12 +58,24 @@ export function MedicalEquipmentForm({ equipment = null, departments, locations,
     const interval = numberOrNull(formData.get("calibration_interval_months"));
     const maintenance = numberOrNull(formData.get("maintenance_interval_months"));
     const input: MedicalEquipmentInput = {
-      equipment_code: text(formData, "equipment_code"), name: text(formData, "name"),
-      manufacturer: optionalText(formData, "manufacturer"), model: optionalText(formData, "model"),
-      serial_number: optionalText(formData, "serial_number"), department: optionalText(formData, "department"),
-      location: optionalText(formData, "location"), operational_status: text(formData, "operational_status") as OperationalStatus,
-      network_asset_id: networkAssetId || null, calibration_required: calibrationRequired,
-      calibration_interval_months: interval, maintenance_interval_months: maintenance, notes: optionalText(formData, "notes"),
+      equipment_code: text(formData, "equipment_code"),
+      name: text(formData, "name"),
+      manufacturer: optionalText(formData, "manufacturer"),
+      model: optionalText(formData, "model"),
+      serial_number: optionalText(formData, "serial_number"),
+      department: optionalText(formData, "department"),
+      location: optionalText(formData, "location"),
+      operational_status: text(
+        formData,
+        "operational_status",
+      ) as OperationalStatus,
+
+      network_asset_id: optionalText(formData, "network_asset_id"),
+
+      calibration_required: calibrationRequired,
+      calibration_interval_months: interval,
+      maintenance_interval_months: maintenance,
+      notes: optionalText(formData, "notes"),
     };
     const result = equipment ? await updateMedicalEquipmentAction(equipment.id, input) : await createMedicalEquipmentAction(input);
     if (!result.data) { setError(t(`errors.${result.error ?? "save"}`, { defaultValue: t("errors.save") })); return; }
@@ -114,27 +126,28 @@ export function MedicalEquipmentForm({ equipment = null, departments, locations,
         </Button>
       </div>
 
-      <select
-        className={`${inputClass} mt-2`}
-        value={networkAssetId}
-        onChange={(event) => setNetworkAssetId(event.target.value)}
-      >
-        <option value="">
-          {t("network.unlinked")}
-        </option>
+    <select
+      name="network_asset_id"
+      className={`${inputClass} mt-2`}
+      value={networkAssetId}
+      onChange={(event) => setNetworkAssetId(event.target.value)}
+    >
+      <option value="">
+        {t("network.unlinked")}
+      </option>
 
-        {networkOptions.map((asset) => (
-          <option key={asset.id} value={asset.id}>
-            {asset.name}
-            {" · "}
-            {asset.ip_address ?? asset.hostname ?? "-"}
-            {" · "}
-            {asset.vendor ?? "-"}
-            {" · "}
-            {t(`status.${asset.status}`)}
-          </option>
-        ))}
-      </select>
+      {networkOptions.map((asset) => (
+        <option key={asset.id} value={asset.id}>
+          {asset.name}
+          {" · "}
+          {asset.ip_address ?? asset.hostname ?? "-"}
+          {" · "}
+          {asset.vendor ?? "-"}
+          {" · "}
+          {t(`status.${asset.status}`)}
+        </option>
+      ))}
+    </select>
     </div>
     <Field label={t("field.notes")}><textarea className={`${inputClass} min-h-24`} name="notes" maxLength={4000} defaultValue={equipment?.notes ?? ""} /></Field>
     {error ? <p role="alert" className="text-body text-severity-critical">{error}</p> : null}

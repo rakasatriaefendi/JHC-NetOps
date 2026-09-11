@@ -71,7 +71,7 @@ export class PostgresMedicalEquipmentRepository implements MedicalEquipmentRepos
   async detail(id: string, today: string, dueSoonDays: number, signal: AbortSignal): Promise<MedicalEquipmentDetail | null> {
     signal.throwIfAborted();
     const [equipment, calibrations, services] = await Promise.all([
-      this.pool.query<MedicalRow>(`${medicalView()} SELECT * FROM medical_view WHERE id = $3::uuid LIMIT 1`, [today, dueSoonDays, id]),
+      this.pool.query<MedicalRow>(`${medicalView()} SELECT * FROM medical_view WHERE id = $3::text LIMIT 1`, [today, dueSoonDays, id]),
       this.pool.query<CalibrationRow>(`SELECT id::text, record_number, performed_on::text, due_on::text, provider,
         certificate_number, result, notes, source, created_at::text, updated_at::text FROM asset.medical_calibration_records
         WHERE medical_equipment_id = $1 ORDER BY performed_on DESC, created_at DESC LIMIT ${MEDICAL_HISTORY_LIMIT}`, [id]),
@@ -163,7 +163,7 @@ export class PostgresMedicalEquipmentRepository implements MedicalEquipmentRepos
         });
       const changedId = result.rows[0]?.id;
       if (!changedId) { await client.query("ROLLBACK"); return null; }
-      const selected = await client.query<MedicalRow>(`${medicalView()} SELECT * FROM medical_view WHERE id = $3::uuid`, [today, dueSoonDays, changedId]);
+      const selected = await client.query<MedicalRow>(`${medicalView()} SELECT * FROM medical_view WHERE id = $3::text`, [today, dueSoonDays, changedId]);
       await client.query("COMMIT");
       const row = selected.rows[0];
       if (!row) throw new Error("MEDICAL_EQUIPMENT_NOT_RETURNED");

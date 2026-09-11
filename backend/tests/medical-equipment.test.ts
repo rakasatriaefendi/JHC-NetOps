@@ -167,6 +167,15 @@ test("repository uses lateral latest records, bounded histories, batched links a
   assert.match(source, /lpad\(nextval/);
   assert.match(source, /network_asset_id = ANY\(\$1::uuid\[\]\) LIMIT 50/);
   assert.match(source, /LIMIT \$\{MEDICAL_HISTORY_LIMIT\}/);
+  assert.match(
+    source,
+    /FROM medical_view WHERE id = \$3::text/,
+  );
+
+  assert.doesNotMatch(
+    source,
+    /FROM medical_view WHERE id = \$3::uuid/,
+  );
 
   // Latest service can be any service type, but the maintenance schedule
   // must remain driven by the latest preventive-maintenance record only.
