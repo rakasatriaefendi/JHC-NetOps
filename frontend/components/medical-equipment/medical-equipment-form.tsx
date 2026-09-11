@@ -21,9 +21,36 @@ export function MedicalEquipmentForm({ equipment = null, departments, locations,
   const [calibrationRequired, setCalibrationRequired] = useState(equipment?.calibration_required ?? false);
 
   const searchNetworkAssets = () => startTransition(async () => {
+    setError(null);
+
     const result = await searchMedicalNetworkAssetsAction(networkSearch);
-    setNetworkOptions(result.data ?? []);
-    if (result.error) setError(t("errors.unavailable"));
+
+    if (result.error) {
+      setNetworkOptions([]);
+      setError(t("errors.unavailable"));
+      return;
+    }
+
+    const options = result.data ?? [];
+    setNetworkOptions(options);
+
+    const normalizedSearch = networkSearch.trim().toLowerCase();
+
+    const exactMatch = options.find((asset) => {
+      return (
+        asset.ip_address?.trim().toLowerCase() === normalizedSearch ||
+        asset.mac_address?.trim().toLowerCase() === normalizedSearch ||
+        asset.hostname?.trim().toLowerCase() === normalizedSearch ||
+        asset.name.trim().toLowerCase() === normalizedSearch
+      );
+    });
+
+    const automaticSelection =
+      exactMatch ?? (options.length === 1 ? options[0] : null);
+
+    if (automaticSelection) {
+      setNetworkAssetId(automaticSelection.id);
+    }
   });
 
   const submit = (formData: FormData) => startTransition(async () => {
@@ -60,17 +87,71 @@ export function MedicalEquipmentForm({ equipment = null, departments, locations,
       <Field label={t("field.maintenanceInterval")}><input className={inputClass} name="maintenance_interval_months" type="number" min={1} max={120} defaultValue={equipment?.maintenance_interval_months ?? ""} /></Field>
     </div>
     <div className="rounded-panel border border-border bg-bg-base p-4">
-      <p className="text-body font-medium">{t("field.networkAsset")}</p>
-      <p className="mt-1 text-meta text-text-muted">{t("network.linkHelp")}</p>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input className={`${inputClass} flex-1`} value={networkSearch} maxLength={100} placeholder={t("network.searchHint")} onChange={(event) => setNetworkSearch(event.target.value)} /><Button variant="secondary" disabled={pending} onClick={searchNetworkAssets}>{t("network.search")}</Button></div>
-      <select className={`${inputClass} mt-2`} value={networkAssetId} onChange={(event) => setNetworkAssetId(event.target.value)}>
-        <option value="">{t("network.unlinked")}</option>
-        {networkOptions.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.ip_address ?? asset.hostname ?? "-"} · {asset.vendor ?? "-"} · {t(`status.${asset.status}`)}</option>)}
+      <p className="text-body font-medium">
+        {t("field.networkAsset")}
+      </p>
+
+      <p className="mt-1 text-meta text-text-muted">
+        {t("network.linkHelp")}
+      </p>
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          className={`${inputClass} flex-1`}
+          value={networkSearch}
+          maxLength={100}
+          placeholder={t("network.searchHint")}
+          onChange={(event) => setNetworkSearch(event.target.value)}
+        />
+
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={pending}
+          onClick={searchNetworkAssets}
+        >
+          {t("network.search")}
+        </Button>
+      </div>
+
+      <select
+        className={`${inputClass} mt-2`}
+        value={networkAssetId}
+        onChange={(event) => setNetworkAssetId(event.target.value)}
+      >
+        <option value="">
+          {t("network.unlinked")}
+        </option>
+
+        {networkOptions.map((asset) => (
+          <option key={asset.id} value={asset.id}>
+            {asset.name}
+            {" · "}
+            {asset.ip_address ?? asset.hostname ?? "-"}
+            {" · "}
+            {asset.vendor ?? "-"}
+            {" · "}
+            {t(`status.${asset.status}`)}
+          </option>
+        ))}
       </select>
     </div>
     <Field label={t("field.notes")}><textarea className={`${inputClass} min-h-24`} name="notes" maxLength={4000} defaultValue={equipment?.notes ?? ""} /></Field>
     {error ? <p role="alert" className="text-body text-severity-critical">{error}</p> : null}
-    <div className="flex flex-wrap justify-end gap-2"><Button variant="secondary" disabled={pending} onClick={onCancel}>{t("common:actions.cancel")}</Button><Button type="submit" disabled={pending}>{pending ? t("saving") : t("save")}</Button></div>
+    <div className="flex flex-wrap justify-end gap-2">
+    <Button
+      type="button"
+      variant="secondary"
+      disabled={pending}
+      onClick={onCancel}
+    >
+      {t("common:actions.cancel")}
+    </Button>
+
+    <Button type="submit" disabled={pending}>
+      {pending ? t("saving") : t("save")}
+    </Button>
+  </div>
   </form>;
 }
 
