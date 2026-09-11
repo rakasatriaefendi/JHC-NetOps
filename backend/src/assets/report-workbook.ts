@@ -183,36 +183,52 @@ function styleDataSheet(sheet: ExcelWorksheet, columnCount: number, widths: numb
 
 function styleSummary(sheet: ExcelWorksheet) {
   sheet.eachRow((row) => {
-    for (let column = 1; column <= 2; column += 1) {
-      const cell = row.getCell(column);
-      cell.alignment = {
-        ...cell.alignment,
-        vertical: cell.alignment?.vertical ?? "top",
-        wrapText: true,
-      };
-    }
+    row.alignment = {
+      vertical: "top",
+      wrapText: true,
+    };
 
-    // Keep the first column bold without overwriting cell-level font colors.
-    // Using `sheet.getColumn(1).font = { bold: true }` here would replace
-    // the white font applied to summary section headers with Excel's
-    // default black font.
     const labelCell = row.getCell(1);
-    labelCell.font = { ...labelCell.font, bold: true };
+
+    // Preserve existing font properties such as section-header white text.
+    labelCell.font = {
+      ...labelCell.font,
+      bold: true,
+    };
   });
 }
 
 function addSummarySection(sheet: ExcelWorksheet, label: string) {
   const row = sheet.addRow([label, ""]);
 
-  // Apply the section style per cell so the fill/font survives later
-  // worksheet styling and renders consistently in Excel-compatible viewers.
+  const font = {
+    bold: true,
+    color: { argb: "FFFFFFFF" },
+  } as const;
+
+  const fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF176B68" },
+  } as const;
+
+  // Keep row-level styling for workbook/test compatibility.
+  row.font = font;
+  row.fill = fill;
+  row.height = 24;
+
+  // Also apply explicitly per-cell so Excel reliably renders
+  // white text across the entire green section header.
   for (let column = 1; column <= 2; column += 1) {
     const cell = row.getCell(column);
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B68" } };
-    cell.alignment = { vertical: "middle", wrapText: true };
+
+    cell.font = font;
+    cell.fill = fill;
+    cell.alignment = {
+      vertical: "middle",
+      wrapText: true,
+    };
   }
-  row.height = 24;
 }
 
 function snapshotSummary(snapshot: AssetChangeSnapshot, fields: readonly AssetChangeField[], labels: ReportLabels, created = false): string {

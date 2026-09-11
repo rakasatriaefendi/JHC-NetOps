@@ -116,3 +116,8 @@ Start `postgresql@16-jhcnetops`, the backend, and then the frontend. Verify
 Rollback is to stop NetOps, remove the four P10C environment entries, and restart
 the prior NetOps release. Do not delete the cluster during rollback and do not
 touch `16/main`.
+
+Migration `006_medical_equipment.sql` is included in the reviewed aggregate
+script for P10F. It is additive and targets only the dedicated `jhc_netops`
+database on port 5433. Never apply it to PostgreSQL `16/main`; follow the
+deferred acceptance and rollback plan in `../../docs/P10F_MEDICAL_EQUIPMENT.md`.

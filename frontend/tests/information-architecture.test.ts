@@ -13,9 +13,9 @@ test("navigation has compact operations, asset, and role-gated administration gr
   assert.match(navigation, /href: "\/dashboard"[\s\S]*href: "\/traffic"[\s\S]*href: "\/history"[\s\S]*href: "\/alerts"[\s\S]*href: "\/devices"[\s\S]*href: "\/snmp"[\s\S]*href: "\/diagnostics"/);
   assert.match(navigation, /link\.href === "\/snmp"[\s\S]*pathname === "\/snmp" \|\| \/\^\\\/snmp/);
   assert.doesNotMatch(navigation, /b9bf5d39-c965-4407-960c-4b327ff273a8/);
-  assert.match(navigation, /key: "assetManagement"[\s\S]*href: "\/assets"/);
+  assert.match(navigation, /key: "assetManagement"[\s\S]*href: "\/assets"[\s\S]*href: "\/medical-equipment"/);
   assert.match(navigation, /role === "admin"[\s\S]*key: "administration"[\s\S]*href: "\/admin"/);
-  assert.doesNotMatch(navigation, /medical-equipment|vendor-history|ip-history|calibration|maintenance/);
+  assert.doesNotMatch(navigation, /vendor-history|ip-history|calibration|maintenance/);
 });
 
 test("Admin is account-only and monitoring configuration moved to approved-user pages", () => {

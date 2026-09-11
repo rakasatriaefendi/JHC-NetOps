@@ -17,6 +17,7 @@ import { SupabaseTrafficRepository } from "./traffic/repository.js";
 import { buildServer, createGracefulShutdown } from "./server.js";
 import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
 import { FileReportBrandingStore } from "./report-branding/storage.js";
+import { PostgresMedicalEquipmentRepository } from "./medical-equipment/repository.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
@@ -86,6 +87,13 @@ async function main(): Promise<void> {
     } : {}),
     ...(config.assets && reportBranding ? {
       reportBranding: { token: config.assets.frontendApiToken, store: reportBranding },
+    } : {}),
+    ...(config.assets && assetPool ? {
+      medicalEquipment: {
+        token: config.assets.frontendApiToken,
+        repository: new PostgresMedicalEquipmentRepository(assetPool),
+        dueSoonDays: config.assets.medicalDueSoonDays,
+      },
     } : {}),
     runnerHeartbeat: { token: config.runnerApiToken, repository: heartbeatRepository },
     networkHealth: { token: config.runnerApiToken, repository: healthRepository },

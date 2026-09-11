@@ -30,11 +30,12 @@ type Props = {
   inspectorAvailable: boolean;
   managedTargets: { id: string; context: string | null }[];
   healthTargetIds: string[];
+  medicalLinks: readonly { network_asset_id: string; medical_equipment_id: string; equipment_code: string; name: string; department: string | null; location: string | null }[];
 };
 
 const control = "min-w-0 rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none";
 
-export function AssetInventory({ data, error, query, scanState, scanError, canScan, canInspect, inspectorAvailable, managedTargets, healthTargetIds }: Props) {
+export function AssetInventory({ data, error, query, scanState, scanError, canScan, canInspect, inspectorAvailable, managedTargets, healthTargetIds, medicalLinks }: Props) {
   const { t, i18n } = useTranslation("assets");
   const [selected, setSelected] = useState<AssetRecord | null>(null);
   const locale = i18n.language === "en" ? "en-US" : "id-ID";
@@ -102,7 +103,7 @@ export function AssetInventory({ data, error, query, scanState, scanError, canSc
       <AssetExportButton query={query} />
     </aside> : null}
 
-    {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} serverTime={data?.server_time ?? new Date(0).toISOString()} canInspect={canInspect} inspectorAvailable={inspectorAvailable} managedTargets={managedTargets} healthTargetIds={healthTargetIds} onClose={() => setSelected(null)} /> : null}
+    {selected ? <AssetDetail asset={selected} key={selected.id} locale={locale} serverTime={data?.server_time ?? new Date(0).toISOString()} canInspect={canInspect} inspectorAvailable={inspectorAvailable} managedTargets={managedTargets} healthTargetIds={healthTargetIds} medicalLinks={medicalLinks} onClose={() => setSelected(null)} /> : null}
   </section>;
 }
 
@@ -120,7 +121,7 @@ function InsightGroup({ title, items }: { title: string; items: readonly { label
   return <div><h2 className="text-meta font-medium uppercase tracking-wide text-text-secondary">{title}</h2>{items.length ? <div className="mt-2 flex flex-wrap gap-2">{items.slice(0, 8).map((item) => <Link className="rounded-full border border-border px-3 py-1.5 text-meta hover:border-accent hover:text-accent" href={item.href} key={`${item.label}-${item.href}`}>{item.label} <span className="font-data text-text-muted">{item.count}</span></Link>)}</div> : <p className="mt-2 text-meta text-text-muted">{t("insights.unavailable")}</p>}</div>;
 }
 
-function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable, managedTargets, healthTargetIds, onClose }: { asset: AssetRecord; locale: string; serverTime: string; canInspect: boolean; inspectorAvailable: boolean; managedTargets: { id: string; context: string | null }[]; healthTargetIds: string[]; onClose: () => void }) {
+function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable, managedTargets, healthTargetIds, medicalLinks, onClose }: { asset: AssetRecord; locale: string; serverTime: string; canInspect: boolean; inspectorAvailable: boolean; managedTargets: { id: string; context: string | null }[]; healthTargetIds: string[]; medicalLinks: readonly { network_asset_id: string; medical_equipment_id: string; equipment_code: string; name: string; department: string | null; location: string | null }[]; onClose: () => void }) {
   const { t } = useTranslation("assets");
   const { openDeviceProfile } = useDeviceProfile();
   const { nodes } = useNetworkNodes();
@@ -132,6 +133,7 @@ function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable
   const observedHostTargetRef = validLinkedRef(asset.observed_host_target_ref);
   const inspectorNode = networkNodeRef ? nodes.find((node) => node.id === networkNodeRef) : null;
   const inspectorIp = inspectorNode ? normalizeNetworkNodeIpv4(inspectorNode.ip_address) : null;
+  const medicalLink = medicalLinks.find((link) => link.network_asset_id === asset.id) ?? null;
   const links = [
     networkNodeRef ? { href: "/devices", label: t("actions.viewDevice") } : null,
     observedHostTargetRef ? { href: `/snmp/${observedHostTargetRef}/hosts`, label: t("actions.viewObservedHost") } : null,
@@ -146,7 +148,7 @@ function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable
     <section className="mt-6 border-t border-border pt-5" aria-labelledby="asset-integrations-title">
       <h3 className="text-section font-semibold" id="asset-integrations-title">{t("detail.integrations.title")}</h3>
       <p className="mt-1 text-meta text-text-muted">{t("detail.integrations.description")}</p>
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
+      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <IntegrationCard title={t("detail.integrations.snmp.title")} status={t(managedTargetRef ? "detail.integrations.snmp.linked" : "detail.integrations.snmp.unlinked")} context={managedTarget?.context ?? null} description={t(managedTargetRef ? "detail.integrations.snmp.linkedDescription" : "detail.integrations.snmp.unlinkedDescription")}>
           {managedTargetRef ? <Link className={integrationActionClass} href={`/snmp?target=${encodeURIComponent(managedTargetRef)}#managed-telemetry-workspace`}>{t("actions.viewSnmp")}</Link> : null}
         </IntegrationCard>
@@ -155,6 +157,9 @@ function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable
         </IntegrationCard>
         <IntegrationCard title={t("detail.integrations.inspector.title")} status={t(canInspect && inspectorIp && inspectorAvailable ? "detail.integrations.inspector.available" : "detail.integrations.inspector.unavailable")} description={t(!networkNodeRef || !inspectorIp ? "detail.integrations.inspector.inventoryRequired" : !canInspect ? "detail.integrations.inspector.operatorRequired" : !inspectorAvailable ? "detail.integrations.inspector.runnerUnavailable" : "detail.integrations.inspector.description")}>
           {canInspect && inspectorIp && inspectorAvailable ? <Button variant="secondary" onClick={() => openDeviceProfile({ ipAddress: inspectorIp, inspect: true })}>{t("actions.openInspector")}</Button> : null}
+        </IntegrationCard>
+        <IntegrationCard title={t("detail.integrations.medical.title")} status={t(medicalLink ? "detail.integrations.medical.linked" : "detail.integrations.medical.unlinked")} context={medicalLink ? `${medicalLink.name} · ${[medicalLink.department, medicalLink.location].filter(Boolean).join(" · ") || medicalLink.equipment_code}` : null} description={t(medicalLink ? "detail.integrations.medical.linkedDescription" : "detail.integrations.medical.unlinkedDescription")}>
+          {medicalLink ? <Link className={integrationActionClass} href={`/medical-equipment/${medicalLink.medical_equipment_id}`}>{t("detail.integrations.medical.open")}</Link> : null}
         </IntegrationCard>
       </div>
     </section>

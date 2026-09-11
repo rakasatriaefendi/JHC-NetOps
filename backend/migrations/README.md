@@ -13,6 +13,10 @@ not add P10D2 identity/history tables. `003_active_inventory_scan.sql` adds the
 payloads or credentials. `005_scan_network_settings.sql` adds the durable,
 soft-deletable RFC1918 scan allowlist and one-time environment bootstrap marker;
 live route state remains derived and no existing assets or scan runs are rewritten.
+`006_medical_equipment.sql` adds the operational medical registry, one-to-one
+optional network-asset linkage, SQL DATE calibration/service histories, and
+concurrency-safe record-number sequences. It does not copy IP/MAC identity or
+create network activity.
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

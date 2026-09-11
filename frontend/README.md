@@ -104,3 +104,9 @@ Jangan hardcode warna baru di komponen tanpa memperbarui design system.
 
 Frontend hanya membuat request/job terstruktur. Ia tidak boleh mengeksekusi shell,
 menentukan arbitrary capture filter, atau mengirim arbitrary subnet/target ke runner.
+
+Medical Equipment tersedia di `/medical-equipment` untuk semua pengguna yang
+sudah disetujui. Viewer mendapat registry/detail read-only; mutasi selalu melalui
+Next.js Server Action yang memeriksa ulang role Operator/Admin dan meneruskan
+kontrak bounded ke backend loopback. Browser tidak menerima token backend atau
+akses PostgreSQL.

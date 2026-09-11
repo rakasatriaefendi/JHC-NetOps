@@ -20,6 +20,8 @@ menyimpan raw packet atau PCAP.
 - Inventaris Aset lokal melalui backend loopback dan PostgreSQL cluster NetOps
   terisolasi, dengan enrichment P10D1 dari evidence yang sudah ada dan Quick/Deep
   active scan yang hanya berjalan setelah tindakan eksplisit Operator/Admin.
+- Registri Alat Medis lokal dengan riwayat kalibrasi, pemeliharaan, status jatuh
+  tempo, serta relasi opsional satu-ke-satu ke Inventaris Aset jaringan.
 
 Hermes AI Agent masih berupa endpoint stub dan belum menjalankan analisis LLM.
 
@@ -31,7 +33,7 @@ flowchart LR
     Runner[Local Runner: Windows or Linux] --> Backend[Loopback Fastify backend]
     Backend -->|REST and RPC| Supabase
     Browser -->|authenticated server render| Backend
-    Backend -->|Asset Inventory only| AssetDB[(PostgreSQL 16/jhcnetops :5433)]
+    Backend -->|Asset and Medical Equipment registries| AssetDB[(PostgreSQL 16/jhcnetops :5433)]
     Backend -->|explicit bounded scan| NmapHelper[Root-owned fixed-argument Nmap helper]
     Runner -->|WSL or native structured command| Agent[Same Python agent]
     Agent -->|recurring Traffic snapshots and flows| Backend

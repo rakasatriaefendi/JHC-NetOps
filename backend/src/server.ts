@@ -9,6 +9,7 @@ import { registerNetworkHealthRoute, type NetworkHealthRouteOptions } from "./ne
 import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
 import { registerTrafficRoute, type TrafficRouteOptions } from "./traffic/route.js";
 import { registerReportBrandingRoutes, type ReportBrandingRouteOptions } from "./report-branding/route.js";
+import { registerMedicalEquipmentRoutes, type MedicalEquipmentRouteOptions } from "./medical-equipment/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -25,6 +26,7 @@ type BuildServerOptions = Readonly<{
   runnerHeartbeat?: RunnerHeartbeatRouteOptions;
   traffic?: TrafficRouteOptions;
   reportBranding?: ReportBrandingRouteOptions;
+  medicalEquipment?: MedicalEquipmentRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -75,6 +77,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.assetReport) registerAssetReportRoute(server, options.assetReport);
   if (options.scanNetworks) registerScanNetworkRoutes(server, options.scanNetworks);
   if (options.reportBranding) registerReportBrandingRoutes(server, options.reportBranding);
+  if (options.medicalEquipment) registerMedicalEquipmentRoutes(server, options.medicalEquipment);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {
