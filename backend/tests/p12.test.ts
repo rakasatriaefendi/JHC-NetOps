@@ -291,9 +291,16 @@ test("rehearsal schema preserves application tables and grants only required imp
 
 test("operator wrapper hard-codes the dedicated cluster and exact-manifest destruction guard", () => {
   const script = readFileSync(new URL("../../deploy/postgresql/p12/p12-rehearsal-db.sh", import.meta.url), "utf8");
+  const ownerLookup = script.match(/database_owner\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(ownerLookup);
   assert.match(script, /readonly CLUSTER="jhcnetops"/);
   assert.match(script, /readonly PORT="5433"/);
   assert.match(script, /--cluster "\$\{PG_VERSION\}\/\$\{CLUSTER\}"/);
+  assert.match(ownerLookup, /\[\[ "\$\{database_name\}" =~ \$\{DATABASE_PATTERN\} \]\] \|\| fail "database owner lookup name is invalid"/);
+  assert.match(ownerLookup, /--set="database_name=\$\{database_name\}" <<'SQL'/);
+  assert.match(ownerLookup, /WHERE datname = :'database_name';/);
+  assert.doesNotMatch(ownerLookup, /(?:--command|-c)\s+[^\n]*:'database_name'/);
+  assert.match(script, /\[\[ -z "\$\{owner\}" \]\] \|\| fail "rehearsal database already exists; refuse to reuse unknown state"/);
   assert.match(script, /destroy requires the exact manifest database name/);
   assert.match(script, /--dbname "\$\{LIVE_DATABASE\}" --schema asset --format custom --serializable-deferrable/);
   assert.match(script, /--dbname "\$\{DATABASE\}" --exit-on-error --single-transaction/);

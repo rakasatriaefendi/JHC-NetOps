@@ -51,8 +51,13 @@ listen_addresses="$("${psql_cluster[@]}" --dbname postgres --command 'SHOW liste
 [[ "${listen_addresses}" == "127.0.0.1" ]] || fail "dedicated cluster is not loopback-only"
 
 database_owner() {
-  "${psql_cluster[@]}" --dbname postgres --set database_name="${1}" \
-    --command "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = :'database_name'"
+  local database_name="${1}"
+  [[ "${database_name}" =~ ${DATABASE_PATTERN} ]] || fail "database owner lookup name is invalid"
+  "${psql_cluster[@]}" --dbname postgres --set="database_name=${database_name}" <<'SQL'
+SELECT pg_get_userbyid(datdba)
+FROM pg_database
+WHERE datname = :'database_name';
+SQL
 }
 
 write_or_verify_manifest() {
