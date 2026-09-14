@@ -61,7 +61,7 @@ export function loadBackendConfig(
   }
   const assets = databaseUrl && frontendApiToken
     ? Object.freeze({
-      databaseUrl: parseAssetDatabaseUrl(databaseUrl),
+      databaseUrl: parseDedicatedPostgresUrl(databaseUrl),
       frontendApiToken: requiredSecret(frontendApiToken, "FRONTEND_API_TOKEN", 32, 512),
       reportBrandingDir: parseReportBrandingDir(environment.REPORT_BRANDING_DIR),
       medicalDueSoonDays: boundedInteger(environment.MEDICAL_DUE_SOON_DAYS, 30, 1, 180, "MEDICAL_DUE_SOON_DAYS"),
@@ -109,7 +109,7 @@ function boundedInteger(value: string | undefined, fallback: number, minimum: nu
   return parsed;
 }
 
-function parseAssetDatabaseUrl(value: string): string {
+export function parseDedicatedPostgresUrl(value: string): string {
   try {
     const url = new URL(value);
     if (url.protocol !== "postgresql:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||

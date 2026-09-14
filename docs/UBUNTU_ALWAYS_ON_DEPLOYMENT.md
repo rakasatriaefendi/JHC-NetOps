@@ -151,6 +151,15 @@ logic atau asumsi subnet aplikasi.
 
 ## Update release
 
+Candidate ports isolate processes, not data. Candidate backend port `3412` may
+load the same shared `DATABASE_URL` as live backend port `3402`. During P11,
+candidate acceptance is limited to build/static checks, `/healthz`, and
+`backend`'s `npm run preflight:postgres`, which is SELECT-only and verifies the
+dedicated `16/jhcnetops` identity and established baseline. Do not run migration
+wrappers, seed, backfill, reconciliation writes, or persistence cutover as part
+of candidate acceptance. Switching the `current` symlink does not roll back
+database schema or data.
+
 1. Build, test, dan review commit di laptop developer.
 2. Buat ZIP dari commit yang sudah direview dengan `git archive`; working tree
    lokal yang belum di-commit tidak boleh ikut.

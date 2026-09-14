@@ -77,6 +77,23 @@ boleh dihentikan. Jangan mengganti mode ketika operasi masih berjalan.
 P11 baru akan mengganti repository Supabase dengan PostgreSQL lokal. P10B belum
 memigrasikan database, Auth, Realtime, frontend, admin, atau browser API.
 
+## P11: PostgreSQL foundation preflight
+
+P11 tidak mengubah persistence authority. Inventory domain, phase boundary, dan
+kontrak preservasi data berada di
+`../docs/P11_LOCAL_POSTGRESQL_FOUNDATION.md`. Verifikasi foundation tersedia
+sebagai perintah opt-in read-only:
+
+```bash
+npm run preflight:postgres
+```
+
+Perintah ini memerlukan `DATABASE_URL`, memakai validator DSN runtime yang sama,
+memaksa session read-only, dan hanya memeriksa identitas dedicated
+`16/jhcnetops:5433/jhc_netops` serta objek baseline migrasi `001`-`006`. Ia tidak
+menjalankan migration, seed, repair, atau Supabase backfill. Backend startup juga
+tetap tidak menjalankan schema migration otomatis.
+
 ## P10C: local Asset Inventory foundation
 
 Asset Inventory uses `GET /api/assets` and `GET /api/assets/:id`. These routes

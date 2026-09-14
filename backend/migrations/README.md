@@ -20,3 +20,13 @@ create network activity.
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.
+
+The wrapper is explicit, reviewed, manually invoked, and fail-fast. Always name
+cluster `16/jhcnetops` and database `jhc_netops`; never rely on the default
+cluster and never target `16/main`/port `5432`. P11 read-only acceptance uses
+`npm run preflight:postgres` and does not execute this wrapper.
+
+Application symlink rollback is not database rollback. Once schema or data has
+changed, retain it unless a separate reviewed database rollback plan confirms
+compatibility and exact targets. The legacy guarded rollback file is only for an
+empty pre-use Asset schema and is not a general migration rollback mechanism.

@@ -50,6 +50,9 @@ pada staging. P8B menyediakan template always-on systemd yang belum dipasang
 atau diaktifkan pada Mini PC. Lihat
 [Technical Handover](docs/HANDOVER.md) dan
 [Native Ubuntu always-on deployment](docs/UBUNTU_ALWAYS_ON_DEPLOYMENT.md).
+Identitas persistence saat ini, boundary migrasi P11-P16, dan preflight
+PostgreSQL read-only tercatat di
+[P11 Local PostgreSQL Foundation](docs/P11_LOCAL_POSTGRESQL_FOUNDATION.md).
 
 ## Struktur repository
 
