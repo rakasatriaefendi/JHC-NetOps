@@ -588,8 +588,8 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   compact Asset Inventory, progressive detail, serta katalog id/en.
 - [x] Hard guard menolak port 5432/database lain; target hanya cluster khusus
   `16/jhcnetops` port 5433 dan database `jhc_netops` via backend loopback.
-- [ ] Rekonsiliasi role, terapkan migration, dan lakukan runtime acceptance pada
-  cluster/database kosong yang sudah dibuat operator (wajib change window).
+- [x] Role, baseline migration, dan runtime telah diterima pada dedicated
+  `16/jhcnetops`; shared `16/main` tidak disentuh.
 - [x] Rekonsiliasi jalur cluster-existing, role least-privilege, rollback schema
   kosong, opt-in integration test read-only, backend server time, modal detail
   terpusat, dan rencana split P10D1/P10D2.
@@ -597,28 +597,28 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   `network_nodes`, saved Device Inspector fingerprint, Health Watch latest,
   Managed SNMP latest, dan Observed LAN Hosts; stable-key bulk upsert, klasifikasi
   konservatif, Insights, tabel ringkas, serta modal Overview/Network.
-- [x] P10D1-B source implementation: Quick Discovery dan Deep Inventory Scan
+- [x] P10D1-B implementation dan runtime acceptance: Quick Discovery dan Deep Inventory Scan
   operator-triggered melalui backend loopback, allowlist CIDR RFC1918, fixed Nmap
   helper, bounded concurrency/deadline/cancellation, normalisasi XML, serta
-  enrichment idempotent. Deployment dan Mini PC acceptance tetap menunggu operator.
-- [~] P10D2 Asset Change History source implementation: migration 004, snapshot
+  enrichment idempotent.
+- [x] P10D2 Asset Change History: migration 004, snapshot
   ternormalisasi, grouped created/changed events transaksional, read API bounded,
-  tab History, riwayat detail aset, dan badge PERANGKAT BARU 24 jam. Deployment
-  serta acceptance PostgreSQL/Mini PC tetap menunggu change window operator.
-- [~] P10D3 Scan Network Settings + routed-network source implementation: migration 005,
+  tab History, riwayat detail aset, dan badge PERANGKAT BARU 24 jam.
+- [x] P10D3 Scan Network Settings + routed-network: migration 005,
   bootstrap `.env` satu kali, allowlist DB durable, deteksi iproute2 opsional,
   konfigurasi jaringan privat manual, route-only test, strategi Quick direct/routed,
-  API loopback, selector scan aktif, serta UI id/en. Seluruh migration/deploy dan
-  acceptance Mini PC/network nyata tetap pending operator.
-- [~] P10E Asset Reporting source implementation: ekspor `.xlsx` server-side
+  API loopback, selector scan aktif, serta UI id/en.
+- [x] P10E Asset Reporting: ekspor `.xlsx` server-side
   memakai query search/filter/sort Asset Inventory yang sama tanpa pagination,
   sheet Summary/Assets/Change History, batas 2.000 aset/10.000 event/20 MiB,
   formula-injection guard, branding institusi/divisi/logo runtime yang portable,
   storage filesystem persistent, Admin UI, fixture preview, serta UI id/en.
-  Deployment dan runtime acceptance Mini PC tetap menunggu operator.
-- [~] P10F Medical Equipment source implementation: additive migration 006,
+- [x] P10F Medical Equipment implementation and live acceptance: additive migration 006,
   loopback backend contracts/repository/routes, generated calibration/service
   record IDs, derived due states, localized responsive registry/detail UI,
   Operator/Admin mutation guards, and Asset Detail reverse context are complete.
-  Dedicated Mini PC migration and runtime acceptance remain pending.
-- [ ] P11 migrasi domain Supabase tetap sengaja deferred.
+- [x] P11 Local PostgreSQL Foundation: authoritative persistence inventory,
+  phase boundary P11-P16, explicit P12/P13 preservation contract, shared
+  fail-closed DSN validation, dan repository-managed read-only foundation
+  preflight. P11 tidak melakukan schema/data copy, cutover, Realtime/Auth
+  replacement, deployment, atau database mutation.

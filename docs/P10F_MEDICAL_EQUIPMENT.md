@@ -1,8 +1,9 @@
 # P10F Medical Equipment
 
 P10F adds an operational medical-equipment registry to the existing local Asset
-Management boundary. It is source-complete but is not deployed until an operator
-performs the dedicated runtime acceptance below.
+Management boundary. Its PostgreSQL migration and runtime have completed operator
+acceptance on the dedicated NetOps database. The procedure below is retained for
+a future new-host/recovery rollout and must not be repeated merely for P11.
 
 ## Data and semantics
 
@@ -48,7 +49,7 @@ free text or guided prefix/year/sequence input without a hardcoded organization
 prefix and preserves leading zeros. Asset Detail resolves reverse medical links
 with one bounded batch request.
 
-## Prepared runtime acceptance (not executed)
+## Reviewed future rollout/recovery acceptance
 
 1. Record the release and back up the dedicated `16/jhcnetops` database. Verify
    the DSN targets port 5433, never shared `16/main` on 5432.

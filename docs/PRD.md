@@ -50,6 +50,15 @@ Saat ini deteksi masalah jaringan dilakukan secara manual/reaktif (menunggu lapo
 
 Catatan penting: proses capture paket **harus** berjalan di device yang terhubung langsung ke jaringan target (laptop Raka), tidak bisa dilakukan dari backend cloud/serverless.
 
+Arsitektur di atas adalah authority operasional yang masih berlaku untuk domain
+Supabase. Asset Inventory/scan/history/settings, reporting terkait, dan Medical
+Equipment sudah memakai PostgreSQL lokal terisolasi `16/jhcnetops:5433` melalui
+backend loopback. P11 hanya menguatkan foundation dan kesiapan migrasi; P12
+melakukan rehearsal schema/data, P13 cutover database aplikasi, P14 mengganti
+Realtime, P15 mengganti Auth, dan P16 decommission/handover. Inventory authority
+lengkap dan kontrak preservasi ada di
+[P11 Local PostgreSQL Foundation](P11_LOCAL_POSTGRESQL_FOUNDATION.md).
+
 Catatan tambahan: pengukuran bandwidth (`iperf3`) butuh `iperf3 -s` jalan di titik target (mis. server pusat) sebagai counterpart. Ini di luar jalur `traffic_metrics`/severity — datanya masuk tabel terpisah (`bandwidth_measurements`, `hop_measurements`) dan tidak dihitung ke baseline rolling average, supaya test bandwidth yang sengaja generate traffic tinggi tidak memicu event `medium`/`high` palsu.
 
 ## 7. Komponen

@@ -1,7 +1,7 @@
 # Dedicated JHC NetOps PostgreSQL cluster
 
-These files are a reviewed future provisioning path. They are **not** executed by
-the application or by repository tests.
+These files are the reviewed provisioning/recovery path for the established
+foundation. They are **not** executed by the application or by repository tests.
 
 ## Isolation invariant
 
@@ -15,13 +15,15 @@ the application or by repository tests.
 - Only the local Fastify backend connects. The Next.js browser bundle never
   receives the PostgreSQL connection string.
 
-## Current pre-migration state
+## Current foundation state
 
-The operator has already created and started `16/jhcnetops` on port 5433 with
-loopback-only listening and an empty `jhc_netops` database. Do **not** recreate
-that cluster. The cluster script now detects this state, verifies the dedicated
-name/port, prints a no-change result, and exits. It never edits an existing
-cluster. Use the application provisioning script for roles and database grants.
+The operator has already created `16/jhcnetops` on port 5433 and established the
+local migrations `001`-`006`. Do **not** recreate that cluster or reapply the
+baseline merely for P11 verification. The cluster script detects the existing
+cluster, verifies its dedicated name/port, prints a no-change result, and exits.
+It never edits an existing cluster. Provisioning and migration commands below
+are retained for reviewed disaster recovery/new-host procedures, not routine
+P11 candidate acceptance.
 
 ## Approved acceptance procedure
 
@@ -50,9 +52,8 @@ sudo -u postgres psql --cluster 16/jhcnetops --dbname jhc_netops \
   --file deploy/postgresql/apply-asset-migration.sql
 ```
 
-The wrapper applies P10C migration 001, P10D1-A migration 002, and P10D1-B
-migration 003 in order. Migration 003 adds only active-scan source/lifecycle
-metadata inside schema `asset`; it does not connect to or alter `16/main`.
+The wrapper applies established migrations `001` through `006` in order. They
+remain inside schema `asset` and do not connect to or alter `16/main`.
 
 The runtime application role has no superuser, database-create, role-create,
 replication, bypass-RLS, or inherited-role privilege. The NOLOGIN schema owner is
@@ -70,6 +71,30 @@ psql --host 127.0.0.1 --port 5433 --username jhc_netops_app \
   --command "SELECT count(*) AS asset_count FROM asset.assets;" \
   --command "SELECT has_schema_privilege(current_user, 'asset', 'USAGE') AS asset_usage;"
 ```
+
+The repository-managed P11 equivalent additionally validates the complete
+baseline and uses the runtime DSN guard. For candidate acceptance, run the
+preflight from the immutable candidate release, not from `current`:
+
+```bash
+ROOT=/var/www/jhc/jhc_noc
+SHA=<CANDIDATE_SHA>
+REL="$ROOT/releases/$SHA"
+
+cd "$REL/backend"
+set -a
+. "$ROOT/shared/backend/.env"
+set +a
+npm run preflight:postgres
+unset DATABASE_URL
+```
+
+Candidate preflight must execute code from `releases/<CANDIDATE_SHA>` while
+`current` remains on the previously accepted live release. The shared backend
+environment may still point candidate and live at the same database, so this
+preflight must remain read-only. It executes only `SELECT`; it never applies the
+migration wrapper or repairs missing objects. This candidate procedure does not
+alter the final live release or `current` symlink workflow.
 
 Optionally run the repository integration test only after explicitly loading the
 protected backend environment. It runs sessions with
@@ -113,11 +138,13 @@ LOCAL_BACKEND_FRONTEND_TOKEN=<same frontend server-to-server token>
 
 Start `postgresql@16-jhcnetops`, the backend, and then the frontend. Verify
 `/healthz`, Asset Inventory, and the unchanged recurring runner data plane.
-Rollback is to stop NetOps, remove the four P10C environment entries, and restart
-the prior NetOps release. Do not delete the cluster during rollback and do not
-touch `16/main`.
+Application rollback is to stop NetOps, restore the reviewed environment/release,
+and restart only NetOps. A symlink/release rollback does not roll back database
+schema or data. Do not delete the cluster and do not touch `16/main`; any future
+database rollback requires a separate reviewed data-compatible plan.
 
 Migration `006_medical_equipment.sql` is included in the reviewed aggregate
 script for P10F. It is additive and targets only the dedicated `jhc_netops`
-database on port 5433. Never apply it to PostgreSQL `16/main`; follow the
-deferred acceptance and rollback plan in `../../docs/P10F_MEDICAL_EQUIPMENT.md`.
+database on port 5433. Never apply it to PostgreSQL `16/main`; the reviewed
+future rollout/recovery procedure remains in
+`../../docs/P10F_MEDICAL_EQUIPMENT.md`.

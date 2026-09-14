@@ -4,6 +4,8 @@ This document describes the system implemented in this repository. It is the
 practical entry point for a new maintainer. Product requirements remain in
 [PRD.md](PRD.md), implementation boundaries in [AGENTS.md](AGENTS.md), and the
 current Windows/WSL setup detail in [AGENT_SETUP.md](AGENT_SETUP.md).
+PostgreSQL persistence authority and migration phase boundaries are recorded in
+[P11_LOCAL_POSTGRESQL_FOUNDATION.md](P11_LOCAL_POSTGRESQL_FOUNDATION.md).
 
 ## Supported runtime and next milestone
 
@@ -58,16 +60,19 @@ Untuk native Ubuntu, mental model prosesnya adalah:
 Backend P10B terikat di `127.0.0.1:3402`. Heartbeat dan seluruh recurring runner
 data plane (Health Watch, Traffic, Managed Telemetry) melewati backend ini lalu
 repository REST/RPC Supabase. Supabase database, Auth, RLS, dan Realtime tetap
-authoritative; PostgreSQL/Auth lokal belum diperkenalkan. Manual Ping, Discovery,
+authoritative untuk domain recurring; PostgreSQL lokal belum menggantikan domain
+tersebut dan Auth lokal belum diperkenalkan. Manual Ping, Discovery,
 Device Inspector, LAN Diagnostics, dan control-plane berfrekuensi rendah masih
 memakai Edge Function. P10C menambahkan fondasi `asset.*` pada cluster khusus
-PostgreSQL `16/jhcnetops` port 5433; cluster tersebut belum diprovision oleh
-perubahan source ini dan tidak menggantikan domain Supabase yang ada. Detail aman
+PostgreSQL `16/jhcnetops` port 5433 sudah menjadi persistence authority untuk
+domain Asset Inventory/scan/history/settings, reporting terkait, dan Medical
+Equipment. Cluster ini tidak menggantikan domain Supabase lainnya. Detail aman
 ada di `deploy/postgresql/README.md`.
-Operator telah membuat cluster `16/jhcnetops` dan database kosongnya secara
-manual; migration P10C/P10D1 belum diterapkan. Role/schema acceptance menggunakan
+Operator telah membuat cluster `16/jhcnetops` dan database-nya secara manual;
+baseline migration lokal `001`-`006` sudah ditetapkan. Role/schema acceptance menggunakan
 skrip khusus yang memvalidasi cluster/port/config/HBA dan tidak mengubah
-`16/main`. Rencana P10D1/P10D2 ada di `P10D_SPLIT_PLAN.md`.
+`16/main`. Inventory persistence dan boundary P11-P16 ada di
+`P11_LOCAL_POSTGRESQL_FOUNDATION.md`.
 
 ## Current architecture
 
@@ -96,7 +101,7 @@ Loopback Fastify backend <--- Local Runner (Node.js)
 | Frontend | Authenticated UI, read models, Realtime subscriptions, and structured admin actions. It never runs local shell commands. |
 | Supabase | Authentication, RLS, persistent latest state/history, temporary job/session coordination, Realtime, and retained control-plane Edge contracts. |
 | Local backend | Timing-safe runner auth and bounded persistence bridge for recurring domains; separate server token, PostgreSQL repository, read-through evidence adapter, and explicit allowlisted P10D1-B scan orchestrator. |
-| Dedicated PostgreSQL | Future-provisioned `16/jhcnetops:5433`, database `jhc_netops`, local `asset.*` only; existing `16/main` is strictly out of scope. |
+| Dedicated PostgreSQL | Active dedicated `16/jhcnetops:5433`, database `jhc_netops`, local `asset.*` only; existing `16/main` is strictly out of scope. |
 | Local runner | Heartbeat, allow-list enforcement, scheduling, platform context, relocatable local state/logs, and structured WSL/native process orchestration. |
 | Python agent | Network measurement, bounded inspection/capture, SNMP collection, and normalized protocol output. |
 
@@ -372,7 +377,7 @@ still be recorded during P8 validation; Windows commands do not apply to Linux.
 - [ ] Safe stop/restart and local-state recovery procedure is known.
 - [ ] P10F migration 006 has been applied only to dedicated PostgreSQL
   `16/jhcnetops`, and Medical Equipment Viewer/Operator behavior has been
-  accepted using `P10F_MEDICAL_EQUIPMENT.md` (runtime acceptance is pending).
+  accepted using `P10F_MEDICAL_EQUIPMENT.md`.
 - [ ] P10B rollback is known: stop runner, remove both `LOCAL_BACKEND_*`, restart
   into Edge rollback mode, verify recurring loops, then stop local backend if desired.
 
