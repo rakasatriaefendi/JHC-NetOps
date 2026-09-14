@@ -40,9 +40,15 @@ stop or restart `postgresql@16-main`.
 
 ```bash
 ROOT=/var/www/jhc/jhc_noc
-SHA=<CANDIDATE_SHA>
-REL="$ROOT/releases/$SHA"
-RUN_ID=20260914a
+# Accepted P12 example; replace both values for a later immutable candidate.
+RELEASE_SHA=ee1716c
+SOURCE_COMMIT=ee1716c3462c3efafda320c223dc46911b9dcd0b
+[[ "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || {
+  printf 'P12 source commit must be exactly 40 hexadecimal characters.\n' >&2
+  exit 1
+}
+REL="$ROOT/releases/$RELEASE_SHA"
+RUN_ID=20260914b
 DB="jhc_netops_p12_$RUN_ID"
 
 cd "$REL"
@@ -60,10 +66,14 @@ set -a
 set +a
 export P12_RUN_ID="$RUN_ID"
 export P12_ARTIFACT_ROOT="$ROOT/shared/p12"
-export P12_SOURCE_COMMIT="$SHA"
+export P12_SOURCE_COMMIT="$SOURCE_COMMIT"
 npm run p12:snapshot
 unset SUPABASE_SERVICE_ROLE_KEY
 ```
+
+`RELEASE_SHA` identifies the immutable release directory and may be abbreviated.
+`SOURCE_COMMIT` is the full 40-character Git identity recorded in the snapshot
+manifest. Never populate `P12_SOURCE_COMMIT` from `RELEASE_SHA`.
 
 The snapshot is intentionally non-atomic across tables and is acceptable only for
 P12 rehearsal. The manifest records the capture start/end window and per-table

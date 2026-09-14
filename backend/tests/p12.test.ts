@@ -327,6 +327,12 @@ test("P12 runbook keeps live NetOps and unrelated PM2 processes untouched", () =
   assert.doesNotMatch(runbook, /^\s*pm2\s+(?:stop|restart)\b/im);
   assert.match(runbook, /manifest records the capture start\/end window/);
   assert.match(runbook, /cross-table drift risk[\s\S]*reported as P12 evidence/);
+  assert.match(runbook, /RELEASE_SHA=ee1716c/);
+  assert.match(runbook, /SOURCE_COMMIT=ee1716c3462c3efafda320c223dc46911b9dcd0b/);
+  assert.match(runbook, /\[\[ "\$SOURCE_COMMIT" =~ \^\[0-9a-fA-F\]\{40\}\$ \]\]/);
+  assert.match(runbook, /REL="\$ROOT\/releases\/\$RELEASE_SHA"/);
+  assert.match(runbook, /export P12_SOURCE_COMMIT="\$SOURCE_COMMIT"/);
+  assert.doesNotMatch(runbook, /export P12_SOURCE_COMMIT="\$RELEASE_SHA"/);
 });
 
 function fixtureOptions(

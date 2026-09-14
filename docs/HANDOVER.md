@@ -5,7 +5,9 @@ practical entry point for a new maintainer. Product requirements remain in
 [PRD.md](PRD.md), implementation boundaries in [AGENTS.md](AGENTS.md), and the
 current Windows/WSL setup detail in [AGENT_SETUP.md](AGENT_SETUP.md).
 PostgreSQL persistence authority and migration phase boundaries are recorded in
-[P11_LOCAL_POSTGRESQL_FOUNDATION.md](P11_LOCAL_POSTGRESQL_FOUNDATION.md).
+[P11_LOCAL_POSTGRESQL_FOUNDATION.md](P11_LOCAL_POSTGRESQL_FOUNDATION.md). The
+accepted P12 rehearsal and remaining P13 gates are recorded in
+[P12_SCHEMA_DATA_MIGRATION_DRY_RUN.md](P12_SCHEMA_DATA_MIGRATION_DRY_RUN.md).
 
 ## Supported runtime and next milestone
 
@@ -73,6 +75,14 @@ baseline migration lokal `001`-`006` sudah ditetapkan. Role/schema acceptance me
 skrip khusus yang memvalidasi cluster/port/config/HBA dan tidak mengubah
 `16/main`. Inventory persistence dan boundary P11-P16 ada di
 `P11_LOCAL_POSTGRESQL_FOUNDATION.md`.
+
+P12 Run A/B `20260914b` pada candidate `ee1716c` telah selesai: import,
+verification, dan repeatability lulus dengan snapshot Supabase dan baseline
+lokal yang sama. Rehearsal tidak mengganti symlink `current`, tidak menghentikan
+PM2, dan tidak mengubah persistence authority, Realtime, atau Auth. P13 tetap
+blocked sampai ambiguity reconciliation didisposisikan dan strategi cutover
+atomic/quiesced/checkpointed beserta freeze, buffer, rollback, dan pencegahan
+split-brain disetujui.
 
 ## Current architecture
 
