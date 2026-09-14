@@ -43,6 +43,9 @@ runner/data/
 runner/logs/
 /backend/data/report-branding/
 /backend/test-output/
+/.local/p12/
+*.p12-snapshot.jsonl
+*.p12-baseline.dump
 
 # Local agent buffers and runtime data
 /data/

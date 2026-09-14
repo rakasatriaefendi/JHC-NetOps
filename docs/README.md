@@ -24,6 +24,7 @@ Jangan menyimpang dari dokumen tersebut tanpa persetujuan pemilik project.
 | [P10D_SPLIT_PLAN.md](P10D_SPLIT_PLAN.md) | Rencana P10D1 intelligence/Insights dan P10D2 identity/Asset Changes tanpa scanner baru. |
 | [P10E_ASSET_REPORTING.md](P10E_ASSET_REPORTING.md) | Kontrak, batas, keamanan, dan acceptance operator untuk ekspor Excel Asset Inventory. |
 | [P11_LOCAL_POSTGRESQL_FOUNDATION.md](P11_LOCAL_POSTGRESQL_FOUNDATION.md) | Identitas PostgreSQL NetOps, inventory persistence, preflight read-only, boundary P11-P16, dan kontrak preservasi data. |
+| [P12_SCHEMA_DATA_MIGRATION_DRY_RUN.md](P12_SCHEMA_DATA_MIGRATION_DRY_RUN.md) | Hasil rehearsal schema/data P12, bukti repeatability, batas non-cutover, dan gate wajib sebelum P13. |
 | [UBUNTU_DEPLOYMENT_READINESS.md](UBUNTU_DEPLOYMENT_READINESS.md) | Status adapter P8A native Ubuntu, konfigurasi ZIP-release, dan gap validasi/always-on Mini PC. |
 | [UBUNTU_ALWAYS_ON_DEPLOYMENT.md](UBUNTU_ALWAYS_ON_DEPLOYMENT.md) | Template systemd P8B, config shared, port guard, update release, dan rollback native Ubuntu. |
 | [reference/feature-audit.md](reference/feature-audit.md) | Audit sumber legacy dan keputusan bertahap P10C-P10F. |

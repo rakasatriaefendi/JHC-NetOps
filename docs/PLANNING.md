@@ -622,3 +622,8 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   fail-closed DSN validation, dan repository-managed read-only foundation
   preflight. P11 tidak melakukan schema/data copy, cutover, Realtime/Auth
   replacement, deployment, atau database mutation.
+- [x] P12 Schema + Data Migration Dry Run: rehearsal terisolasi Run A/B
+  `20260914b` pada candidate `ee1716c` berhasil untuk import, verification, dan
+  repeatability atas satu snapshot Supabase dan satu baseline lokal identik.
+  Tidak ada application cutover; reconciliation ambiguity dan strategi final
+  atomic/quiesced/checkpointed tetap menjadi blocker eksplisit sebelum P13.
