@@ -275,12 +275,18 @@ test("connected target identity is verified before BEGIN or any write", async ()
   assert.deepEqual(statements, [P12_TARGET_IDENTITY_SQL]);
 });
 
-test("rehearsal schema preserves application tables without Auth, Realtime, cron, or asset mutation", () => {
+test("rehearsal schema preserves application tables and grants only required import privileges", () => {
   const schema = readFileSync(new URL("../migrations/p12/001_supabase_application_schema.sql", import.meta.url), "utf8");
   for (const definition of P12_TABLES) assert.match(schema, new RegExp(`CREATE TABLE public\\.${definition.table}\\b`, "i"));
   assert.doesNotMatch(schema, /CREATE\s+SCHEMA\s+asset|ALTER\s+TABLE\s+asset\.|auth\.users|supabase_realtime|cron\./i);
   assert.match(schema, /requested_by uuid NOT NULL/);
   assert.match(schema, /snmp2c_community_encrypted bytea/);
+  assert.match(schema, /GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO jhc_netops_app;/);
+  assert.match(schema, /GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA public TO jhc_netops_app;/);
+  assert.match(schema, /ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT,UPDATE ON SEQUENCES TO jhc_netops_app;/);
+  assert.match(NETWORK_HEALTH_SEQUENCE_SQL, /^SELECT setval\(/);
+  assert.match(NETWORK_HEALTH_SEQUENCE_SQL, /pg_get_serial_sequence\('public\.network_health_samples', 'id'\)/);
+  assert.doesNotMatch(schema, /GRANT\s+(?:ALL|CREATE)|SUPERUSER|CREATEDB|CREATEROLE|pg_read_all_settings|OWNER\s+TO|ALTER\s+ROLE/i);
 });
 
 test("operator wrapper hard-codes the dedicated cluster and exact-manifest destruction guard", () => {
