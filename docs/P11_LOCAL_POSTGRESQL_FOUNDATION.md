@@ -81,7 +81,9 @@ application metadata work, specifically scan-network bootstrap and interrupted
 scan recovery, after the schema already exists; those operations are not schema
 migrations.
 
-## Read-only foundation preflight
+## Verification layers
+
+### Layer 1 — Application Connection Preflight
 
 Run from `backend/` only after loading the protected backend environment:
 
@@ -94,14 +96,25 @@ single connection with `default_transaction_read_only=on`. It performs only
 `SELECT` statements and verifies:
 
 - database `jhc_netops`, role `jhc_netops_app`, port `5433`, and loopback;
-- data directory `/var/lib/postgresql/16/jhcnetops`;
 - the session is read-only;
 - tables and sequences established by migrations `001`-`006` exist.
+
+Layer 1 runs with the unprivileged `jhc_netops_app` role. It deliberately does
+not request privileged server configuration such as `data_directory`.
 
 It does not create, alter, drop, insert, update, delete, truncate, seed, repair,
 apply migrations, or import data. Output contains identity/status only and never
 prints the DSN or password. Failure is terminal and does not fall back to a
 default PostgreSQL target.
+
+### Layer 2 — Host/Cluster Operator Verification
+
+An operator separately verifies the physical PostgreSQL service: cluster
+`16/jhcnetops`, port `5433`, online state, data directory
+`/var/lib/postgresql/16/jhcnetops`, loopback-only configuration, and the exact
+service/configuration identity. These host checks are not forced through
+`jhc_netops_app` and are not performed by the Layer 1 application preflight.
+They must never target or restart `16/main`.
 
 ## P12/P13 data-preservation contract
 

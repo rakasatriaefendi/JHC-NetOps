@@ -61,6 +61,10 @@ separate. Runtime receives only database CONNECT, schema USAGE, and CRUD on the
 `asset` schema objects required by later P10D ingestion; it receives no access to
 another database or schema.
 
+## Verification layers
+
+### Layer 1 — Application Connection Preflight
+
 Perform read-only acceptance with the application role. `psql` prompts for the
 password and the commands do not print it:
 
@@ -95,6 +99,15 @@ environment may still point candidate and live at the same database, so this
 preflight must remain read-only. It executes only `SELECT`; it never applies the
 migration wrapper or repairs missing objects. This candidate procedure does not
 alter the final live release or `current` symlink workflow.
+
+### Layer 2 — Host/Cluster Operator Verification
+
+Separately, an authorized operator verifies that cluster `16/jhcnetops` is
+online on port `5433`, uses data directory
+`/var/lib/postgresql/16/jhcnetops`, has loopback-only PostgreSQL configuration,
+and maps to the expected physical service/configuration files. These checks are
+host-level checks and are not forced through the unprivileged
+`jhc_netops_app` connection. They must not target or restart `16/main`.
 
 Optionally run the repository integration test only after explicitly loading the
 protected backend environment. It runs sessions with
