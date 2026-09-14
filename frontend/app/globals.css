@@ -14,3 +14,17 @@
   }
 }
 
+@layer components {
+  .medical-date-input {
+    color-scheme: dark;
+  }
+
+  .medical-date-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.85;
+  }
+
+  .medical-date-input::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+}
