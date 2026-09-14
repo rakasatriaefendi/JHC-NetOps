@@ -57,6 +57,26 @@ test("calibration certificate helper preserves arbitrary prefixes and leading ze
   assert.deepEqual(splitCertificateReference("VENDOR-X/REGION/2027/000001"), { prefix: "VENDOR-X/REGION/", year: "2027", sequence: "000001" });
   assert.deepEqual(splitGuidedCertificateReference("CAL/JKT/2026/008812"), { code: "CAL", unit: "JKT", year: "2026", reference: "008812" });
   assert.equal(splitGuidedCertificateReference("free-form-certificate"), null);
+  assert.equal("008812/KAL/IX/2025".trim(), "008812/KAL/IX/2025");
+});
+
+test("certificate modes use accessible non-submitting controls with an explicit current state", () => {
+  const component = source("../components/medical-equipment/medical-equipment-detail.tsx");
+  assert.match(component, /\["guided", "free"\][\s\S]*\.map\(\(choice\) => <button type="button" aria-pressed=\{mode === choice\}/);
+  assert.match(component, /role="group" aria-label=\{t\("calibration\.certificateMode"\)\}/);
+  assert.match(component, /calibration\.currentMode/);
+  assert.match(component, /calibration\.guidedHelp/);
+  assert.match(component, /calibration\.freeHelp/);
+  assert.doesNotMatch(component, /setMode\(mode === "guided" \? "free" : "guided"\)/);
+});
+
+test("all Medical Equipment date inputs use the scoped dark native-control style", () => {
+  const component = source("../components/medical-equipment/medical-equipment-detail.tsx");
+  const css = source("../app/globals.css");
+  assert.equal((component.match(/className=\{dateInputClass\} type="date"/g) ?? []).length, 4);
+  assert.match(component, /const dateInputClass = `\$\{inputClass\} medical-date-input`/);
+  assert.match(css, /\.medical-date-input\s*\{[\s\S]*color-scheme:\s*dark/);
+  assert.match(css, /\.medical-date-input::\-webkit-calendar-picker-indicator/);
 });
 
 test("date assistance performs calendar month math and remains user-overridable", () => {
@@ -81,7 +101,7 @@ test("Asset Detail reverse-link is batched and does not copy network identity in
 test("English and Indonesian medical catalogs remain paired", () => {
   const en = JSON.parse(source("../i18n/en/medical.json"));
   const id = JSON.parse(source("../i18n/id/medical.json"));
-  for (const path of ["title", "summary.calibrationOverdue", "status.due_soon", "tabs.maintenance", "calibration.guided", "network.linkHelp", "errors.NETWORK_ASSET_ALREADY_LINKED"]) {
+  for (const path of ["title", "summary.calibrationOverdue", "status.due_soon", "tabs.maintenance", "calibration.certificateMode", "calibration.currentMode", "calibration.guided", "calibration.free", "calibration.guidedHelp", "calibration.freeHelp", "network.linkHelp", "errors.NETWORK_ASSET_ALREADY_LINKED"]) {
     const keys = path.split(".");
     let left: unknown = en; let right: unknown = id;
     for (const key of keys) { left = (left as Record<string, unknown>)[key]; right = (right as Record<string, unknown>)[key]; }
