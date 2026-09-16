@@ -25,6 +25,7 @@ import {
   type NetworkNodeType,
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
+import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
 import type { ProfileRole } from "@/lib/authorization";
 
@@ -121,10 +122,9 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
       } : null}
       addToHealth={shouldOfferHealthPromotion(monitored, node?.id, runner?.id) ? async () => {
         setBusy(true); setError(null);
-        const supabase = createClient();
-        const { error: healthError } = await supabase.from("network_targets").upsert({ runner_id: runner!.id, node_id: node!.id, enabled: true }, { onConflict: "runner_id,node_id" });
+        const { ok } = await promoteHealthTargetsAction(runner!.id, [node!.id]);
         setBusy(false);
-        if (healthError) setError(t("profile.healthAddFailed"));
+        if (!ok) setError(t("profile.healthAddFailed"));
         else setMonitored(true);
       } : null}
       setError={setError}

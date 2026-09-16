@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { applicationAuthority } from "./application-persistence.ts";
 
 import type { RunnerCapabilities } from "./diagnostic-jobs.ts";
 import { managedTelemetryFixture } from "./managed-telemetry-fixtures.ts";
@@ -24,11 +25,19 @@ type ProductionLoaders = {
 
 type RunnerRow = NonNullable<Awaited<ReturnType<ProductionLoaders["loadRunners"]>>["data"]>[number];
 
+async function loadRunnersLocal(): Promise<{ data: RunnerRow[] | null; error: unknown }> {
+  // In local mode, we don't have a list-all-runners endpoint yet
+  return { data: null, error: null };
+}
+
 const PRODUCTION_LOADERS: ProductionLoaders = {
   loadNodes: loadNetworkNodes,
   loadTelemetry: loadManagedTelemetryWorkspace,
   loadObservedHosts: loadManagedObservedHostsPage,
   loadRunners: async (supabase) => {
+    if (applicationAuthority() === "local_postgres") {
+      return loadRunnersLocal();
+    }
     const { data, error } = await supabase.from("diagnostic_runners")
       .select("id,display_name,capabilities")
       .order("display_name");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { HEALTH_TARGET_PAGE_SIZE, healthTargetPagination } from "../lib/network-health.ts";
+const { HEALTH_TARGET_PAGE_SIZE, healthTargetPagination } = await import("../lib/network-health-client.ts");
 
 const dashboard = readFileSync(new URL("../components/dashboard/network-health-dashboard.tsx", import.meta.url), "utf8");
 const map = readFileSync(new URL("../components/dashboard/reachability-map.tsx", import.meta.url), "utf8");

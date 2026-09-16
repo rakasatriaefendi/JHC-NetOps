@@ -18,7 +18,7 @@ import {
   type ObservedHostFilter,
   type ObservedHostSortDirection,
   type ObservedHostSortKey,
-} from "@/lib/managed-telemetry";
+} from "@/lib/managed-telemetry-client";
 
 type ObservationStatus = "available" | "empty" | "partial" | "unsupported" | null | undefined;
 

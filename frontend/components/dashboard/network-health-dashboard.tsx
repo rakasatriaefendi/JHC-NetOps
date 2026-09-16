@@ -13,7 +13,7 @@ import { NetworkHealthTrends } from "./network-health-trends";
 import { NetworkDiscoveryDrawer } from "@/components/dashboard/network-discovery-drawer";
 import type { DiscoverySession } from "@/lib/network-discovery";
 import { createClient } from "@/lib/supabase/client";
-import { healthTargetPagination, type HealthStatus, type NetworkHealthEvent, type NetworkHealthTarget, type NetworkHealthSample } from "@/lib/network-health";
+import { healthTargetPagination, type HealthStatus, type NetworkHealthEvent, type NetworkHealthTarget, type NetworkHealthSample } from "@/lib/network-health-client";
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
 

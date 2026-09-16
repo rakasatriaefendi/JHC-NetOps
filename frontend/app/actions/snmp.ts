@@ -7,6 +7,8 @@ import { requireOperatorProfile } from "@/lib/auth";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
 import { validateManagedTelemetryForm } from "@/lib/managed-telemetry";
 import { portableDevMode } from "@/lib/portable-dev-mode";
+import { applicationAuthority, applicationDeleted, localApplicationRequest, localManagedTarget, localNetworkNode,
+  localRunner } from "@/lib/application-persistence";
 
 const TELEMETRY_FIELDS = new Set([
   "node_id", "runner_id", "credential_profile_ref", "snmp_version",
@@ -40,7 +42,22 @@ export async function saveManagedTelemetryTargetAction(formData: FormData) {
   const validationError = validateManagedTelemetryForm(values);
   if (validationError) redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
 
-  const { supabase } = await requireOperatorProfile();
+  const { supabase, userId } = await requireOperatorProfile();
+  if (applicationAuthority() === "local_postgres") {
+    const [node, runner] = await Promise.all([localNetworkNode(values.node_id), localRunner(values.runner_id)]);
+    if (!node || !runner) redirect("/snmp?telemetry_error=unknown-target#managed-telemetry");
+    const enabled = formData.get("enabled") === "on";
+    if (enabled && !runnerCredentialProfiles(runner.capabilities).includes(values.credential_profile_ref)) {
+      redirect("/snmp?telemetry_error=profile-unavailable#managed-telemetry");
+    }
+    const saved = await localApplicationRequest("POST", "/api/application/managed-targets", {
+      actor_id: userId, input: { ...values, enabled },
+    });
+    if (!saved.ok) redirect("/snmp?telemetry_error=save-failed#managed-telemetry");
+    revalidatePath("/snmp");
+    revalidatePath("/dashboard");
+    redirect("/snmp?telemetry_notice=saved#managed-telemetry");
+  }
   const [{ data: node }, { data: runner }] = await Promise.all([
     supabase.from("network_nodes").select("id").eq("id", values.node_id).maybeSingle(),
     supabase.from("diagnostic_runners").select("id,capabilities").eq("id", values.runner_id).maybeSingle(),
@@ -86,7 +103,21 @@ export async function deleteManagedTelemetryTargetAction(formData: FormData) {
     redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
   }
 
-  const { supabase } = await requireOperatorProfile();
+  const { supabase, userId } = await requireOperatorProfile();
+  if (applicationAuthority() === "local_postgres") {
+    const target = await localManagedTarget(targetId);
+    if (!target || typeof target.node_name !== "string" || typeof target.ip_address !== "string" ||
+      confirmation !== `${target.node_name} (${target.ip_address})`) {
+      redirect("/snmp?telemetry_error=unknown-target#managed-telemetry");
+    }
+    const deleted = await localApplicationRequest("DELETE", `/api/application/managed-targets/${targetId}`,
+      { actor_id: userId, confirmation });
+    if (!applicationDeleted(deleted)) redirect("/snmp?telemetry_error=delete-failed#managed-telemetry");
+    revalidatePath("/snmp");
+    revalidatePath("/devices");
+    revalidatePath("/dashboard");
+    redirect("/snmp?telemetry_notice=deleted#managed-telemetry");
+  }
   const { data: target, error: lookupError } = await supabase
     .from("managed_telemetry_targets")
     .select("id,node_id,network_nodes(name,ip_address)")

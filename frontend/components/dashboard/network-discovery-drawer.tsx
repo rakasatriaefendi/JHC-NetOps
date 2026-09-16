@@ -8,10 +8,11 @@ import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
-import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery";
+import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery-client";
 import { NETWORK_NODE_TYPES, findNetworkNode, networkNodeTypeLabel, type NetworkNode, type NetworkNodeInput, type NetworkNodeType } from "@/lib/network-nodes";
-import type { NetworkHealthTarget } from "@/lib/network-health";
+import type { NetworkHealthTarget } from "@/lib/network-health-client";
 import { createClient } from "@/lib/supabase/client";
+import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import type { TrafficSnapshot } from "@/lib/traffic";
 
 export function NetworkDiscoveryDrawer({
@@ -135,9 +136,8 @@ export function NetworkDiscoveryDrawer({
     if (!runner) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.from("network_targets").upsert({ runner_id: runner.id, node_id: node.id, enabled: true }, { onConflict: "runner_id,node_id" });
-    if (error) setError(t("addFailed"));
+    const { ok } = await promoteHealthTargetsAction(runner.id, [node.id]);
+    if (!ok) setError(t("addFailed"));
     else {
       setPromotedNodes((current) => new Set([...current, node.id]));
       router.refresh();
@@ -149,12 +149,11 @@ export function NetworkDiscoveryDrawer({
     if (!runner || !selectedRows.length || invalidSelection) return;
     setBusy(true);
     setError(null);
-    const rows = selectedRows.map((row) => ({ runner_id: runner.id, node_id: row.node!.id, enabled: true }));
-    const supabase = createClient();
-    const { error } = await supabase.from("network_targets").upsert(rows, { onConflict: "runner_id,node_id" });
-    if (error) setError(t("addSomeFailed"));
+    const nodeIds = selectedRows.map((row) => row.node!.id);
+    const { ok } = await promoteHealthTargetsAction(runner.id, nodeIds);
+    if (!ok) setError(t("addSomeFailed"));
     else {
-      setPromotedNodes((current) => new Set([...current, ...rows.map((row) => row.node_id)]));
+      setPromotedNodes((current) => new Set([...current, ...nodeIds]));
       setSelected(new Set());
       router.refresh();
     }

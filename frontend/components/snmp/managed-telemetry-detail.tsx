@@ -14,7 +14,7 @@ import {
   type ManagedInterfaceLatest,
   type ManagedObservedHostLatest,
   type ManagedTelemetryTarget,
-} from "@/lib/managed-telemetry";
+} from "@/lib/managed-telemetry-client";
 
 type Props = { targets: ManagedTelemetryTarget[]; interfaces: ManagedInterfaceLatest[]; observedHosts: ManagedObservedHostLatest[]; initialTargetId?: string };
 

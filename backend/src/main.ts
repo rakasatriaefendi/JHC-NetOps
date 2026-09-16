@@ -14,20 +14,67 @@ import { PostgresScanNetworkRepository } from "./assets/scan-network-repository.
 import { SupabaseManagedTelemetryRepository } from "./managed-telemetry/repository.js";
 import { SupabaseNetworkHealthRepository } from "./network-health/repository.js";
 import { SupabaseTrafficRepository } from "./traffic/repository.js";
-import { buildServer, createGracefulShutdown } from "./server.js";
 import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
+import { buildServer, createGracefulShutdown } from "./server.js";
 import { FileReportBrandingStore } from "./report-branding/storage.js";
 import { PostgresMedicalEquipmentRepository } from "./medical-equipment/repository.js";
+import { selectApplicationPersistence } from "./persistence/authority.js";
+import { type ApplicationRepositories, type SupabaseApplicationRepositories } from "./persistence/application-repositories.js";
+import { PoolPostgresQuery } from "./persistence/postgres-query.js";
+import { PostgresProfilesRepository } from "./persistence/profiles.js";
+import { PostgresNetworkInventoryRepository } from "./persistence/inventory.js";
+import { PostgresNetworkHealthRepository } from "./persistence/network-health.js";
+import { PostgresManagedTelemetryRepository } from "./persistence/managed-telemetry.js";
+import { PostgresTrafficRepository } from "./persistence/traffic.js";
+import { PostgresRunnerHeartbeatRepository } from "./persistence/runner-heartbeat.js";
+import { PostgresDiagnosticJobsRepository } from "./persistence/diagnostic-jobs.js";
+import { PostgresNetworkDiscoveryRepository } from "./persistence/network-discovery.js";
+import { PostgresDeviceInspectionRepository } from "./persistence/device-inspection.js";
+import { PostgresNetworkHealthPingJobsRepository } from "./persistence/network-health-ping-jobs.js";
+import { PostgresBandwidthMeasurementsRepository } from "./persistence/bandwidth-measurements.js";
+import { PostgresHopMeasurementsRepository } from "./persistence/hop-measurements.js";
+import { PostgresTrafficMetricsRepository } from "./persistence/traffic-metrics.js";
+import { PostgresEventsRepository } from "./persistence/events.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
-  const heartbeatRepository = new SupabaseRunnerHeartbeatRepository(
-    config.supabaseUrl,
-    config.supabaseServiceRoleKey,
-  );
-  const healthRepository = new SupabaseNetworkHealthRepository(config.supabaseUrl, config.supabaseServiceRoleKey);
-  const trafficRepository = new SupabaseTrafficRepository(config.supabaseUrl, config.supabaseServiceRoleKey);
-  const telemetryRepository = new SupabaseManagedTelemetryRepository(config.supabaseUrl, config.supabaseServiceRoleKey);
+  const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
+    supabase: () => ({
+      heartbeat: new SupabaseRunnerHeartbeatRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
+      health: new SupabaseNetworkHealthRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
+      traffic: new SupabaseTrafficRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
+      telemetry: new SupabaseManagedTelemetryRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
+    }),
+    localPostgres: () => {
+      const appPool = new Pool({
+        connectionString: config.applicationDatabaseUrl,
+        max: 10,
+        connectionTimeoutMillis: 3_000,
+        idleTimeoutMillis: 30_000,
+        statement_timeout: 15_000,
+        query_timeout: 16_000,
+        application_name: "jhc-netops-backend-application",
+      });
+      const query = new PoolPostgresQuery(appPool);
+      return {
+        heartbeat: new PostgresRunnerHeartbeatRepository(query),
+        health: new PostgresNetworkHealthRepository(query),
+        traffic: new PostgresTrafficRepository(query),
+        telemetry: new PostgresManagedTelemetryRepository(query),
+        diagnosticJobs: new PostgresDiagnosticJobsRepository(query),
+        networkDiscovery: new PostgresNetworkDiscoveryRepository(query),
+        deviceInspection: new PostgresDeviceInspectionRepository(query),
+        pingJobs: new PostgresNetworkHealthPingJobsRepository(query),
+        bandwidth: new PostgresBandwidthMeasurementsRepository(query),
+        hopMeasurements: new PostgresHopMeasurementsRepository(query),
+        trafficMetrics: new PostgresTrafficMetricsRepository(query),
+        events: new PostgresEventsRepository(query),
+        profiles: new PostgresProfilesRepository(query),
+        inventory: new PostgresNetworkInventoryRepository(query),
+        _pool: appPool,
+      };
+    },
+  });
   const assetPool = config.assets ? new Pool({
     connectionString: config.assets.databaseUrl,
     max: 5,
@@ -60,84 +107,85 @@ async function main(): Promise<void> {
     )
     : null;
   if (assetScanController) await assetScanController.initialize();
-  const server = buildServer({
-    ...(config.assets && assetRepository ? {
-      assets: {
-        token: config.assets.frontendApiToken,
-        repository: assetRepository,
-        ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
-      },
-    } : {}),
-    ...(config.assets && assetPool ? {
-      assetChanges: { token: config.assets.frontendApiToken, repository: new PostgresAssetChangeRepository(assetPool) },
-    } : {}),
-    ...(config.assets && assetPool ? {
-      assetReport: {
-        token: config.assets.frontendApiToken,
-        repository: new PostgresAssetReportRepository(assetPool),
-        ...(reportBranding ? { branding: reportBranding } : {}),
-        ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
-      },
-    } : {}),
-    ...(config.assets && assetScanController ? {
-      assetScan: { token: config.assets.frontendApiToken, controller: assetScanController },
-    } : {}),
-    ...(config.assets && scanNetworkManager ? {
-      scanNetworks: { token: config.assets.frontendApiToken, manager: scanNetworkManager },
-    } : {}),
-    ...(config.assets && reportBranding ? {
-      reportBranding: { token: config.assets.frontendApiToken, store: reportBranding },
-    } : {}),
-    ...(config.assets && assetPool ? {
-      medicalEquipment: {
-        token: config.assets.frontendApiToken,
-        repository: new PostgresMedicalEquipmentRepository(assetPool),
-        dueSoonDays: config.assets.medicalDueSoonDays,
-      },
-    } : {}),
-    runnerHeartbeat: { token: config.runnerApiToken, repository: heartbeatRepository },
-    networkHealth: { token: config.runnerApiToken, repository: healthRepository },
-    traffic: { token: config.runnerApiToken, repository: trafficRepository },
-    managedTelemetry: { token: config.runnerApiToken, repository: telemetryRepository },
-  });
+  const appPool = config.persistenceAuthority === "local_postgres" && "_pool" in applicationRepositories
+    ? (applicationRepositories as Record<string, unknown>)._pool as Pool
+    : null;
+  const localRepos = config.persistenceAuthority === "local_postgres" ? applicationRepositories as ApplicationRepositories : null;
+
+  const buildServerOptions: Record<string, unknown> = {
+    runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },
+    networkHealth: { token: config.runnerApiToken, repository: applicationRepositories.health },
+    traffic: { token: config.runnerApiToken, repository: applicationRepositories.traffic },
+    managedTelemetry: { token: config.runnerApiToken, repository: applicationRepositories.telemetry },
+  };
+
+  if (config.assets && assetRepository) {
+    buildServerOptions.assets = {
+      token: config.assets.frontendApiToken,
+      repository: assetRepository,
+      ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
+    };
+  }
+  if (config.assets && assetPool) {
+    buildServerOptions.assetChanges = { token: config.assets.frontendApiToken, repository: new PostgresAssetChangeRepository(assetPool) };
+    buildServerOptions.assetReport = {
+      token: config.assets.frontendApiToken,
+      repository: new PostgresAssetReportRepository(assetPool),
+      ...(reportBranding ? { branding: reportBranding } : {}),
+      ...(assetSynchronizer ? { synchronizer: assetSynchronizer } : {}),
+    };
+    buildServerOptions.medicalEquipment = {
+      token: config.assets.frontendApiToken,
+      repository: new PostgresMedicalEquipmentRepository(assetPool),
+      dueSoonDays: config.assets.medicalDueSoonDays,
+    };
+  }
+  if (config.assets && assetScanController) {
+    buildServerOptions.assetScan = { token: config.assets.frontendApiToken, controller: assetScanController };
+  }
+  if (config.assets && scanNetworkManager) {
+    buildServerOptions.scanNetworks = { token: config.assets.frontendApiToken, manager: scanNetworkManager };
+  }
+  if (config.assets && reportBranding) {
+    buildServerOptions.reportBranding = { token: config.assets.frontendApiToken, store: reportBranding };
+  }
+  if (localRepos) {
+    buildServerOptions.application = {
+      token: config.frontendApiToken,
+      profiles: localRepos.profiles,
+      inventory: localRepos.inventory,
+      diagnosticJobs: localRepos.diagnosticJobs,
+      networkDiscovery: localRepos.networkDiscovery,
+      deviceInspection: localRepos.deviceInspection,
+      pingJobs: localRepos.pingJobs,
+      bandwidth: localRepos.bandwidth,
+      hopMeasurements: localRepos.hopMeasurements,
+      trafficMetrics: localRepos.trafficMetrics,
+      events: localRepos.events,
+    };
+  }
+
+  const server = buildServer(buildServerOptions as Parameters<typeof buildServer>[0]);
   if (assetPool) server.addHook("onClose", async () => {
-    try {
-      if (assetScanController) await assetScanController.shutdown();
-    } finally {
-      await assetPool.end();
-    }
+    try { if (assetScanController) await assetScanController.shutdown(); } finally { await assetPool.end(); }
   });
+  if (appPool) server.addHook("onClose", async () => { await appPool.end(); });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {
     void shutdown(signal).catch(() => {
-      process.stderr.write(`${JSON.stringify({
-        level: "error",
-        code: "BACKEND_SHUTDOWN_FAILED",
-        message: "Backend failed to stop cleanly",
-      })}\n`);
+      process.stderr.write(`${JSON.stringify({ level: "error", code: "BACKEND_SHUTDOWN_FAILED", message: "Backend failed to stop cleanly" })}\n`);
       process.exitCode = 1;
     });
   };
-
   process.once("SIGINT", () => handleSignal("SIGINT"));
   process.once("SIGTERM", () => handleSignal("SIGTERM"));
-
-  try {
-    await server.listen({ host: config.host, port: config.port });
-  } catch (error) {
-    await server.close().catch(() => undefined);
-    throw error;
-  }
+  try { await server.listen({ host: config.host, port: config.port }); }
+  catch (error) { await server.close().catch(() => undefined); throw error; }
 }
 
-try {
-  await main();
-} catch (error) {
+try { await main(); }
+catch (error) {
   const configurationFailure = error instanceof BackendConfigurationError;
-  process.stderr.write(`${JSON.stringify({
-    level: "error",
-    code: configurationFailure ? error.code : "BACKEND_STARTUP_FAILED",
-    message: configurationFailure ? error.message : "Backend failed to start",
-  })}\n`);
+  process.stderr.write(`${JSON.stringify({ level: "error", code: configurationFailure ? error.code : "BACKEND_STARTUP_FAILED", message: configurationFailure ? error.message : "Backend failed to start" })}\n`);
   process.exitCode = 1;
 }

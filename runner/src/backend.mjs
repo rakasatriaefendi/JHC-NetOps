@@ -1,6 +1,10 @@
 export class BackendClient {
-  constructor(url, serviceRoleKey, localBackend = null) {
+  constructor(url, serviceRoleKey, localBackend = null, persistenceAuthority = process.env.PERSISTENCE_AUTHORITY ?? "supabase") {
     if (!url || !serviceRoleKey) throw new Error("Backend credentials are unavailable");
+    if (persistenceAuthority !== "supabase" && persistenceAuthority !== "local_postgres") {
+      throw new Error("Persistence authority is invalid");
+    }
+    this.persistenceAuthority = persistenceAuthority;
     this.endpoint = `${url.replace(/\/$/, "")}/functions/v1/diagnostic-jobs`;
     this.trafficEndpoint = `${url.replace(/\/$/, "")}/functions/v1/traffic-live`;
     this.healthEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-health`;
@@ -91,6 +95,7 @@ export class BackendClient {
   }
 
   async #post(body) {
+    this.#assertEdgeMutationAllowed();
     const response = await fetch(this.endpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(backendFailureMessage("Backend", response.status, payload));
@@ -109,6 +114,7 @@ export class BackendClient {
   }
   async #postRecurring(label, localEndpoint, edgeEndpoint, body, managedTelemetryPublish = false) {
     const local = Boolean(localEndpoint);
+    if (!local) this.#assertEdgeMutationAllowed();
     const response = await fetch(localEndpoint ?? edgeEndpoint, {
       method: "POST",
       headers: local ? this.localBackendHeaders : this.headers,
@@ -123,22 +129,31 @@ export class BackendClient {
     return payload.data;
   }
   async #postHealth(body) {
+    this.#assertEdgeMutationAllowed();
     const response = await fetch(this.healthEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(backendFailureMessage("Network health backend", response.status, payload));
     return payload.data;
   }
   async #postDiscovery(body) {
+    this.#assertEdgeMutationAllowed();
     const response = await fetch(this.discoveryEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(backendFailureMessage("Network discovery backend", response.status, payload));
     return payload.data;
   }
   async #postInspection(body) {
+    this.#assertEdgeMutationAllowed();
     const response = await fetch(this.inspectionEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(backendFailureMessage("Device inspection backend", response.status, payload));
     return payload.data;
+  }
+
+  #assertEdgeMutationAllowed() {
+    if (this.persistenceAuthority !== "supabase") {
+      throw new Error("Legacy Supabase application mutation is blocked under local_postgres authority");
+    }
   }
 }
 

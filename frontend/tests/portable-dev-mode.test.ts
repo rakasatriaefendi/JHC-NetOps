@@ -2,19 +2,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createRequire } from "node:module";
 
-import {
-  managedTelemetryFixture,
-  PORTABLE_TARGET_ID,
-} from "../lib/managed-telemetry-fixtures.ts";
-import {
-  loadObservedHostsData,
-  loadSnmpWorkspaceData,
-} from "../lib/managed-telemetry-source.ts";
-import {
-  portableDevConfig,
-  portableDevMode,
-} from "../lib/portable-dev-mode.ts";
+// Properly typed server-only mock for Node Module
+const require = createRequire(import.meta.url);
+const mockModule: NodeModule = {
+  exports: {},
+  filename: "server-only",
+  id: "server-only",
+  loaded: true,
+  parent: null,
+  paths: [],
+  require: require,
+  children: [],
+  isPreloading: false,
+  path: "server-only",
+};
+require.cache[require.resolve("server-only")] = mockModule;
+
+const { managedTelemetryFixture, PORTABLE_TARGET_ID } = await import("../lib/managed-telemetry-fixtures.ts");
+const { loadObservedHostsData, loadSnmpWorkspaceData } = await import("../lib/managed-telemetry-source.ts");
+const { portableDevConfig, portableDevMode } = await import("../lib/portable-dev-mode.ts");
 
 const fakeSupabase = {} as SupabaseClient;
 

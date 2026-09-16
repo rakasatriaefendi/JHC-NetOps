@@ -114,6 +114,38 @@ test("empty local config is a controlled recurring-data-plane Edge rollback mode
   ]);
 });
 
+test("local authority blocks legacy Edge control-plane mutations before fetch", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", {
+    url: "http://127.0.0.1:3402", token: LOCAL_TOKEN,
+  }, "local_postgres");
+  for (const action of [
+    () => client.claim("runner-test"),
+    () => client.claimManualPing("runner-test"),
+    () => client.claimDiscovery("runner-test"),
+    () => client.claimInspection("runner-test"),
+  ]) {
+    await assert.rejects(action(), /Legacy Supabase application mutation is blocked/);
+  }
+  assert.deepEqual(urls, []);
+  await client.heartbeat(HEARTBEAT);
+  assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/heartbeat"]);
+});
+
+test("local authority cannot fall back to recurring Edge endpoint", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => { urls.push(String(url)); return new Response("{}", { status: 200 }); });
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "local_postgres");
+  await assert.rejects(client.healthTargets("runner-test"), /Legacy Supabase application mutation is blocked/);
+  assert.deepEqual(urls, []);
+  assert.throws(() => new BackendClient("https://example.invalid", "test-service-key", null, "unknown"),
+    /Persistence authority is invalid/);
+});
+
 test("local recurring failure never falls back to the Edge Function", async (t) => {
   const urls = [];
   t.mock.method(globalThis, "fetch", async (url) => {

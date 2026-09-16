@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, observedTrafficIps, type DiscoveryRunner } from "../lib/network-discovery.ts";
+const { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, observedTrafficIps } = await import("../lib/network-discovery-client.ts");
+
+interface DiscoveryRunner {
+  id: string;
+  display_name: string;
+  last_seen_at: string;
+  health_status: "online" | "degraded";
+  capabilities: { operations?: string[] };
+}
 
 const runner = (lastSeenAt: number): DiscoveryRunner => ({
   id: "runner-test",

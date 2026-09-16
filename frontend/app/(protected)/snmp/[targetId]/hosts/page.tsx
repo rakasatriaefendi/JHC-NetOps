@@ -6,7 +6,7 @@ import { requireApprovedProfile } from "@/lib/auth";
 import {
   formatDateTime,
   latestObservedAt,
-} from "@/lib/managed-telemetry";
+} from "@/lib/managed-telemetry-client";
 import { loadObservedHostsData } from "@/lib/managed-telemetry-source";
 import { getServerTranslation } from "@/i18n/server";
 

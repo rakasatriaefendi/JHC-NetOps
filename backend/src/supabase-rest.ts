@@ -1,3 +1,5 @@
+import { assertPersistenceAuthority, parsePersistenceAuthority, type PersistenceAuthority } from "./persistence/authority.js";
+
 const SAFE_DATABASE_ERROR_CODE = /^[a-z0-9_]{1,32}$/i;
 
 type QueryValue = string | number | boolean;
@@ -13,8 +15,12 @@ export type SupabaseRequestOptions = Readonly<{
 export class SupabaseRestClient {
   readonly #baseUrl: string;
   readonly #headers: Readonly<Record<string, string>>;
+  readonly #authority: PersistenceAuthority;
 
-  constructor(supabaseUrl: string, serviceRoleKey: string) {
+  constructor(supabaseUrl: string, serviceRoleKey: string, authority?: PersistenceAuthority) {
+    this.#authority = authority ?? (process.env.PERSISTENCE_AUTHORITY
+      ? parsePersistenceAuthority(process.env.PERSISTENCE_AUTHORITY)
+      : "supabase");
     this.#baseUrl = supabaseUrl.replace(/\/$/, "");
     this.#headers = Object.freeze({
       Authorization: `Bearer ${serviceRoleKey}`,
@@ -32,6 +38,9 @@ export class SupabaseRestClient {
   }
 
   async #request<T>(path: string, options: SupabaseRequestOptions): Promise<T> {
+    // This client only addresses application REST/RPC persistence, never Auth.
+    // Reject before URL construction or fetch; no local failure can dual-write.
+    assertPersistenceAuthority(this.#authority, "supabase");
     const url = new URL(`${this.#baseUrl}/${path}`);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       url.searchParams.set(key, String(value));

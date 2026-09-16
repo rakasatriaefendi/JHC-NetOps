@@ -1,5 +1,13 @@
 # JHC NetOps Local Backend
 
+Application persistence authority is explicitly controlled by the required
+`PERSISTENCE_AUTHORITY` (`supabase` before P13, eventually `local_postgres`). A
+missing or unknown value fails startup. The local mode is intentionally fail-closed until
+the complete P13 local repository and transactional Realtime-shadow outbox gate
+is installed; there is no fallback to Supabase application writes. Supabase
+Auth and Realtime remain separate through P13. See
+[`deploy/postgresql/p13/README.md`](../deploy/postgresql/p13/README.md).
+
 `backend/` adalah fondasi service lokal P9 yang nantinya menjadi trusted boundary
 antara frontend, Local Runner, dan PostgreSQL lokal. Implementasi saat ini memakai
 Fastify, ESM, TypeScript strict, dan Node.js 22.

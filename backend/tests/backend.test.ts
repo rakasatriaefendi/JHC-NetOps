@@ -14,6 +14,10 @@ const VALID_ENVIRONMENT = {
   RUNNER_API_TOKEN: "r".repeat(32),
   SUPABASE_URL: "https://project.example.invalid",
   SUPABASE_SERVICE_ROLE_KEY: "s".repeat(32),
+  PERSISTENCE_AUTHORITY: "supabase",
+  FRONTEND_API_TOKEN: "f".repeat(32),
+  APPLICATION_DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
+  DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
 };
 
 test("GET /healthz returns the bounded service health response", async () => {
@@ -42,10 +46,35 @@ test("configuration defaults to the private loopback endpoint", () => {
     host: "127.0.0.1",
     port: 3402,
     runnerApiToken: VALID_ENVIRONMENT.RUNNER_API_TOKEN,
+    frontendApiToken: VALID_ENVIRONMENT.FRONTEND_API_TOKEN,
+    persistenceAuthority: "supabase",
     supabaseUrl: VALID_ENVIRONMENT.SUPABASE_URL,
     supabaseServiceRoleKey: VALID_ENVIRONMENT.SUPABASE_SERVICE_ROLE_KEY,
-    assets: null,
+    applicationDatabaseUrl: VALID_ENVIRONMENT.APPLICATION_DATABASE_URL,
+    assets: {
+      databaseUrl: VALID_ENVIRONMENT.DATABASE_URL,
+      frontendApiToken: VALID_ENVIRONMENT.FRONTEND_API_TOKEN,
+      reportBrandingDir: resolve("data/report-branding"),
+      medicalDueSoonDays: 30,
+      scan: {
+        networks: [], helperPath: "/usr/local/libexec/jhc-netops-asset-scan", concurrency: 4,
+        hostTimeoutMs: 45_000, discoveryTimeoutMs: 120_000,
+      },
+    },
   });
+});
+
+test("application persistence authority is explicit and rejects missing or unknown modes", () => {
+  assert.equal(loadBackendConfig(VALID_ENVIRONMENT).persistenceAuthority, "supabase");
+  assert.equal(loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "local_postgres" }).persistenceAuthority, "local_postgres");
+  const missingAuthority = Object.fromEntries(
+    Object.entries(VALID_ENVIRONMENT).filter(([name]) => name !== "PERSISTENCE_AUTHORITY"),
+  );
+  assert.throws(() => loadBackendConfig(missingAuthority), /PERSISTENCE_AUTHORITY/);
+  assert.throws(
+    () => loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "fallback" }),
+    (error: unknown) => error instanceof Error && /PERSISTENCE_AUTHORITY/.test(error.message),
+  );
 });
 
 test("asset database configuration is optional, paired, and isolated from PostgreSQL 16/main", () => {
@@ -90,8 +119,8 @@ test("asset database configuration is optional, paired, and isolated from Postgr
   assert.equal(scanner.assets?.scan.concurrency, 8);
 
   for (const environment of [
-    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops" },
-    { ...VALID_ENVIRONMENT, FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: undefined },
+    { ...VALID_ENVIRONMENT, FRONTEND_API_TOKEN: "f".repeat(32), DATABASE_URL: undefined },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5432/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/mercure", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/montblanc", FRONTEND_API_TOKEN: "f".repeat(32) },

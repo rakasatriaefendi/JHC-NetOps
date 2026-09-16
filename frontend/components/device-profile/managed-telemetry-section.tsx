@@ -21,7 +21,7 @@ import {
   type ManagedTelemetryEvent,
   type ManagedTelemetryTarget,
   type ManagedTelemetryThresholds,
-} from "@/lib/managed-telemetry";
+} from "@/lib/managed-telemetry-client";
 import { createClient } from "@/lib/supabase/client";
 
 const STATUS_STYLE: Record<string, string> = {

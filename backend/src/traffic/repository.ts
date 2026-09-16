@@ -138,7 +138,7 @@ export class TrafficRepositoryError extends Error {
   }
 }
 
-function persistentFlow(runnerId: string, sessionId: string, flow: TrafficFlow) {
+export function persistentFlow(runnerId: string, sessionId: string, flow: TrafficFlow) {
   return {
     runner_id: runnerId,
     session_id: sessionId,

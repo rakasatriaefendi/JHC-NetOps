@@ -238,7 +238,7 @@ export class SupabaseManagedTelemetryRepository implements ManagedTelemetryRepos
   }
 }
 
-function managedEvent(item: ManagedTransition, targetId: string) {
+export function managedEvent(item: ManagedTransition, targetId: string) {
   const context = record(item.raw_context) ? item.raw_context : {};
   return {
     id: item.event_id,
@@ -257,5 +257,5 @@ function relation(value: unknown): Record<string, unknown> | null {
   if (record(value)) return value;
   return Array.isArray(value) && record(value[0]) ? value[0] : null;
 }
-function nullableText(value: unknown) { return typeof value === "string" && value.length ? value : null; }
+export function nullableText(value: unknown) { return typeof value === "string" && value.length ? value : null; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

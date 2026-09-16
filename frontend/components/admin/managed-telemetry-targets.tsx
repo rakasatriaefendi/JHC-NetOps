@@ -8,7 +8,7 @@ import type { TFunction } from "i18next";
 import { deleteManagedTelemetryTargetAction, saveManagedTelemetryTargetAction } from "@/app/actions/snmp";
 import { Button } from "@/components/ui/button";
 import type { RunnerCapabilities } from "@/lib/diagnostic-jobs";
-import { credentialProfileStatus, formatDateTime } from "@/lib/managed-telemetry";
+import { credentialProfileStatus, formatDateTime } from "@/lib/managed-telemetry-client";
 
 type Node = { id: string; name: string; ip_address: string; location: string | null };
 type Runner = { id: string; display_name: string; capabilities: RunnerCapabilities };

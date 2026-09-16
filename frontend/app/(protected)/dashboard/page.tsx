@@ -5,7 +5,8 @@ import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-pro
 import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadDiagnostics } from "@/lib/diagnostics";
-import { loadDiscoverySessions, observedTrafficIps } from "@/lib/network-discovery";
+import { loadDiscoverySessions } from "@/lib/network-discovery";
+import { observedTrafficIps } from "@/lib/network-discovery-client";
 import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
 import { loadNetworkNodes } from "@/lib/network-nodes";
 import { loadTrafficState } from "@/lib/traffic";

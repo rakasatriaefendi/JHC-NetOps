@@ -2,19 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import {
-  credentialProfileStatus,
-  formatDateTime,
-  formatRate,
-  formatUptime,
-  formatUtil,
-  ifNameLabel,
-  interfaceSummary,
-  interfaceWarnings,
-  managedSystemIdentityFields,
-  observedHostInventoryName,
-  validateManagedTelemetryForm,
-} from "../lib/managed-telemetry.ts";
+const { credentialProfileStatus, formatDateTime, formatRate, formatUptime, formatUtil, ifNameLabel, interfaceSummary, interfaceWarnings, managedSystemIdentityFields, observedHostInventoryName, validateManagedTelemetryForm } = await import("../lib/managed-telemetry-client.ts");
 
 const baseInterface = {
   target_id: "t",
