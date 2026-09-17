@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 import { validDiscoveryResults, validateDiscoveryContext } from "./scope.ts";
 import { canOperateNetwork } from "../_shared/authorization.ts";
 
@@ -13,6 +14,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse(CORS);
   if (request.method === "GET") return readState(request);
   if (request.method !== "POST") return reply({ error: "Method not allowed" }, 405);
   let body: Record<string, unknown>;

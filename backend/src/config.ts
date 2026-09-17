@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import { ASSET_SCAN_MAX_CONCURRENCY, parseAllowedScanNetworks } from "./assets/scan-contract.js";
+import { parsePersistenceAuthority, type PersistenceAuthority } from "./persistence/authority.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3402;
@@ -10,8 +11,12 @@ export type BackendConfig = Readonly<{
   host: string;
   port: number;
   runnerApiToken: string;
+  frontendApiToken: string;
+  persistenceAuthority: PersistenceAuthority;
+  candidateReadOnly: boolean;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
+  applicationDatabaseUrl: string;
   assets: Readonly<{
     databaseUrl: string;
     frontendApiToken: string;
@@ -47,6 +52,14 @@ export function loadBackendConfig(
   const rawPort = environment.PORT?.trim();
   const port = rawPort ? parsePort(rawPort) : DEFAULT_PORT;
   const runnerApiToken = requiredSecret(environment.RUNNER_API_TOKEN, "RUNNER_API_TOKEN", 32, 512);
+  const frontendApiToken = requiredSecret(environment.FRONTEND_API_TOKEN, "FRONTEND_API_TOKEN", 32, 512);
+  const persistenceAuthority = parsePersistenceAuthority(environment.PERSISTENCE_AUTHORITY);
+  const candidateReadOnly = parseCandidateReadOnly(environment.P13_CANDIDATE_READ_ONLY);
+  if (candidateReadOnly && persistenceAuthority === "local_postgres") {
+    throw new BackendConfigurationError(
+      "P13_CANDIDATE_READ_ONLY cannot be enabled with local_postgres authority",
+    );
+  }
   const supabaseUrl = parseSupabaseUrl(environment.SUPABASE_URL);
   const supabaseServiceRoleKey = requiredSecret(
     environment.SUPABASE_SERVICE_ROLE_KEY,
@@ -54,21 +67,30 @@ export function loadBackendConfig(
     32,
     4096,
   );
+  const applicationDatabaseUrl = parseDedicatedPostgresUrl(environment.APPLICATION_DATABASE_URL?.trim() ?? "");
   const databaseUrl = environment.DATABASE_URL?.trim();
-  const frontendApiToken = environment.FRONTEND_API_TOKEN?.trim();
-  if (Boolean(databaseUrl) !== Boolean(frontendApiToken)) {
+  const assetsFrontendApiToken = environment.FRONTEND_API_TOKEN?.trim();
+  if (Boolean(databaseUrl) !== Boolean(assetsFrontendApiToken)) {
     throw new BackendConfigurationError("DATABASE_URL and FRONTEND_API_TOKEN must be configured together");
   }
-  const assets = databaseUrl && frontendApiToken
+  const assets = databaseUrl && assetsFrontendApiToken
     ? Object.freeze({
       databaseUrl: parseDedicatedPostgresUrl(databaseUrl),
-      frontendApiToken: requiredSecret(frontendApiToken, "FRONTEND_API_TOKEN", 32, 512),
+      frontendApiToken: requiredSecret(assetsFrontendApiToken, "FRONTEND_API_TOKEN", 32, 512),
       reportBrandingDir: parseReportBrandingDir(environment.REPORT_BRANDING_DIR),
       medicalDueSoonDays: boundedInteger(environment.MEDICAL_DUE_SOON_DAYS, 30, 1, 180, "MEDICAL_DUE_SOON_DAYS"),
       scan: parseAssetScanConfig(environment),
     })
     : null;
-  return Object.freeze({ host, port, runnerApiToken, supabaseUrl, supabaseServiceRoleKey, assets });
+  return Object.freeze({ host, port, runnerApiToken, frontendApiToken, persistenceAuthority, candidateReadOnly,
+    supabaseUrl, supabaseServiceRoleKey, applicationDatabaseUrl, assets });
+}
+
+function parseCandidateReadOnly(value: string | undefined): boolean {
+  const configured = value?.trim();
+  if (!configured || configured === "false") return false;
+  if (configured === "true") return true;
+  throw new BackendConfigurationError("P13_CANDIDATE_READ_ONLY must be true or false");
 }
 
 function parseReportBrandingDir(value: string | undefined): string {

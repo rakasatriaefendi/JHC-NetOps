@@ -18,6 +18,7 @@ import {
   type TrafficSnapshot,
   type TrafficState,
 } from "@/lib/traffic";
+import { mutateTrafficSessionAction } from "@/app/actions/legacy-network-control";
 
 type Tab = "flows" | "conversations" | "talkers";
 
@@ -116,15 +117,10 @@ export function TrafficLivePage({
     setBusy(true);
     setError(null);
     const supabase = createClient();
-    const body =
-      actionName === "create_session"
-        ? { action: actionName, runner_id: runner.id, duration_seconds: duration }
-        : { action: actionName, session_id: active?.id };
-    const { data, error } = await supabase.functions.invoke<{ data: unknown }>(
-      "traffic-live",
-      { body },
-    );
-    if (error || !data?.data) setError(await functionError(error, t("requestFailed")));
+    const result = await mutateTrafficSessionAction(actionName === "create_session"
+      ? { action: actionName, runnerId: runner.id, durationSeconds: duration }
+      : { action: actionName, sessionId: active?.id });
+    if (!result.ok) setError(t("requestFailed"));
     const latest = await supabase.functions.invoke<{ data: TrafficState }>("traffic-live", {
       method: "GET",
     });
@@ -586,16 +582,3 @@ function formatNumber(value: number | null | undefined, language = "id") { retur
 function metric(value: number | null | undefined, unit: string) { return value == null ? "-" : `${value.toFixed(2)} ${unit}`; }
 function trendLabel(value: TrafficFlow["rate_trend"] | undefined, t: TFunction) { return t(value === "increasing" ? "trend.increasing" : value === "decreasing" ? "trend.decreasing" : "trend.stable"); }
 function maxNullable(values: (number | null)[]) { const numbers = values.filter((value): value is number => value !== null); return numbers.length ? Math.max(...numbers) : null; }
-
-async function functionError(error: unknown, fallback: string) {
-  if (error && typeof error === "object" && "context" in error) {
-    const response = (error as { context?: unknown }).context;
-    if (response instanceof Response) {
-      try {
-        const payload = (await response.clone().json()) as { error?: string };
-        if (payload.error) return payload.error;
-      } catch {}
-    }
-  }
-  return fallback;
-}

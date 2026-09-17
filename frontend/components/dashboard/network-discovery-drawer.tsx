@@ -8,11 +8,13 @@ import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
-import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery";
+import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery-client";
 import { NETWORK_NODE_TYPES, findNetworkNode, networkNodeTypeLabel, type NetworkNode, type NetworkNodeInput, type NetworkNodeType } from "@/lib/network-nodes";
-import type { NetworkHealthTarget } from "@/lib/network-health";
+import type { NetworkHealthTarget } from "@/lib/network-health-client";
 import { createClient } from "@/lib/supabase/client";
+import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import type { TrafficSnapshot } from "@/lib/traffic";
+import { mutateDiscoverySessionAction } from "@/app/actions/legacy-network-control";
 
 export function NetworkDiscoveryDrawer({
   open,
@@ -106,16 +108,17 @@ export function NetworkDiscoveryDrawer({
     if (!targetRunnerId) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    const body = action === "prepare_session"
-      ? { action, runner_id: targetRunnerId }
-      : { action, runner_id: targetRunnerId, session_id: session?.session_id };
-    const { data, error: invokeError } = await supabase.functions.invoke<{ data: DiscoverySession }>("network-discovery", { body });
-    if (invokeError || !data?.data) {
+    const result = await mutateDiscoverySessionAction({
+      action, runnerId: targetRunnerId, ...(session?.session_id ? { sessionId: session.session_id } : {}),
+    });
+    if (!result.ok || !result.data) {
       prepared.current.delete(targetRunnerId);
-      setError(await functionError(invokeError, t));
+      setError(t("requestFailed"));
     }
-    else setSessions((current) => [data.data, ...current.filter((item) => item.runner_id !== data.data.runner_id)]);
+    else {
+      const updated = result.data;
+      setSessions((current) => [updated, ...current.filter((item) => item.runner_id !== updated.runner_id)]);
+    }
     setBusy(false);
   }
 
@@ -135,9 +138,8 @@ export function NetworkDiscoveryDrawer({
     if (!runner) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.from("network_targets").upsert({ runner_id: runner.id, node_id: node.id, enabled: true }, { onConflict: "runner_id,node_id" });
-    if (error) setError(t("addFailed"));
+    const { ok } = await promoteHealthTargetsAction(runner.id, [node.id]);
+    if (!ok) setError(t("addFailed"));
     else {
       setPromotedNodes((current) => new Set([...current, node.id]));
       router.refresh();
@@ -149,12 +151,11 @@ export function NetworkDiscoveryDrawer({
     if (!runner || !selectedRows.length || invalidSelection) return;
     setBusy(true);
     setError(null);
-    const rows = selectedRows.map((row) => ({ runner_id: runner.id, node_id: row.node!.id, enabled: true }));
-    const supabase = createClient();
-    const { error } = await supabase.from("network_targets").upsert(rows, { onConflict: "runner_id,node_id" });
-    if (error) setError(t("addSomeFailed"));
+    const nodeIds = selectedRows.map((row) => row.node!.id);
+    const { ok } = await promoteHealthTargetsAction(runner.id, nodeIds);
+    if (!ok) setError(t("addSomeFailed"));
     else {
-      setPromotedNodes((current) => new Set([...current, ...rows.map((row) => row.node_id)]));
+      setPromotedNodes((current) => new Set([...current, ...nodeIds]));
       setSelected(new Set());
       router.refresh();
     }
@@ -286,4 +287,3 @@ function Notice({ children, tone = "normal" }: { children: React.ReactNode; tone
 function connectionLabel(value: DiscoverySession["connection_type"], t: TFunction) { return value === "wifi" ? "WiFi" : value === "ethernet" ? "Ethernet" : t("unknownConnection"); }
 function toggleSelection(setter: React.Dispatch<React.SetStateAction<Set<string>>>, ip: string) { setter((current) => { const next = new Set(current); if (next.has(ip)) next.delete(ip); else next.add(ip); return next; }); }
 function discoveryError(code: string | null, t: TFunction) { return code === "DISCOVERY_SCOPE_TOO_LARGE" ? t("errors.scope") : code === "DISCOVERY_CONTEXT_UNAVAILABLE" ? t("errors.context") : t("errors.safe"); }
-async function functionError(error: unknown, t: TFunction) { if (error && typeof error === "object" && "context" in error) { const response = (error as { context?: unknown }).context; if (response instanceof Response) { try { const payload = await response.clone().json() as { error?: string }; if (payload.error) return payload.error; } catch {} } } return t("errors.request"); }

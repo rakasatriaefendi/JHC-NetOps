@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { loadLocalAuthenticatedProfile } from "@/lib/auth";
+import { applicationAuthority } from "@/lib/application-persistence";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
@@ -12,11 +14,10 @@ export async function GET(request: Request) {
     return privateRedirect(new URL("/login", requestUrl.origin));
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("status")
-    .eq("id", userId)
-    .maybeSingle<{ status: "pending" | "approved" | "rejected" }>();
+  const profile = applicationAuthority() === "local_postgres"
+    ? await loadLocalAuthenticatedProfile(supabase, userId)
+    : (await supabase.from("profiles").select("status").eq("id", userId)
+      .maybeSingle<{ status: "pending" | "approved" | "rejected" }>()).data;
 
   const destination = profile?.status === "approved" ? "/dashboard" : "/pending";
   return privateRedirect(new URL(destination, requestUrl.origin));

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 
 type ConnectionType = "wifi" | "ethernet";
 type Direction = "upload" | "download";
@@ -94,6 +95,7 @@ Deno.serve(async (request) => {
     return readDiagnostics(request);
   }
   if (request.method === "POST") {
+    if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse(CORS_HEADERS);
     return storeDiagnostics(request);
   }
 

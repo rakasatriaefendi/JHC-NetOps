@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 import { canOperateNetwork } from "../_shared/authorization.ts";
 import {
   MANUAL_PING_RESULT_TTL_MS,
@@ -18,6 +19,7 @@ const MANUAL_PING_QUEUE_TTL_MS = 30_000;
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, {status:204, headers:CORS});
+  if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse(CORS);
   if (request.method !== "POST") return reply({error:"Method not allowed"}, 405);
   let body: Record<string, unknown>;
   try { body = await request.json(); }

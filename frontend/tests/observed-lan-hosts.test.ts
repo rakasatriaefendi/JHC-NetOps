@@ -2,15 +2,22 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import {
-  filterObservedHosts,
-  latestObservedAt,
-  observedHostDisplayName,
-  observedHostFilterCounts,
-  observedHostMacLabel,
-  sortObservedHosts,
-  type ManagedObservedHostLatest,
-} from "../lib/managed-telemetry.ts";
+const { filterObservedHosts, latestObservedAt, observedHostDisplayName, observedHostFilterCounts, observedHostMacLabel, sortObservedHosts } = await import("../lib/managed-telemetry-client.ts");
+
+interface ManagedObservedHostLatest {
+  target_id: string;
+  node_id: string | null;
+  ip_address: string;
+  mac_address: string | null;
+  netbios_name: string | null;
+  observation_source: "ip_net_to_physical" | "ip_net_to_media";
+  enrichment_status: "resolved" | "unavailable" | "not_attempted";
+  first_seen_at: string;
+  last_seen_at: string;
+  status: "current" | "stale";
+  updated_at: string;
+  network_nodes?: { name: string } | { name: string }[] | null;
+}
 
 const baseHost: ManagedObservedHostLatest = {
   target_id: "target-1",

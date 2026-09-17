@@ -153,7 +153,7 @@ export class NetworkHealthRepositoryError extends Error {
   }
 }
 
-function coalescedSamples(states: HealthState[]) {
+export function coalescedSamples(states: HealthState[]) {
   const buckets = new Map<string, { checkedAt: number; row: Record<string, unknown> }>();
   for (const state of states) {
     const checkedAt = new Date(state.last_checked_at);
@@ -180,7 +180,7 @@ function coalescedSamples(states: HealthState[]) {
   return [...buckets.values()].map(({ row }) => row);
 }
 
-function healthEvent(item: HealthTransition, node: Row | null, critical: boolean) {
+export function healthEvent(item: HealthTransition, node: Row | null, critical: boolean) {
   const name = typeof node?.name === "string" ? node.name : "Known network target";
   const ipAddress = typeof node?.ip_address === "string" ? node.ip_address : null;
   const status = item.new_status;

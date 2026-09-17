@@ -17,6 +17,21 @@ live route state remains derived and no existing assets or scan runs are rewritt
 optional network-asset linkage, SQL DATE calibration/service histories, and
 concurrency-safe record-number sequences. It does not copy IP/MAC identity or
 create network activity.
+
+`007_application_persistence.sql` is the separate P13 application-table schema
+promoted from the reviewed P12 rehearsal schema. It is **not** part of the Asset
+migration wrapper or backend startup. After a separately approved P13 change
+window, the operator must explicitly run the immutable release file with
+`psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5433 -d jhc_netops -f
+"$REL/backend/migrations/007_application_persistence.sql"` using the reviewed
+owner role. Its transaction guards the database/cluster identity and records
+schema version 7; it does not create local Auth or Realtime schemas.
+
+`008_application_persistence_outbox.sql` is the separate P13 Batch 5 schema
+for the transactional Realtime shadow outbox, per-aggregate projection
+watermarks, and bounded internal cutover canary. It requires recorded version
+7, records version 8, leaves `asset.*` unchanged, and is likewise operator-run
+only during an approved P13 window.
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

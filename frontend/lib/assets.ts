@@ -1,8 +1,8 @@
 import "server-only";
 
-import { validAssetScanState, type AssetScanMode, type AssetScanRecord, type AssetScanState } from "@/lib/asset-scan-contract";
-import { validAssetChangePayload, type AssetChangeData, type AssetChangeHistoryQuery } from "@/lib/asset-change-contract";
-import { validConfiguredNetworks, validDetectedNetworks, validRoute, type ConfiguredScanNetwork, type DetectedScanNetwork, type ScanNetworkRoute } from "@/lib/scan-network-contract";
+import { validAssetScanState, type AssetScanMode, type AssetScanRecord, type AssetScanState } from "./asset-scan-contract.ts";
+import { validAssetChangePayload, type AssetChangeData, type AssetChangeHistoryQuery } from "./asset-change-contract.ts";
+import { validConfiguredNetworks, validDetectedNetworks, validRoute, type ConfiguredScanNetwork, type DetectedScanNetwork, type ScanNetworkRoute } from "./scan-network-contract.ts";
 
 export type AssetStatus = "online" | "offline" | "changed" | "unknown";
 export type AssetSort = "name_asc" | "name_desc";

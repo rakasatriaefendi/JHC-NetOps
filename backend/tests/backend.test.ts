@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { resolve } from "node:path";
 
@@ -14,6 +15,10 @@ const VALID_ENVIRONMENT = {
   RUNNER_API_TOKEN: "r".repeat(32),
   SUPABASE_URL: "https://project.example.invalid",
   SUPABASE_SERVICE_ROLE_KEY: "s".repeat(32),
+  PERSISTENCE_AUTHORITY: "supabase",
+  FRONTEND_API_TOKEN: "f".repeat(32),
+  APPLICATION_DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
+  DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
 };
 
 test("GET /healthz returns the bounded service health response", async () => {
@@ -42,10 +47,104 @@ test("configuration defaults to the private loopback endpoint", () => {
     host: "127.0.0.1",
     port: 3402,
     runnerApiToken: VALID_ENVIRONMENT.RUNNER_API_TOKEN,
+    frontendApiToken: VALID_ENVIRONMENT.FRONTEND_API_TOKEN,
+    persistenceAuthority: "supabase",
+    candidateReadOnly: false,
     supabaseUrl: VALID_ENVIRONMENT.SUPABASE_URL,
     supabaseServiceRoleKey: VALID_ENVIRONMENT.SUPABASE_SERVICE_ROLE_KEY,
-    assets: null,
+    applicationDatabaseUrl: VALID_ENVIRONMENT.APPLICATION_DATABASE_URL,
+    assets: {
+      databaseUrl: VALID_ENVIRONMENT.DATABASE_URL,
+      frontendApiToken: VALID_ENVIRONMENT.FRONTEND_API_TOKEN,
+      reportBrandingDir: resolve("data/report-branding"),
+      medicalDueSoonDays: 30,
+      scan: {
+        networks: [], helperPath: "/usr/local/libexec/jhc-netops-asset-scan", concurrency: 4,
+        hostTimeoutMs: 45_000, discoveryTimeoutMs: 120_000,
+      },
+    },
   });
+});
+
+test("application persistence authority is explicit and rejects missing or unknown modes", () => {
+  assert.equal(loadBackendConfig(VALID_ENVIRONMENT).persistenceAuthority, "supabase");
+  assert.equal(loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "local_postgres" }).persistenceAuthority, "local_postgres");
+  const missingAuthority = Object.fromEntries(
+    Object.entries(VALID_ENVIRONMENT).filter(([name]) => name !== "PERSISTENCE_AUTHORITY"),
+  );
+  assert.throws(() => loadBackendConfig(missingAuthority), /PERSISTENCE_AUTHORITY/);
+  assert.throws(
+    () => loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "fallback" }),
+    (error: unknown) => error instanceof Error && /PERSISTENCE_AUTHORITY/.test(error.message),
+  );
+});
+
+test("P13 candidate read-only mode is explicit and cannot use local authority", () => {
+  assert.equal(loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    P13_CANDIDATE_READ_ONLY: "true",
+  }).candidateReadOnly, true);
+  assert.equal(loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    P13_CANDIDATE_READ_ONLY: "false",
+  }).candidateReadOnly, false);
+  assert.throws(() => loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    P13_CANDIDATE_READ_ONLY: "1",
+  }), /P13_CANDIDATE_READ_ONLY/);
+  assert.throws(() => loadBackendConfig({
+    ...VALID_ENVIRONMENT,
+    PERSISTENCE_AUTHORITY: "local_postgres",
+    P13_CANDIDATE_READ_ONLY: "true",
+  }), /cannot be enabled with local_postgres/);
+});
+
+test("candidate mode skips mutating asset startup and read-side synchronization", () => {
+  const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+  assert.match(main, /assetRepository && !config\.candidateReadOnly/);
+  assert.match(main, /!config\.candidateReadOnly && scanNetworkManager && config\.assets/);
+  assert.match(main, /!config\.candidateReadOnly && assetScanController/);
+  assert.match(main, /candidateReadOnly: config\.candidateReadOnly/);
+});
+
+test("candidate server keeps health readable and blocks mutations before repositories", async () => {
+  let repositoryCalls = 0;
+  const server = buildServer({
+    logger: false,
+    candidateReadOnly: true,
+    runnerHeartbeat: {
+      token: "r".repeat(32),
+      repository: {
+        async upsertHeartbeat() { repositoryCalls += 1; throw new Error("must not run"); },
+        async expireStaleTrafficSessions() { repositoryCalls += 1; },
+      },
+    },
+  });
+  try {
+    const health = await server.inject({ method: "GET", url: "/healthz" });
+    assert.equal(health.statusCode, 200);
+    assert.deepEqual(health.json(), {
+      status: "ok",
+      service: BACKEND_SERVICE_NAME,
+      candidate_read_only: true,
+    });
+    const mutation = await server.inject({
+      method: "POST",
+      url: "/api/runner/heartbeat",
+      headers: { authorization: `Bearer ${"r".repeat(32)}` },
+      payload: {},
+    });
+    assert.equal(mutation.statusCode, 503);
+    assert.deepEqual(mutation.json(), {
+      error: {
+        code: "CANDIDATE_READ_ONLY",
+        message: "Candidate runtime does not accept mutating requests",
+      },
+    });
+    assert.equal(repositoryCalls, 0);
+  } finally {
+    await server.close();
+  }
 });
 
 test("asset database configuration is optional, paired, and isolated from PostgreSQL 16/main", () => {
@@ -90,8 +189,8 @@ test("asset database configuration is optional, paired, and isolated from Postgr
   assert.equal(scanner.assets?.scan.concurrency, 8);
 
   for (const environment of [
-    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops" },
-    { ...VALID_ENVIRONMENT, FRONTEND_API_TOKEN: "f".repeat(32) },
+    { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/jhc_netops", FRONTEND_API_TOKEN: undefined },
+    { ...VALID_ENVIRONMENT, FRONTEND_API_TOKEN: "f".repeat(32), DATABASE_URL: undefined },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5432/jhc_netops", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/mercure", FRONTEND_API_TOKEN: "f".repeat(32) },
     { ...VALID_ENVIRONMENT, DATABASE_URL: "postgresql://jhc_netops_app:password@127.0.0.1:5433/montblanc", FRONTEND_API_TOKEN: "f".repeat(32) },

@@ -25,8 +25,10 @@ import {
   type NetworkNodeType,
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
+import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
 import type { ProfileRole } from "@/lib/authorization";
+import { startDeviceInspectionAction } from "@/app/actions/legacy-network-control";
 
 type OpenOptions = {
   ipAddress: string;
@@ -94,12 +96,9 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
     if (!selectedRunner) return setError(t("profile.runnerUnavailable"));
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    const { data, error: invokeError } = await supabase.functions.invoke<{ data: DeviceInspectionSession }>("device-inspector", {
-      body: { action: "start_inspection", runner_id: selectedRunner.id, target_ip: options.ipAddress },
-    });
-    if (invokeError || !data?.data) setError(await functionError(invokeError, t("profile.requestFailed")));
-    else setSession(data.data);
+    const result = await startDeviceInspectionAction(selectedRunner.id, options.ipAddress);
+    if (!result.ok || !result.data) setError(t("profile.requestFailed"));
+    else setSession(result.data);
     setBusy(false);
   }
 
@@ -121,10 +120,9 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
       } : null}
       addToHealth={shouldOfferHealthPromotion(monitored, node?.id, runner?.id) ? async () => {
         setBusy(true); setError(null);
-        const supabase = createClient();
-        const { error: healthError } = await supabase.from("network_targets").upsert({ runner_id: runner!.id, node_id: node!.id, enabled: true }, { onConflict: "runner_id,node_id" });
+        const { ok } = await promoteHealthTargetsAction(runner!.id, [node!.id]);
         setBusy(false);
-        if (healthError) setError(t("profile.healthAddFailed"));
+        if (!ok) setError(t("profile.healthAddFailed"));
         else setMonitored(true);
       } : null}
       setError={setError}
@@ -229,4 +227,3 @@ function Field({ label, value, setValue }: { label: string; value: string; setVa
 function Notice({ children, critical = false }: { children: React.ReactNode; critical?: boolean }) { return <div className={`mt-4 rounded-control border bg-bg-base p-4 ${critical ? "border-severity-critical text-severity-critical" : "border-border text-text-secondary"}`}>{children}</div>; }
 function networkNodeTypeLabelSafe(value: string) { return NETWORK_NODE_TYPES.includes(value as NetworkNodeType) ? networkNodeTypeLabel(value as NetworkNodeType) : value.replaceAll("_", " "); }
 function capabilityLabel(value: string) { return ({ wifi_ap: "WiFi AP", layer3_forwarding: "Layer-3 forwarding", gateway: "Gateway", upnp: "UPnP" } as Record<string, string>)[value] ?? value.replaceAll("_", " "); }
-async function functionError(error: unknown, fallback: string) { if (error && typeof error === "object" && "context" in error) { const response = (error as { context?: unknown }).context; if (response instanceof Response) { try { const payload = await response.clone().json() as { error?: string; code?: string }; if (payload.code) { const details = inspectionErrorDetails(payload.code); return `${details.title} ${details.action}`; } if (payload.error) return payload.error; } catch {} } } return fallback; }

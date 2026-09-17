@@ -15,14 +15,14 @@ import {
   writeSnapshotBundle,
   P12ArtifactError,
   type P12RehearsalLabel,
-} from "../src/p12/artifacts.js";
-import { importP12Snapshot, parseSnapshotBundle, P12ImportError, type P12ImportQuery } from "../src/p12/import.js";
-import { loadP12LocalAssets, P12ReconciliationError, reconcileP12Identities, type P12ReconciliationReport } from "../src/p12/reconciliation.js";
-import { buildP12ActiveStateReport, buildP12AuthReferenceReport, buildP12RunSummary, publicP12Summary, P12ReportingError, type P12ActiveStateReport, type P12AuthReferenceReport, type P12RunSummary } from "../src/p12/reporting.js";
-import { compareP12Runs, P12RepeatabilityError, type P12RunOutcome } from "../src/p12/repeatability.js";
-import { captureP12Snapshot, P12SnapshotError, publicSnapshotSummary } from "../src/p12/snapshot.js";
-import { loadP12Target, P12TargetError } from "../src/p12/target.js";
-import { loadP12RehearsalData, P12VerificationError, snapshotIdentity, verifyP12Rehearsal, type P12VerificationReport } from "../src/p12/verification.js";
+} from "../src/data-migration/artifacts.js";
+import { importP12Snapshot, parseSnapshotBundle, P12ImportError, type P12ImportQuery } from "../src/data-migration/import.js";
+import { loadP12LocalAssets, P12ReconciliationError, reconcileP12Identities, type P12ReconciliationReport } from "../src/data-migration/reconciliation.js";
+import { buildP12ActiveStateReport, buildP12AuthReferenceReport, buildP12RunSummary, publicP12Summary, P12ReportingError, type P12ActiveStateReport, type P12AuthReferenceReport, type P12RunSummary } from "../src/data-migration/reporting.js";
+import { compareP12Runs, P12RepeatabilityError, type P12RunOutcome } from "../src/data-migration/repeatability.js";
+import { captureP12Snapshot, P12SnapshotError, publicSnapshotSummary } from "../src/data-migration/snapshot.js";
+import { loadP12Target, P12TargetError } from "../src/data-migration/target.js";
+import { loadP12RehearsalData, P12VerificationError, snapshotIdentity, verifyP12Rehearsal, type P12VerificationReport } from "../src/data-migration/verification.js";
 
 const SNAPSHOT_TIMEOUT_MS = 15 * 60_000;
 const QUERY_TIMEOUT_MS = 60_000;

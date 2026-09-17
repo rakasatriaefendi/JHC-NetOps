@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canonicalJsonLines, P12JsonNumber, sha256 } from "../src/p12/canonical.js";
-import { P12_AUTH_COUPLED_COLUMNS, P12_TABLES } from "../src/p12/contract.js";
-import { reconcileP12Identities, P12ReconciliationError, type P12LocalAsset } from "../src/p12/reconciliation.js";
-import { buildP12ActiveStateReport, buildP12AuthReferenceReport, buildP12RunSummary } from "../src/p12/reporting.js";
-import { compareP12Runs, type P12RunOutcome } from "../src/p12/repeatability.js";
-import { P12_NON_ATOMIC_WARNING, type P12SnapshotBundle, type P12SnapshotManifest } from "../src/p12/snapshot.js";
-import { P12_NATIVE_TYPE_EXPECTATIONS } from "../src/p12/verification-contract.js";
-import { tableFingerprint, verifyP12Rehearsal, type P12RehearsalData, type P12VerificationReport } from "../src/p12/verification.js";
+import { canonicalJsonLines, P12JsonNumber, sha256 } from "../src/data-migration/canonical.js";
+import { P12_AUTH_COUPLED_COLUMNS, P12_TABLES } from "../src/data-migration/contract.js";
+import { reconcileP12Identities, P12ReconciliationError, type P12LocalAsset } from "../src/data-migration/reconciliation.js";
+import { buildP12ActiveStateReport, buildP12AuthReferenceReport, buildP12RunSummary } from "../src/data-migration/reporting.js";
+import { compareP12Runs, type P12RunOutcome } from "../src/data-migration/repeatability.js";
+import { P12_NON_ATOMIC_WARNING, type P12SnapshotBundle, type P12SnapshotManifest } from "../src/data-migration/snapshot.js";
+import { P12_NATIVE_TYPE_EXPECTATIONS } from "../src/data-migration/verification-contract.js";
+import { tableFingerprint, verifyP12Rehearsal, type P12RehearsalData, type P12VerificationReport } from "../src/data-migration/verification.js";
 
 const RUN_ID = "run01";
 const NOW = () => new Date("2026-09-14T02:00:00.000Z");

@@ -3,15 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createInstance } from "i18next";
 
-import {
-  defaultLanguage,
-  fallbackLanguage,
-  isAppLanguage,
-  languageCookieName,
-  localeForLanguage,
-  supportedLanguages,
-} from "../i18n/config.ts";
-import { formatDateTime } from "../lib/managed-telemetry.ts";
+const { defaultLanguage, fallbackLanguage, isAppLanguage, languageCookieName, localeForLanguage, supportedLanguages } = await import("../i18n/config.ts");
+const { formatDateTime } = await import("../lib/managed-telemetry-client.ts");
 
 const readCatalog = (language: "id" | "en", namespace: string) =>
   JSON.parse(readFileSync(new URL(`../i18n/${language}/${namespace}.json`, import.meta.url), "utf8"));

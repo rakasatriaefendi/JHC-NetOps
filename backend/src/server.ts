@@ -10,11 +10,13 @@ import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "
 import { registerTrafficRoute, type TrafficRouteOptions } from "./traffic/route.js";
 import { registerReportBrandingRoutes, type ReportBrandingRouteOptions } from "./report-branding/route.js";
 import { registerMedicalEquipmentRoutes, type MedicalEquipmentRouteOptions } from "./medical-equipment/route.js";
+import { registerApplicationRoutes, type ApplicationRouteOptions } from "./persistence/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 
 type BuildServerOptions = Readonly<{
+  candidateReadOnly?: boolean;
   assets?: AssetRouteOptions;
   assetChanges?: AssetChangeRouteOptions;
   assetScan?: AssetScanRouteOptions;
@@ -27,6 +29,7 @@ type BuildServerOptions = Readonly<{
   traffic?: TrafficRouteOptions;
   reportBranding?: ReportBrandingRouteOptions;
   medicalEquipment?: MedicalEquipmentRouteOptions;
+  application?: ApplicationRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -60,9 +63,23 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     }, "request completed");
   });
 
+  if (options.candidateReadOnly) {
+    server.addHook("onRequest", async (request, reply) => {
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+        return reply.code(503).send({
+          error: {
+            code: "CANDIDATE_READ_ONLY",
+            message: "Candidate runtime does not accept mutating requests",
+          },
+        });
+      }
+    });
+  }
+
   server.get("/healthz", async () => ({
     status: "ok",
     service: BACKEND_SERVICE_NAME,
+    ...(options.candidateReadOnly ? { candidate_read_only: true } : {}),
   }));
 
   if (options.runnerHeartbeat) {
@@ -78,6 +95,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.scanNetworks) registerScanNetworkRoutes(server, options.scanNetworks);
   if (options.reportBranding) registerReportBrandingRoutes(server, options.reportBranding);
   if (options.medicalEquipment) registerMedicalEquipmentRoutes(server, options.medicalEquipment);
+  if (options.application) registerApplicationRoutes(server, options.application);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {

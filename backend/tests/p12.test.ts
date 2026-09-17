@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { canonicalJsonLines, P12JsonNumber, parseLosslessJson, sha256 } from "../src/p12/canonical.js";
+import { canonicalJsonLines, P12JsonNumber, parseLosslessJson, sha256 } from "../src/data-migration/canonical.js";
 import {
   P12_AUTH_COUPLED_COLUMNS,
   P12_IMPORT_ORDER,
   P12_TABLES,
   type P12TableDefinition,
-} from "../src/p12/contract.js";
+} from "../src/data-migration/contract.js";
 import {
   importP12Snapshot,
   NETWORK_HEALTH_SEQUENCE_SQL,
@@ -16,7 +16,7 @@ import {
   parseSnapshotBundle,
   p12ImportOrder,
   type P12ImportQuery,
-} from "../src/p12/import.js";
+} from "../src/data-migration/import.js";
 import {
   captureP12Snapshot,
   P12_NON_ATOMIC_WARNING,
@@ -25,8 +25,8 @@ import {
   type P12SnapshotBundle,
   type P12SnapshotManifest,
   type SnapshotFetch,
-} from "../src/p12/snapshot.js";
-import { loadP12Target, P12TargetError, parseP12Target, p12DatabaseForRun } from "../src/p12/target.js";
+} from "../src/data-migration/snapshot.js";
+import { loadP12Target, P12TargetError, parseP12Target, p12DatabaseForRun } from "../src/data-migration/target.js";
 
 const RUN_ID = "run01";
 const DATABASE = "jhc_netops_p12_run01";

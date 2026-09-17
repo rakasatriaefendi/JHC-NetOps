@@ -3,13 +3,13 @@
 import { createContext, useContext, useState } from "react";
 
 import {
-  NETWORK_NODE_SELECT,
   normalizeNetworkNodeIp,
   validateNetworkNodeInput,
   type NetworkNode,
   type NetworkNodeInput,
 } from "@/lib/network-nodes";
-import { createClient } from "@/lib/supabase/client";
+import { deleteNetworkNodeClientAction, saveNetworkFingerprintClientAction,
+  saveNetworkNodeClientAction } from "@/app/actions/network-nodes-client";
 import type { DeviceFingerprint } from "@/lib/device-inspector";
 import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 
@@ -45,30 +45,11 @@ export function NetworkNodesProvider({
 
     const normalizedIp = normalizeNetworkNodeIp(input.ip_address);
     if (!normalizedIp) return "IP address tidak valid.";
-    const payload = {
-      ip_address: normalizedIp,
-      name: input.name.trim(),
-      device_type: input.device_type,
-      location: optionalText(input.location),
-      notes: optionalText(input.notes),
-      ...(fingerprint ? { detected_fingerprint: fingerprint, last_inspected_at: new Date().toISOString() } : {}),
-    };
-    const supabase = createClient();
-    const query = current
-      ? supabase.from("network_nodes").update({
-          name: payload.name,
-          device_type: payload.device_type,
-          location: payload.location,
-          notes: payload.notes,
-          ...(fingerprint ? { detected_fingerprint: fingerprint, last_inspected_at: payload.last_inspected_at } : {}),
-        }).eq("id", current.id)
-      : supabase.from("network_nodes").insert(payload);
-    const { data, error } = await query
-      .select(NETWORK_NODE_SELECT)
-      .single<NetworkNode>();
-
+    const { data, error } = await saveNetworkNodeClientAction(current?.id ?? null,
+      { ...input, ip_address: normalizedIp, location: optionalText(input.location),
+        notes: optionalText(input.notes) }, fingerprint ?? null);
     if (error || !data) {
-      return error?.code === "23505"
+      return error === "duplicate"
         ? "IP ini sudah memiliki network node. Gunakan Edit pada label yang sudah ada."
         : "Network node gagal disimpan. Periksa hak akses dan coba lagi.";
     }
@@ -81,10 +62,7 @@ export function NetworkNodesProvider({
   async function saveFingerprint(node: NetworkNode, fingerprint: DeviceFingerprint) {
     if (!canManage) return "Role Operator diperlukan untuk menyimpan detected fingerprint.";
     if (fingerprint.ip !== normalizeNetworkNodeIp(node.ip_address)) return "Fingerprint tidak cocok dengan IP inventory.";
-    const supabase = createClient();
-    const { data, error } = await supabase.from("network_nodes")
-      .update({ detected_fingerprint: fingerprint, last_inspected_at: new Date().toISOString() })
-      .eq("id", node.id).select(NETWORK_NODE_SELECT).single<NetworkNode>();
+    const { data, error } = await saveNetworkFingerprintClientAction(node.id, fingerprint);
     if (error || !data) return "Detected fingerprint gagal disimpan.";
     setNodes((values) => values.map((value) => value.id === data.id ? data : value));
     return null;
@@ -92,9 +70,8 @@ export function NetworkNodesProvider({
 
   async function deleteNode(node: NetworkNode) {
     if (!canManage) return "Role Operator diperlukan untuk menghapus label network node.";
-    const supabase = createClient();
-    const { error } = await supabase.from("network_nodes").delete().eq("id", node.id);
-    if (error) return "Network node gagal dihapus. Periksa hak akses dan coba lagi.";
+    const { ok } = await deleteNetworkNodeClientAction(node.id);
+    if (!ok) return "Network node gagal dihapus. Periksa hak akses dan coba lagi.";
     setNodes((values) => values.filter((value) => value.id !== node.id));
     return null;
   }
