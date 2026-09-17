@@ -308,6 +308,58 @@ canonical counts/keysets/hashes against S1 before switching authority. This
 avoids trusting `updated_at` and reproduces deletes without needing historical
 tombstones. It never touches `asset.*`.
 
+### Empty application target bootstrap
+
+Production may instead reach Checkpoint 1 with `asset.*` present but none of
+the 21 public application tables or migrations 007/008 applied. Applying only
+the S0-to-S1 delta is invalid in that state because unchanged S0 rows would be
+omitted. P13 therefore supports a second, explicitly selected mode:
+
+- `bootstrap` requires the exact empty application state, Supabase authority,
+  zero local authoritative writes, immutable Checkpoint-1 identity, and exact
+  immutable S1 manifest hash. It transactionally applies 007, imports all S1
+  rows in dependency order, resets only the Health sample sequence, then
+  applies 008.
+- `delta` requires all 21 application tables plus migration 7 and independent
+  full parity against the accepted immutable S0 artifact before any delta.
+
+Partial application schemas and mode/state mismatches fail closed. The modes
+never auto-select or fall back. Migration 008 follows the initial full S1 load,
+so bootstrap rows cannot populate the Realtime projection outbox. Before
+commit, bootstrap validates S1 counts, canonical keysets, normalized content
+hashes, versions 7/8, a clean initial outbox, and identical bounded
+before/after content fingerprints across `asset.*`. SQL runs through the
+peer-authenticated administrative `postgres` connection on the dedicated Unix
+socket with `SET ROLE jhc_netops_owner`; the
+non-SQL journal continues using `jhc_netops_app` and records that owner
+execution role in bounded evidence.
+
+On the verified Mini PC, that administrative bootstrap runs from the immutable
+backend release with the dedicated executable
+`/var/www/jhc/jhc_noc/shared/tools/p13-node-v26.8.2/bin/node --import tsx`; it
+does not use `npm` and does not grant `postgres` access to `/home/mini-pc`.
+The `postgres` OS user receives only read/traverse ACL for immutable S1
+artifacts, after which it must reproduce the accepted manifest SHA-256. The
+operator shell—not `postgres`—opens the protected cutover-record input and the
+mode-0600 evidence output.
+
+The production S1 contract is `evidence/s1/manifest.json` plus exactly 21
+`evidence/s1/tables/<table>.json` JSON-array artifacts. It is not the P12 JSONL
+format. The raw manifest and each raw table artifact are SHA-256 checked before
+SQL, and fixed allowlisted paths prevent traversal outside the immutable S1
+root. P12 `asset-baseline.dump` contains the local Asset baseline only; it is
+not an application S0 seed and cannot authorize delta mode.
+
+Both migration files retain their reviewed `BEGIN`/`COMMIT` wrappers on disk.
+The bootstrap loader pins each complete file SHA-256 and exact outer wrapper,
+then removes only `\set ON_ERROR_STOP on`, the outer `BEGIN`, and the final
+`COMMIT` before executing the remaining migration body inside one
+advisory-locked bootstrap transaction. Any file or wrapper drift blocks before
+schema mutation. The transaction order is migration 007 body, full S1 insert
+in the existing FK-safe P12 import order, only the Health-sample sequence
+reset, migration 008 body, full parity/outbox/trigger/Asset invariants, then
+one final commit.
+
 ### Per-table strategy
 
 | Table | Final strategy | Stable key / watermark | Delete handling | Conflict and verification |
@@ -367,15 +419,17 @@ writer-specific:
    scheduled writers are all quiescent. Record source table counts/key hashes.
 8. Capture immutable S1 for all 21 tables. Recheck writer evidence and counts at
    the end of the complete capture window.
-9. Produce the signed/canonical S0-to-S1 delta and delete manifest. Checkpoint
-   local `jhc_netops` (including `asset.*`) before apply.
-10. Apply migrations `007`/`008` and the P13 delta once, transactionally, to
-    local `public` through the reviewed administrative path using
-    `SET ROLE jhc_netops_owner`; adjust the Health sample sequence; run P12
-    parity plus P13 active-state and identity verification against S1. The
-    non-SQL evidence journal uses the login-capable `jhc_netops_app` DSN and
-    separately records the owner execution role; `jhc_netops_owner` remains
-    `NOLOGIN`.
+9. For a target proven to contain accepted S0, produce the signed/canonical
+   S0-to-S1 delta and delete manifest. For an empty application target, retain
+   complete immutable S1 instead. In both cases checkpoint local `jhc_netops`
+   (including `asset.*`) before apply.
+10. Explicitly select the matching mode. Apply either the reviewed S0-to-S1
+    delta path or the migration-007/full-S1/sequence/migration-008 bootstrap
+    once, transactionally, to local `public` through the reviewed
+    administrative path using `SET ROLE jhc_netops_owner`; run canonical parity
+    plus P13 active-state and identity verification against S1. The non-SQL
+    evidence journal uses the login-capable `jhc_netops_app` DSN and separately
+    records the owner execution role; `jhc_netops_owner` remains `NOLOGIN`.
 11. Switch application configuration once to local authority. Start backend
     first, then frontend, runner, and agent. They must have no fallback to an
     old Edge persistence path. Enable the local outbox projector only after the

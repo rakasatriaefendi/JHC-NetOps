@@ -21,6 +21,7 @@
     "p12:reconcile": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts reconcile",
     "p12:compare": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts compare",
     "p13:cutover": "node --env-file-if-exists=.env --import tsx scripts/p13-cutover.ts",
+    "p13:import-s1": "node --env-file-if-exists=.env --import tsx scripts/p13-import-s1.ts",
     "preview:asset-report": "tsx scripts/generate-asset-report-preview.ts"
   },
   "dependencies": {

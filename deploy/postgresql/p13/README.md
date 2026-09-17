@@ -141,17 +141,130 @@ identity.
 ## Import final
 
 Before applying, checkpoint the local `jhc_netops` database including `asset.*`.
-Apply the reviewed production schema and deterministic delta in one guarded
-transaction. Child tombstones precede parent tombstones; inserts/replacements
-follow dependency order; reset only the Health sample sequence from its exact
-maximum. Do not touch `asset.*`, change identity dispositions, or delete source
-data.
+There are exactly two supported target states, and the operator must explicitly
+choose one; tooling never guesses:
+
+- **`bootstrap`**: Checkpoint 1, Supabase still authoritative, zero local
+  authoritative writes, all 21 public application tables absent, migration
+  table absent, migration-008 objects absent, and `asset.assets` present. Use
+  the reviewed full-S1 command below.
+- **`delta`**: all 21 application tables and migration 7 already exist and the
+  target has independently passed exact parity against immutable S0. Continue
+  with the reviewed S0-to-S1 delta/delete procedure. Finding tables alone is not
+  proof of the accepted S0 baseline.
+
+Any partial table set, unexpected migration state, missing `asset.assets`,
+bootstrap against populated application tables, or delta against an
+empty/unverified target blocks. Neither mode falls back to the other.
+
+For the accepted empty production target, run from the immutable candidate
+backend directory with protected DSNs; never put passwords in evidence:
+
+```bash
+set -euo pipefail
+export P13_IMPORT_MODE=bootstrap
+export P13_SOURCE_CHECKPOINT_IDENTITY=70cd9dd18bd2f48e29573cef77bb9bf05e8b1d1e58d5b76aec1122a295d108d9
+export P13_EXPECTED_S1_MANIFEST_SHA256=8906f7736cf0f2b7de3820cc911bdb1b8759243f64fff2f61fad4fb979215751
+export P13_S1_MANIFEST_PATH=<immutable-evidence-directory>/s1/manifest.json
+export P13_CUTOVER_RECORD_PATH=<immutable-shared-P13-record-path>
+export P13_IMPORT_EVIDENCE_PATH=<new-import-evidence-path>
+P13_NODE=/var/www/jhc/jhc_noc/shared/tools/p13-node-v26.8.2/bin/node
+test -x "$P13_NODE"
+S1_ACTUAL_SHA=$(sudo -u postgres sha256sum "$P13_S1_MANIFEST_PATH" | awk '{print $1}')
+test "$S1_ACTUAL_SHA" = "$P13_EXPECTED_S1_MANIFEST_SHA256"
+test ! -e "$P13_IMPORT_EVIDENCE_PATH"
+EVIDENCE_DIR=$(dirname -- "$P13_IMPORT_EVIDENCE_PATH")
+TMP_EVIDENCE=$(mktemp "$EVIDENCE_DIR/.p13-import.XXXXXX")
+chmod 0600 "$TMP_EVIDENCE"
+trap 'rm -f -- "$TMP_EVIDENCE"' EXIT HUP INT TERM
+sudo -u postgres env \
+  P13_IMPORT_MODE="$P13_IMPORT_MODE" \
+  P13_SOURCE_CHECKPOINT_IDENTITY="$P13_SOURCE_CHECKPOINT_IDENTITY" \
+  P13_EXPECTED_S1_MANIFEST_SHA256="$P13_EXPECTED_S1_MANIFEST_SHA256" \
+  P13_S1_MANIFEST_PATH="$P13_S1_MANIFEST_PATH" \
+  "$P13_NODE" --import tsx scripts/p13-import-s1.ts \
+  < "$P13_CUTOVER_RECORD_PATH" > "$TMP_EVIDENCE"
+test -s "$TMP_EVIDENCE"
+ln -- "$TMP_EVIDENCE" "$P13_IMPORT_EVIDENCE_PATH"
+rm -f -- "$TMP_EVIDENCE"
+trap - EXIT HUP INT TERM
+```
+
+The manifest must reference exactly `tables/<table>.json` under the same
+immutable `s1` root. Each table artifact is the production S1 JSON array, not
+P12 JSONL. The importer ignores manifest paths for filesystem resolution and
+opens only its fixed 21 allowlisted names beneath that root; a symlink or path
+that resolves outside it is rejected. The operator shell streams the protected
+cutover record on standard input and captures the bounded JSON evidence on
+standard output. A same-directory temporary file plus a no-overwrite hard link
+keeps the final evidence name absent until the command has succeeded;
+`P13_IMPORT_EVIDENCE_PATH` must not already exist.
+
+The OS `postgres` process needs only the minimum read/traverse ACL required for
+the immutable S1 manifest and table artifacts. Do **not** grant `postgres`
+traverse or read access to `/home/mini-pc`. After preparing the narrow S1 ACL,
+re-read the manifest as `postgres` and require the exact expected SHA-256 before
+bootstrap. The cutover record input and output evidence redirections are opened
+by the operator shell, so `postgres` needs no filesystem permission for either.
+
+The administrative bootstrap uses only the reviewed dedicated Node v26.8.2
+binary at `/var/www/jhc/jhc_noc/shared/tools/p13-node-v26.8.2/bin/node` from the
+immutable backend release directory. `npm` is not part of this administrative
+runtime. Grant no database login or application secret; retain the generated
+mode-0600 evidence for operator review.
+
+The command validates the raw manifest SHA-256, exact 21-table allowlist,
+per-table artifact SHA/count/schema/key uniqueness, immutable cutover record,
+and exact peer-authenticated `postgres` session over `/var/run/postgresql` to
+`16/jhcnetops:5433/jhc_netops` (including exact data-directory verification).
+No postgres password or owner-login credential is introduced. Under one
+advisory-locked transaction it runs the migration 007 body, `SET ROLE
+jhc_netops_owner`, complete S1 inserts in FK order, only the
+`network_health_samples.id` sequence reset, then migration 008. Migration 008
+is deliberately last, so initial rows do not create shadow outbox events. Any
+failure rolls back 007, S1 rows, sequence state, and 008 together.
+
+Before commit it compares every table count, canonical keyset hash, and
+normalized full-content hash with S1; requires migration versions `[7,8]`; and
+requires an entirely empty outbox (including zero pending/failed rows), zero
+watermarks, and zero canaries.
+It computes bounded before/after content fingerprints for every `asset` table
+and rolls back unless they are identical. Generated DML is restricted to the
+fixed `public` application-table allowlist.
+
+The command creates bounded mode-0600 `import-final` JSON evidence containing
+the explicit mode/initial state, all 21 table count/hash results, clean outbox
+counts, identical asset fingerprints, versions 7/8, and
+`target.execution_role = jhc_netops_owner`, `s1_parity = PASS`, and the exact
+expected shadow-trigger count.
+
+After the administrative command succeeds, review its new evidence and journal
+that same file without changing database state:
+
+```sh
+export P13_ACTION=import-final
+export P13_EXPECTED_ROLE=jhc_netops_app
+export P13_DATABASE_URL=<protected-jhc_netops_app-loopback-5433-jhc_netops-DSN>
+export P13_EVIDENCE_PATH="$P13_IMPORT_EVIDENCE_PATH"
+export P13_OPERATOR_ACK="P13:import-final:jhc_netops:$P13_SOURCE_CHECKPOINT_IDENTITY"
+npm run p13:cutover -- import-final
+unset P13_DATABASE_URL
+```
+
+For a genuine S0 target, retain the reviewed deterministic delta path: first
+prove all 21 target tables exactly match immutable S0, explicitly record mode
+`delta` and state `accepted_s0_baseline`, then apply canonical S0-to-S1 changes
+and tombstones in dependency order. Reset only the Health sample sequence and
+apply/verify migration 008. The new full-S1 command refuses delta mode.
+The P12 `asset-baseline.dump` is a local Asset schema/data baseline and is
+**not** an application S0 seed; it cannot satisfy the delta precondition.
 
 `import-final` records a bounded PASS report that must name the exact cluster,
-port, database, owner execution role (`jhc_netops_owner`), operator checkpoint
-identity, and captured S1 hash. The journal invocation itself uses the
-`jhc_netops_app` DSN and never substitutes for the actual administrative
-transaction or executes SQL.
+port, database, explicit bootstrap/delta mode and validated initial state,
+owner execution role (`jhc_netops_owner`), operator checkpoint identity, and
+captured S1 hash. The journal invocation itself uses the `jhc_netops_app` DSN
+and never substitutes for the actual administrative transaction or executes
+SQL.
 
 ## Verify — CHECKPOINT 2
 
@@ -366,15 +479,18 @@ Edge/RLS mutations, runner/agent producers, heartbeats, polls, and probes. Run
 ### 7. Final copy/delta
 
 Capture immutable S1 across the complete write-free window, bracket it with
-writer audits, derive the deterministic S0-to-S1 delta/delete manifest, and run
-`capture-final`.
+writer audits, and run `capture-final`. Derive the deterministic S0-to-S1
+delta/delete manifest only for a target already proven to contain accepted S0;
+the exact empty application target uses the full immutable S1 bootstrap.
 
 ### 8. Final verification
 
-Apply the reviewed final schema/delta transaction to the dedicated local
-database through the administrative path with `SET ROLE jhc_netops_owner`.
-Run the non-SQL `import-final` journal with the `jhc_netops_app` DSN and import
-evidence that names `target.execution_role = jhc_netops_owner`, then run
+Inspect the target and explicitly choose the supported `bootstrap` or `delta`
+path. Apply the reviewed transaction to the dedicated local database through
+the administrative path with `SET ROLE jhc_netops_owner`. Run the non-SQL
+`import-final` journal with the `jhc_netops_app` DSN and set
+`P13_EVIDENCE_PATH` to the new evidence that names
+`target.execution_role = jhc_netops_owner`, then run
 `verify-final` and
 `pre-cutover-verify`. Continue only with Checkpoint 2 and every check `PASS`.
 

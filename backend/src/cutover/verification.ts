@@ -2,7 +2,7 @@ import { canonicalJson, sha256 } from "../data-migration/canonical.js";
 import { P12_TABLES } from "../data-migration/contract.js";
 import type { P12AuthReferenceReport } from "../data-migration/reporting.js";
 import type { P12CheckStatus, P12VerificationReport } from "../data-migration/verification.js";
-import type { P13CutoverRecord, P13ImportEvidence } from "./cutover.js";
+import { validP13ImportEvidenceDetails, type P13CutoverRecord, type P13ImportEvidence } from "./cutover.js";
 import { assessP13Rollback, type P13RollbackAssessment } from "./checkpoint.js";
 import type { P13ReadinessReport } from "./readiness.js";
 
@@ -289,7 +289,7 @@ function importStatus(
   if (!value || !snapshotSha) return "UNKNOWN";
   return value.status === "PASS" && value.source_checkpoint_identity === identity && value.final_snapshot_sha256 === snapshotSha &&
     value.target.cluster === "16/jhcnetops" && value.target.port === 5433 && value.target.database === "jhc_netops" &&
-    value.target.execution_role === "jhc_netops_owner" ? "PASS" : "FAIL";
+    value.target.execution_role === "jhc_netops_owner" && validP13ImportEvidenceDetails(value) ? "PASS" : "FAIL";
 }
 
 function finalDataStatus(value: P13FinalDataVerificationEvidence | undefined, snapshotSha: string | undefined): P13VerificationStatus {

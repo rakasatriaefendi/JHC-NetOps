@@ -1,3 +1,4 @@
+import { P12_TABLES } from "../data-migration/contract.js";
 import type { PersistenceAuthority } from "../persistence/authority.js";
 import {
   assertP13CheckpointTransition,
@@ -38,6 +39,8 @@ export type P13CutoverRecord = Readonly<{
 export type P13ImportEvidence = Readonly<{
   version: 1;
   status: "PASS" | "FAIL";
+  mode: "bootstrap" | "delta";
+  target_state_before: "empty_application_target" | "accepted_s0_baseline";
   source_checkpoint_identity: string;
   final_snapshot_sha256: string;
   target: Readonly<{
@@ -45,6 +48,28 @@ export type P13ImportEvidence = Readonly<{
     port: number;
     database: string;
     execution_role: "jhc_netops_owner";
+  }>;
+  tables: readonly Readonly<{
+    table: string;
+    row_count: number;
+    artifact_sha256: string;
+    keyset_sha256: string;
+    content_sha256: string;
+  }>[];
+  s1_parity: "PASS";
+  migration_versions: readonly [7, 8];
+  outbox: Readonly<{
+    total_count: number;
+    pending_count: number;
+    failed_count: number;
+    watermark_count: number;
+    canary_count: number;
+    shadow_trigger_count: number;
+  }>;
+  asset: Readonly<{
+    before_sha256: string;
+    after_sha256: string;
+    unchanged: true;
   }>;
 }>;
 
@@ -282,9 +307,39 @@ function assertEvidence(record: P13CutoverRecord, evidence: P13ImportEvidence, l
       evidence.source_checkpoint_identity !== record.source_checkpoint_identity ||
       evidence.final_snapshot_sha256 !== record.final_snapshot_sha256 ||
       evidence.target?.cluster !== record.target.cluster || evidence.target.port !== record.target.port ||
-      evidence.target.database !== record.target.database || evidence.target.execution_role !== "jhc_netops_owner") {
+      evidence.target.database !== record.target.database || evidence.target.execution_role !== "jhc_netops_owner" ||
+      !validImportDetails(evidence)) {
     throw new P13CutoverError(`P13 ${label} evidence does not match the guarded target/checkpoint`);
   }
+}
+
+export function validP13ImportEvidenceDetails(evidence: P13ImportEvidence): boolean {
+  return validImportDetails(evidence);
+}
+
+function validImportDetails(evidence: P13ImportEvidence): boolean {
+  if (!(["bootstrap", "delta"] as const).includes(evidence.mode) ||
+      (evidence.mode === "bootstrap" && evidence.target_state_before !== "empty_application_target") ||
+      (evidence.mode === "delta" && evidence.target_state_before !== "accepted_s0_baseline") ||
+      !Array.isArray(evidence.tables) || evidence.tables.length !== P12_TABLES.length ||
+      evidence.s1_parity !== "PASS" ||
+      !Array.isArray(evidence.migration_versions) || evidence.migration_versions.length !== 2 ||
+      evidence.migration_versions[0] !== 7 || evidence.migration_versions[1] !== 8 ||
+      !validHash(evidence.asset?.before_sha256) || !validHash(evidence.asset?.after_sha256) ||
+      evidence.asset.before_sha256 !== evidence.asset.after_sha256 || evidence.asset.unchanged !== true) return false;
+  const expectedTables = new Map(P12_TABLES.map(({ table }) => [table, true]));
+  const actualTables = new Set<string>();
+  for (const table of evidence.tables) {
+    if (!expectedTables.has(table?.table) || actualTables.has(table.table) ||
+        !Number.isSafeInteger(table.row_count) || table.row_count < 0 || table.row_count > 10_000_000 ||
+        !validHash(table.artifact_sha256) || !validHash(table.keyset_sha256) || !validHash(table.content_sha256)) return false;
+    actualTables.add(table.table);
+  }
+  const counts = evidence.outbox;
+  return counts !== undefined && counts !== null &&
+    [counts.total_count, counts.pending_count, counts.failed_count, counts.watermark_count, counts.canary_count]
+      .every((count) => Number.isSafeInteger(count) && count === 0) &&
+    Number.isSafeInteger(counts.shadow_trigger_count) && counts.shadow_trigger_count === 16;
 }
 
 function assertRecord(value: unknown): asserts value is P13CutoverRecord {
@@ -310,6 +365,10 @@ function assertRecord(value: unknown): asserts value is P13CutoverRecord {
 
 function validOptionalHash(value: unknown): boolean {
   return value === null || (typeof value === "string" && /^[0-9a-f]{64}$/.test(value));
+}
+
+function validHash(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 
 function validTimestamp(value: unknown): boolean {

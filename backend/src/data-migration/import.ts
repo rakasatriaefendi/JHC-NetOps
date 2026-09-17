@@ -99,9 +99,9 @@ export async function importP12Snapshot(options: Readonly<{
       const rows = rowsByTable.get(definition.table) ?? [];
       for (let offset = 0; offset < rows.length; offset += batchSize) {
         const batch = rows.slice(offset, offset + batchSize);
-        const statement = insertStatement(definition, batch.length);
+        const statement = snapshotInsertStatement(definition, batch.length);
         const values = batch.flatMap((row) =>
-          definition.columns.map((column) => importValue(definition, column, row[column])));
+          definition.columns.map((column) => snapshotImportValue(definition, column, row[column])));
         await options.query(statement, values);
       }
       imported.push({ table: definition.table, rows: rows.length });
@@ -155,7 +155,7 @@ export function validateP12TargetIdentity(result: P12ImportQueryResult, target: 
   }
 }
 
-function insertStatement(definition: P12TableDefinition, rowCount: number): string {
+export function snapshotInsertStatement(definition: P12TableDefinition, rowCount: number): string {
   const quotedColumns = definition.columns.map(quoteIdentifier).join(", ");
   let parameter = 0;
   const rows = Array.from({ length: rowCount }, () =>
@@ -218,7 +218,7 @@ function quoteIdentifier(value: string): string {
   return `"${value}"`;
 }
 
-function importValue(definition: P12TableDefinition, column: string, value: unknown): unknown {
+export function snapshotImportValue(definition: P12TableDefinition, column: string, value: unknown): unknown {
   if (value === null) return null;
   if (definition.jsonColumns?.includes(column)) return canonicalJson(value);
   if (isP12JsonNumber(value)) {

@@ -572,11 +572,35 @@ function importEvidence() {
   return {
     version: 1 as const,
     status: "PASS" as const,
+    mode: "delta" as const,
+    target_state_before: "accepted_s0_baseline" as const,
     source_checkpoint_identity: SHA,
     final_snapshot_sha256: SNAPSHOT_SHA,
     target: {
       cluster: "16/jhcnetops", port: 5433, database: "jhc_netops",
       execution_role: "jhc_netops_owner" as const,
+    },
+    tables: P12_TABLES.map(({ table }, index) => ({
+      table,
+      row_count: 0,
+      artifact_sha256: String((index % 9) + 1).repeat(64),
+      keyset_sha256: String(((index + 1) % 9) + 1).repeat(64),
+      content_sha256: String(((index + 2) % 9) + 1).repeat(64),
+    })),
+    s1_parity: "PASS" as const,
+    migration_versions: [7, 8] as const,
+    outbox: {
+      total_count: 0,
+      pending_count: 0,
+      failed_count: 0,
+      watermark_count: 0,
+      canary_count: 0,
+      shadow_trigger_count: 16,
+    },
+    asset: {
+      before_sha256: "e".repeat(64),
+      after_sha256: "e".repeat(64),
+      unchanged: true as const,
     },
   };
 }
