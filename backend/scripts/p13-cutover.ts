@@ -46,7 +46,10 @@ try {
     const record = await readRecord(recordPath);
     assertActionIdentity(record, target.source_checkpoint_identity);
     if (action === "freeze-check") {
-      const readiness = evaluateP13Readiness(await readJson<P13ReadinessEvidence>(requiredPath("P13_EVIDENCE_PATH")));
+      const readiness = evaluateP13Readiness(
+        await readJson<P13ReadinessEvidence>(requiredPath("P13_EVIDENCE_PATH")),
+        "pre_migration_freeze",
+      );
       const updated = recordFreezeReadiness(record, readiness);
       await replaceRecord(recordPath, updated);
       result = { status: readiness.status, action, blockers: readiness.blockers, evidence_sha256: readiness.evidence_sha256 };
@@ -73,7 +76,10 @@ try {
       await replaceRecord(recordPath, updated);
       result = { status: "PASS", action, checks: verification.checks, evidence_sha256: verification.evidence_sha256 };
     } else if (action === "arm-local-authority") {
-      const readiness = evaluateP13Readiness(await readJson<P13ReadinessEvidence>(requiredPath("P13_EVIDENCE_PATH")));
+      const readiness = evaluateP13Readiness(
+        await readJson<P13ReadinessEvidence>(requiredPath("P13_EVIDENCE_PATH")),
+        "post_import_authority",
+      );
       const updated = armLocalAuthority(record, readiness);
       await replaceRecord(recordPath, updated);
       result = { status: "PASS", action, checkpoint: updated.checkpoint, persistence_authority: updated.persistence_authority };

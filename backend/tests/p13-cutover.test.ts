@@ -28,6 +28,7 @@ import {
   evaluateP13Readiness,
   buildP13SqliteBufferEvidence,
   inspectP13RunnerStateBuffer,
+  P13_FREEZE_BUFFERS,
   P13_REQUIRED_BUFFERS,
   P13_WORKFLOW_POLICIES,
   type P13ReadinessEvidence,
@@ -76,10 +77,32 @@ test("workflow policy is exhaustive for actual persisted job/session statuses", 
 });
 
 test("terminal workflow rows and drained buffers pass read-only readiness", () => {
-  const report = evaluateP13Readiness(readinessFixture());
+  const report = evaluateP13Readiness(readinessFixture(), "post_import_authority");
   assert.equal(report.status, "PASS");
   assert.deepEqual(report.blockers, []);
   assert.match(report.evidence_sha256, /^[0-9a-f]{64}$/);
+});
+
+test("pre-migration freeze can pass before migration 008 without post-import observations", () => {
+  const report = evaluateP13Readiness(freezeReadinessFixture(), "pre_migration_freeze");
+  assert.equal(report.gate, "pre_migration_freeze");
+  assert.equal(report.status, "PASS");
+  assert.deepEqual(report.blockers, []);
+});
+
+test("post-import authority rejects missing migration 008 and projector observations", () => {
+  assert.throws(
+    () => evaluateP13Readiness(freezeReadinessFixture(), "post_import_authority"),
+    /post-import readiness fields are missing or invalid/,
+  );
+});
+
+test("projection outbox is required only by the post-import authority gate", () => {
+  const withoutProjection = readinessFixture({ buffers: freezeBufferFixtures() });
+  assert.equal(evaluateP13Readiness(withoutProjection, "pre_migration_freeze").status, "PASS");
+  const authority = evaluateP13Readiness(withoutProjection, "post_import_authority");
+  assert.equal(authority.status, "BLOCKED");
+  assert.ok(authority.blockers.includes("buffer_evidence_missing:projection-outbox"));
 });
 
 test("active, queued, transitional, and unknown workflow rows block readiness", () => {
@@ -92,7 +115,7 @@ test("active, queued, transitional, and unknown workflow rows block readiness", 
     const evidence = readinessFixture({
       workflows: { ...readinessFixture().workflows, [table]: [{ id: "job-1", status }] },
     });
-    const report = evaluateP13Readiness(evidence);
+    const report = evaluateP13Readiness(evidence, "post_import_authority");
     assert.equal(report.status, "BLOCKED");
     assert.ok(report.blockers.includes("unsafe_workflow_rows_present"));
   }
@@ -105,7 +128,7 @@ test("dirty/missing buffer evidence blocks while an immutable local replay check
         ? { ...buffer, state, pending_count: 3 }
         : buffer),
     });
-    assert.ok(evaluateP13Readiness(evidence).blockers.includes("buffer_not_safe:metrics-sqlite"));
+    assert.ok(evaluateP13Readiness(evidence, "post_import_authority").blockers.includes("buffer_not_safe:metrics-sqlite"));
   }
 
   const checkpointed = readinessFixture({
@@ -113,7 +136,7 @@ test("dirty/missing buffer evidence blocks while an immutable local replay check
       ? { ...buffer, state: "checkpointed" as const, pending_count: 3, replay_authority: "local_postgres" as const }
       : buffer),
   });
-  assert.equal(evaluateP13Readiness(checkpointed).status, "PASS");
+  assert.equal(evaluateP13Readiness(checkpointed, "post_import_authority").status, "PASS");
 
   const unsupportedHealthDrainClaim = readinessFixture({
     buffers: bufferFixtures().map((buffer) => buffer.name === "network-health-state"
@@ -123,7 +146,7 @@ test("dirty/missing buffer evidence blocks while an immutable local replay check
       }
       : buffer),
   });
-  assert.ok(evaluateP13Readiness(unsupportedHealthDrainClaim).blockers.includes("buffer_not_safe:network-health-state"));
+  assert.ok(evaluateP13Readiness(unsupportedHealthDrainClaim, "post_import_authority").blockers.includes("buffer_not_safe:network-health-state"));
 });
 
 test("runner and SQLite buffer inspectors preserve state without clearing queued work", () => {
@@ -163,7 +186,7 @@ test("runner/heartbeat, legacy guards, projection, and identity disposition are 
     realtime_projection_ready: false,
     unresolved_identity_blockers: 1,
     runner: { process_paused: false, heartbeat_writer_paused: false, active_probe_count: 1 },
-  }));
+  }), "post_import_authority");
   assert.deepEqual(report.blockers, [
     "identity_disposition_incomplete",
     "legacy_mutation_guards_not_ready",
@@ -222,27 +245,43 @@ test("cutover failure output is category-only and never reflects arbitrary error
   assert.doesNotMatch(JSON.stringify(guarded), new RegExp(secret));
 });
 
-test("P13 stage roles are explicit for production import and runtime verification", () => {
-  assert.doesNotThrow(() => loadP13Target("import-final", targetEnvironment("import-final")));
-  assert.throws(() => loadP13Target("import-final", targetEnvironment("import-final", "jhc_netops_app")));
+test("P13 journal uses the login app role while import evidence proves NOLOGIN owner execution", () => {
+  assert.doesNotThrow(() => loadP13Target("import-final", targetEnvironment("import-final", "jhc_netops_app")));
+  assert.throws(() => loadP13Target("import-final", targetEnvironment("import-final")));
   assert.doesNotThrow(() => loadP13Target("verify-final", targetEnvironment("verify-final", "jhc_netops_app")));
   assert.throws(() => loadP13Target("verify-final", targetEnvironment("verify-final")));
   assert.doesNotThrow(() => loadP13Target("pre-cutover-verify", targetEnvironment("pre-cutover-verify", "jhc_netops_app")));
   assert.throws(() => loadP13Target("post-cutover-verify", targetEnvironment("post-cutover-verify")));
+
+  const target = loadP13Target("preflight", targetEnvironment("preflight", "jhc_netops_app"));
+  let record = createP13CutoverRecord(target, NOW);
+  record = recordFreezeReadiness(
+    record,
+    evaluateP13Readiness(freezeReadinessFixture(), "pre_migration_freeze"),
+    NOW,
+  );
+  record = recordFinalCapture(record, SNAPSHOT_SHA, NOW);
+  const wrongExecutionRole = {
+    ...importEvidence(),
+    target: { ...importEvidence().target, execution_role: "jhc_netops_app" },
+  };
+  assert.throws(() => Reflect.apply(recordFinalImport, undefined, [record, wrongExecutionRole, NOW]));
+  assert.doesNotThrow(() => recordFinalImport(record, importEvidence(), NOW));
 });
 
 test("checkpoint record advances only through reviewed evidence in order", () => {
   const target = loadP13Target("preflight", targetEnvironment("preflight"));
-  const readiness = evaluateP13Readiness(readinessFixture());
+  const freezeReadiness = evaluateP13Readiness(freezeReadinessFixture(), "pre_migration_freeze");
+  const authorityReadiness = evaluateP13Readiness(readinessFixture(), "post_import_authority");
   let record = createP13CutoverRecord(target, NOW);
-  record = recordFreezeReadiness(record, readiness, NOW);
+  record = recordFreezeReadiness(record, freezeReadiness, NOW);
   record = recordFinalCapture(record, SNAPSHOT_SHA, NOW);
   const evidence = importEvidence();
   record = recordFinalImport(record, evidence, NOW);
   record = recordFinalVerification(record, evidence, NOW);
   const preCutover = verifyP13PreCutover(preCutoverFixture(record));
   record = recordPreCutoverVerification(record, preCutover, NOW);
-  record = armLocalAuthority(record, readiness, NOW);
+  record = armLocalAuthority(record, authorityReadiness, NOW);
   assert.equal(record.checkpoint, "CHECKPOINT_3_LOCAL_ARMED_NO_WRITES");
   assert.equal(record.persistence_authority, "local_postgres");
   assert.equal(record.local_authoritative_write_count, 0);
@@ -307,7 +346,7 @@ test("migration 008 and a clean projection outbox are mandatory pre-cutover", ()
   assert.equal(stale.status, "FAIL");
   assert.ok(stale.blockers.includes("migration_version:FAIL"));
 
-  const failedOutbox = evaluateP13Readiness(readinessFixture({ outbox_failed_count: 1 }));
+  const failedOutbox = evaluateP13Readiness(readinessFixture({ outbox_failed_count: 1 }), "post_import_authority");
   assert.equal(failedOutbox.status, "BLOCKED");
   assert.ok(failedOutbox.blockers.includes("outbox_failed_events_present"));
 });
@@ -327,10 +366,10 @@ test("final verification mismatch blocks pre-cutover acceptance", () => {
 
 test("local authority cannot be armed before a bound passing pre-cutover verification", () => {
   const record = checkpointTwoRecord();
-  assert.throws(() => armLocalAuthority(record, evaluateP13Readiness(readinessFixture()), NOW));
+  assert.throws(() => armLocalAuthority(record, evaluateP13Readiness(readinessFixture(), "post_import_authority"), NOW));
   const report = verifyP13PreCutover(preCutoverFixture(record));
   const verified = recordPreCutoverVerification(record, report, NOW);
-  assert.doesNotThrow(() => armLocalAuthority(verified, evaluateP13Readiness(readinessFixture()), NOW));
+  assert.doesNotThrow(() => armLocalAuthority(verified, evaluateP13Readiness(readinessFixture(), "post_import_authority"), NOW));
 });
 
 test("post-cutover verifier proves local authority while Auth and Realtime remain external", () => {
@@ -382,7 +421,7 @@ test("out-of-order checkpoints and mismatched source evidence fail closed", () =
   assert.throws(() => recordFinalCapture(record, SHA, NOW));
   assert.throws(() => recordFinalImport(record, importEvidence(), NOW));
   assert.throws(() => assertP13CheckpointTransition("CHECKPOINT_0_PRE_FREEZE", "CHECKPOINT_2_LOCAL_IMPORTED_VERIFIED"));
-  const ready = recordFreezeReadiness(record, evaluateP13Readiness(readinessFixture()), NOW);
+  const ready = recordFreezeReadiness(record, evaluateP13Readiness(freezeReadinessFixture(), "pre_migration_freeze"), NOW);
   assert.throws(() => recordFinalCapture(ready, "not-a-hash", NOW));
 });
 
@@ -421,6 +460,10 @@ test("operator runbook separates freeze, copy, verify, authority, smoke, and rol
   assert.match(runbook, /never clears or deletes buffer content/i);
   assert.match(runbook, /never merge ambiguous\s+identities automatically/i);
   assert.match(runbook, /Supabase Auth and\s+Realtime remain in place/);
+  assert.match(runbook, /jhc_netops_owner.*NOLOGIN/is);
+  assert.match(runbook, /target\.execution_role = jhc_netops_owner/);
+  assert.match(runbook, /pre-migration freeze evidence/is);
+  assert.match(runbook, /post-import authority evidence/is);
   assert.doesNotMatch(runbook, /^\s*(?:psql\s|pg_restore\s|supabase\s+functions\s+deploy)/im);
 });
 
@@ -476,8 +519,34 @@ function readinessFixture(overrides: Partial<P13ReadinessEvidence> = {}): P13Rea
   };
 }
 
+function freezeReadinessFixture(overrides: Partial<P13ReadinessEvidence> = {}): P13ReadinessEvidence {
+  return {
+    version: 1,
+    source_checkpoint_identity: SHA,
+    captured_at: "2026-09-15T01:00:00.000Z",
+    source_writers_frozen: true,
+    registration_frozen: true,
+    cleanup_schedules_paused: true,
+    asset_evidence_sync_enabled: false,
+    unresolved_identity_blockers: 0,
+    runner: { process_paused: true, heartbeat_writer_paused: true, active_probe_count: 0 },
+    workflows: readinessFixture().workflows,
+    buffers: freezeBufferFixtures(),
+    ...overrides,
+  };
+}
+
 function bufferFixtures(): P13ReadinessEvidence["buffers"] {
   return P13_REQUIRED_BUFFERS.map((name, index) => ({
+    name, state: name === "network-health-state" ? "checkpointed" as const : "drained" as const,
+    pending_count: 0, producer_paused: true,
+    sha256: String(index + 1).repeat(64),
+    ...(name === "network-health-state" ? { replay_authority: "local_postgres" as const } : {}),
+  }));
+}
+
+function freezeBufferFixtures(): P13ReadinessEvidence["buffers"] {
+  return P13_FREEZE_BUFFERS.map((name, index) => ({
     name, state: name === "network-health-state" ? "checkpointed" as const : "drained" as const,
     pending_count: 0, producer_paused: true,
     sha256: String(index + 1).repeat(64),
@@ -505,13 +574,16 @@ function importEvidence() {
     status: "PASS" as const,
     source_checkpoint_identity: SHA,
     final_snapshot_sha256: SNAPSHOT_SHA,
-    target: { cluster: "16/jhcnetops", port: 5433, database: "jhc_netops" },
+    target: {
+      cluster: "16/jhcnetops", port: 5433, database: "jhc_netops",
+      execution_role: "jhc_netops_owner" as const,
+    },
   };
 }
 
 function checkpointTwoRecord() {
   const target = loadP13Target("preflight", targetEnvironment("preflight"));
-  const readiness = evaluateP13Readiness(readinessFixture());
+  const readiness = evaluateP13Readiness(freezeReadinessFixture(), "pre_migration_freeze");
   let record = createP13CutoverRecord(target, NOW);
   record = recordFreezeReadiness(record, readiness, NOW);
   record = recordFinalCapture(record, SNAPSHOT_SHA, NOW);
@@ -534,7 +606,7 @@ function preCutoverFixture(record = checkpointTwoRecord()): P13PreCutoverEvidenc
       projection_outbox_object: "PASS", cutover_canary_object: "PASS",
       expected_migration_version: "008", applied_migration_version: "008",
     },
-    readiness: evaluateP13Readiness(readinessFixture()),
+    readiness: evaluateP13Readiness(readinessFixture(), "post_import_authority"),
     final_source_manifest: {
       status: "PASS", source_checkpoint_identity: SHA,
       snapshot_sha256: SNAPSHOT_SHA, manifest_sha256: "c".repeat(64),
@@ -555,7 +627,7 @@ function preCutoverFixture(record = checkpointTwoRecord()): P13PreCutoverEvidenc
 }
 
 function postflightRecord() {
-  const readiness = evaluateP13Readiness(readinessFixture());
+  const readiness = evaluateP13Readiness(readinessFixture(), "post_import_authority");
   let record = checkpointTwoRecord();
   record = recordPreCutoverVerification(record, verifyP13PreCutover(preCutoverFixture(record)), NOW);
   record = armLocalAuthority(record, readiness, NOW);

@@ -267,7 +267,8 @@ function migrationStatus(value: P13PreCutoverEvidence["schema"]): P13Verificatio
 
 function readinessStatus(value: P13ReadinessReport | undefined, identity: string): P13VerificationStatus {
   if (!value) return "UNKNOWN";
-  return value.status === "PASS" && value.source_checkpoint_identity === identity && hash(value.evidence_sha256) ? "PASS" : "FAIL";
+  return value.gate === "post_import_authority" && value.status === "PASS" &&
+    value.source_checkpoint_identity === identity && hash(value.evidence_sha256) ? "PASS" : "FAIL";
 }
 
 function finalManifestStatus(
@@ -287,7 +288,8 @@ function importStatus(
 ): P13VerificationStatus {
   if (!value || !snapshotSha) return "UNKNOWN";
   return value.status === "PASS" && value.source_checkpoint_identity === identity && value.final_snapshot_sha256 === snapshotSha &&
-    value.target.cluster === "16/jhcnetops" && value.target.port === 5433 && value.target.database === "jhc_netops" ? "PASS" : "FAIL";
+    value.target.cluster === "16/jhcnetops" && value.target.port === 5433 && value.target.database === "jhc_netops" &&
+    value.target.execution_role === "jhc_netops_owner" ? "PASS" : "FAIL";
 }
 
 function finalDataStatus(value: P13FinalDataVerificationEvidence | undefined, snapshotSha: string | undefined): P13VerificationStatus {
