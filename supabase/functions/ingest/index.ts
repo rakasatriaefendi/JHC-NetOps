@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 
 type MetricsPayload = {
   recorded_at: string;
@@ -21,6 +22,7 @@ Deno.serve(async (request) => {
       Allow: "POST",
     });
   }
+  if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse();
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -169,4 +171,3 @@ function jsonResponse(
     },
   });
 }
-

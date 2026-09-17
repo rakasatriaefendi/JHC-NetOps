@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import type { NetworkHealthTarget } from "@/lib/network-health";
 import { createClient } from "@/lib/supabase/client";
+import { queueManualPingAction } from "@/app/actions/legacy-network-control";
 
 export type ManualPingPhase = "loading" | "success" | "error";
 export type ManualPingState = { phase: ManualPingPhase; message: string };
@@ -93,11 +94,9 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
 
     let outcome: ManualPingState;
     try {
-      const { data, error } = await client.functions.invoke("network-health", {
-        body: { action: "manual_ping", target_id: targetId },
-      });
-      const pingId = data?.data?.id;
-      if (error || typeof pingId !== "string") throw new Error("Manual ping could not be queued");
+      const queued = await queueManualPingAction(targetId);
+      const pingId = queued.id;
+      if (!queued.ok || typeof pingId !== "string") throw new Error("Manual ping could not be queued");
       outcome = manualPingOutcome(await waitForManualPing(client, pingId));
     } catch {
       outcome = { phase: "error", message: "Ping gagal" };

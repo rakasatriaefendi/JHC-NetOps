@@ -1,3 +1,5 @@
+import "server-only";
+
 import { localBackendConfig } from "./assets.ts";
 
 export type ApplicationAuthority = "supabase" | "local_postgres";
@@ -19,11 +21,12 @@ export async function localApplicationRequest(
     throw new Error("Local application request requires local_postgres authority");
   }
   const config = localBackendConfig();
-  if (!config || !/^\/api\/application\/[a-z0-9_/-]{1,200}$/i.test(path)) {
+  const approvedPath = safeApplicationPath(path);
+  if (!config || !approvedPath) {
     return { ok: false, data: null, code: "LOCAL_APPLICATION_UNAVAILABLE" };
   }
   try {
-    const response = await fetch(new URL(path, config.origin), {
+    const response = await fetch(new URL(approvedPath, config.origin), {
       method,
       headers: { authorization: `Bearer ${config.token}`, ...(body ? { "content-type": "application/json" } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
@@ -36,6 +39,22 @@ export async function localApplicationRequest(
     return { ok: true, data: payload.data ?? null, code: "OK" };
   } catch {
     return { ok: false, data: null, code: "LOCAL_APPLICATION_UNAVAILABLE" };
+  }
+}
+
+/** Bounded relative application path; query values are data, never an origin or path. */
+export function safeApplicationPath(path: string): string | null {
+  if (!path.startsWith("/api/application/") || path.length > 1_000 || path.includes("#")) return null;
+  try {
+    const base = new URL("http://application.internal");
+    const parsed = new URL(path, base);
+    if (parsed.origin !== base.origin || !/^\/api\/application\/[a-z0-9_/-]{1,200}$/i.test(parsed.pathname)) return null;
+    const entries = [...parsed.searchParams.entries()];
+    if (entries.length > 20 || entries.some(([key, value]) =>
+      !/^[a-z0-9_]{1,64}$/i.test(key) || value.length > 500 || /[\u0000-\u001f\u007f]/.test(value))) return null;
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
   }
 }
 
@@ -161,6 +180,71 @@ export async function localEvents(limit = 50, source?: string, sourceRef?: strin
   if (sourceRef) params.set("source_ref", sourceRef);
   const response = await localApplicationRequest("GET", `/api/application/events?${params.toString()}`);
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function requestDiagnosticPreflightLocal(actorId: string, runnerId: string,
+  targetId: string): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("POST", "/api/application/diagnostic-jobs/preflight",
+    { actor_id: actorId, input: { runner_id: runnerId, target_id: targetId } });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function createDiagnosticJobLocal(actorId: string, input: Readonly<{
+  runner_id: string;
+  source_label: string;
+  target_id: string;
+  duration_seconds: number;
+}>): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("POST", "/api/application/diagnostic-jobs",
+    { actor_id: actorId, input });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function createPingJobLocal(actorId: string, input: Readonly<{
+  target_id: string;
+}>): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("POST", "/api/application/ping-jobs",
+    { actor_id: actorId, input });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function createNetworkDiscoveryLocal(actorId: string, input: Readonly<{
+  runner_id: string;
+}>): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("POST", "/api/application/network-discovery",
+    { actor_id: actorId, input });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function startNetworkDiscoveryLocal(actorId: string, runnerId: string,
+  sessionId: string): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("PATCH", `/api/application/network-discovery/${runnerId}`,
+    { actor_id: actorId, input: { session_id: sessionId } });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function createDeviceInspectionLocal(actorId: string, input: Readonly<{
+  runner_id: string;
+  target_ip: string;
+}>): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("POST", "/api/application/device-inspection",
+    { actor_id: actorId, input });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function createTrafficSessionLocal(actorId: string, input: Readonly<{
+  runner_id: string;
+  duration_seconds: number;
+}>): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("POST", "/api/application/traffic-live-sessions",
+    { actor_id: actorId, input });
+  return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function stopTrafficSessionLocal(actorId: string, sessionId: string): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("DELETE", `/api/application/traffic-live-sessions/${sessionId}`,
+    { actor_id: actorId, input: { session_id: sessionId } });
+  return response.ok && record(response.data) ? response.data : null;
 }
 
 export function applicationDeleted(result: { ok: boolean; data: unknown }): boolean {

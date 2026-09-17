@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { canOperateNetwork } from "../_shared/authorization.ts";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,7 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (request.method === "GET") return readState(request);
   if (request.method !== "POST") return reply({ error: "Method not allowed" }, 405);
+  if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse(CORS);
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return reply({ error: "Invalid JSON" }, 400); }
   if (!record(body) || typeof body.action !== "string") return reply({ error: "Structured action required" }, 400);

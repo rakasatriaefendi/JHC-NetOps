@@ -4,7 +4,7 @@ import test from "node:test";
 
 const source = readFileSync(new URL("../components/dashboard/reachability-map.tsx", import.meta.url), "utf8");
 const manualPingSource = readFileSync(new URL("../components/dashboard/manual-ping-provider.tsx", import.meta.url), "utf8");
-const edgeFunction = readFileSync(new URL("../../supabase/functions/network-health/index.ts", import.meta.url), "utf8");
+const legacyNetworkControl = readFileSync(new URL("../app/actions/legacy-network-control.ts", import.meta.url), "utf8");
 
 test("Reachability Map has one canonical custom edge and floating border geometry", () => {
   assert.equal((source.match(/function MonitoringEdge\(/g) ?? []).length, 1);
@@ -48,12 +48,12 @@ test("admin always sees manual ping with capability-aware disabled and loading s
 test("viewer has no manual ping action and enabled admin requests remain one-shot", () => {
   assert.doesNotMatch(source, /\{!manualPing\.isAdmin \? \(/);
   assert.match(manualPingSource, /inFlight\.current\.has\(targetId\)/);
-  assert.match(manualPingSource, /body: \{ action: "manual_ping", target_id: targetId \}/);
+  assert.match(manualPingSource, /queueManualPingAction/);
   assert.match(source, /className="nodrag nopan/);
   assert.match(manualPingSource, /Ping timeout|Tidak terjangkau/);
-  assert.match(edgeFunction, /!canOperateNetwork\(auth\.role\)/);
-  assert.match(edgeFunction, /key !== "action" && key !== "target_id"/);
-  assert.match(edgeFunction, /\.eq\("id", body\.target_id\)\.maybeSingle\(\)/);
+  assert.match(legacyNetworkControl, /await requireAdminProfile\(\)/);
+  assert.match(legacyNetworkControl, /body: \{ action: "manual_ping", target_id: target \}/);
+  assert.doesNotMatch(legacyNetworkControl, /requested_by|ip_address|ping_count|timeout_ms/);
 });
 
 test("unavailable manual ping returns before loading, edge activity, or backend invocation", () => {
@@ -62,7 +62,7 @@ test("unavailable manual ping returns before loading, edge activity, or backend 
   const inFlightMutation = manualPingSource.indexOf("inFlight.current.add(targetId)", targetLookup);
   const loadingMutation = manualPingSource.indexOf("phase: \"loading\"", targetLookup);
   const activityMutation = manualPingSource.indexOf("setActivityTokens", targetLookup);
-  const backendInvocation = manualPingSource.indexOf("client.functions.invoke", targetLookup);
+  const backendInvocation = manualPingSource.indexOf("queueManualPingAction", targetLookup);
 
   assert.ok(targetLookup >= 0);
   assert.ok(availabilityGuard > targetLookup);

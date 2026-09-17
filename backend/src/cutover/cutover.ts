@@ -31,6 +31,8 @@ export type P13CutoverRecord = Readonly<{
   post_cutover_verification_sha256: string | null;
   local_authoritative_write_count: number;
   postflight_passed: boolean;
+  canary_cutover_identity: string | null;
+  canary_id: string | null;
 }>;
 
 export type P13ImportEvidence = Readonly<{
@@ -90,6 +92,8 @@ export function createP13CutoverRecord(target: P13Target, now: () => Date = () =
     post_cutover_verification_sha256: null,
     local_authoritative_write_count: 0,
     postflight_passed: false,
+    canary_cutover_identity: null,
+    canary_id: null,
   });
 }
 
@@ -216,6 +220,35 @@ export function recordPostCutoverVerification(
   return update(record, { post_cutover_verification_sha256: verification.evidence_sha256 }, now);
 }
 
+export function recordCanaryWrite(
+  record: P13CutoverRecord,
+  canaryIdentity: string,
+  canaryId: string,
+  now: () => Date = () => new Date(),
+): P13CutoverRecord {
+  assertRecord(record);
+  if (record.checkpoint !== "CHECKPOINT_3_LOCAL_ARMED_NO_WRITES" || !record.postflight_passed) {
+    throw new P13CutoverError("P13 canary write can only be recorded after postflight");
+  }
+  return update(record, { canary_cutover_identity: canaryIdentity, canary_id: canaryId }, now);
+}
+
+export function recordCanaryVerified(
+  record: P13CutoverRecord,
+  now: () => Date = () => new Date(),
+): P13CutoverRecord {
+  assertRecord(record);
+  return update(record, {}, now);
+}
+
+export function recordCanaryCleanup(
+  record: P13CutoverRecord,
+  now: () => Date = () => new Date(),
+): P13CutoverRecord {
+  assertRecord(record);
+  return update(record, {}, now);
+}
+
 export function rollbackCheck(
   record: P13CutoverRecord,
   evidence: Readonly<{
@@ -260,6 +293,8 @@ function assertRecord(value: unknown): asserts value is P13CutoverRecord {
       !validOptionalHash(record.authority_readiness_evidence_sha256) || !validOptionalHash(record.final_snapshot_sha256) ||
       !validOptionalHash(record.pre_cutover_verification_sha256) || !validOptionalHash(record.post_cutover_verification_sha256) ||
       !validTimestamp(record.created_at) || !validTimestamp(record.updated_at) ||
+      (record.canary_cutover_identity !== null && typeof record.canary_cutover_identity !== "string") ||
+      (record.canary_id !== null && typeof record.canary_id !== "string") ||
       (record.persistence_authority === "local_postgres" && record.checkpoint !== "CHECKPOINT_3_LOCAL_ARMED_NO_WRITES") ||
       (record.checkpoint === "CHECKPOINT_3_LOCAL_ARMED_NO_WRITES" && record.persistence_authority !== "local_postgres")) {
     throw new P13CutoverError("P13 cutover record is invalid");

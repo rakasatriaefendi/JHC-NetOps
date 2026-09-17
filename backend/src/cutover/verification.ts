@@ -77,6 +77,10 @@ export type P13PreCutoverEvidence = Readonly<{
     disposition_manifest_sha256?: string;
   }>;
   persistence_authority?: "supabase" | "local_postgres";
+  outbox_health?: P13VerificationStatus;
+  projector_allowlist_valid?: P13VerificationStatus;
+  projector_configured?: P13VerificationStatus;
+  local_control_plane_adapters?: P13VerificationStatus;
 }>;
 
 export type P13PostCutoverEvidence = Readonly<{
@@ -86,6 +90,7 @@ export type P13PostCutoverEvidence = Readonly<{
   cutover_record: P13CutoverRecord;
   persistence_authority?: "supabase" | "local_postgres";
   local_backend_health?: P13VerificationStatus;
+  local_control_plane_health?: P13VerificationStatus;
   write_canary?: Readonly<{
     status?: P13VerificationStatus;
     kind?: "internal_cutover_canary";
@@ -185,6 +190,10 @@ export function verifyP13PreCutover(evidence: P13PreCutoverEvidence): P13Verific
     check("authority_not_switched", evidence.persistence_authority === undefined ? "UNKNOWN" :
       evidence.persistence_authority === "supabase" ? "PASS" : "FAIL"),
     check("checkpoint_2_verified", preCutoverRecordStatus(record, evidence.source_checkpoint_identity, snapshotSha)),
+    check("outbox_schema_ready", statusValue(evidence.outbox_health)),
+    check("projector_allowlist_valid", statusValue(evidence.projector_allowlist_valid)),
+    check("projector_configured", statusValue(evidence.projector_configured)),
+    check("local_control_plane_adapters", statusValue(evidence.local_control_plane_adapters)),
   ];
   return report("pre_cutover", evidence.source_checkpoint_identity, evidence, checks);
 }
@@ -196,6 +205,7 @@ export function verifyP13PostCutover(evidence: P13PostCutoverEvidence): P13Verif
       evidence.persistence_authority === "local_postgres" ? "PASS" : "FAIL"),
     check("checkpoint_3_armed", postCutoverRecordStatus(evidence.cutover_record, evidence.source_checkpoint_identity)),
     check("local_backend_health", statusValue(evidence.local_backend_health)),
+    check("local_control_plane_health", statusValue(evidence.local_control_plane_health)),
     check("approved_path_write_canary", writeCanaryStatus(evidence.write_canary)),
     check("legacy_supabase_writes_disabled", legacyWriterStatus(evidence.legacy_supabase_application_writes)),
     check("supabase_auth_external", externalStatus(evidence.auth, "supabase")),
@@ -252,7 +262,7 @@ function schemaObjectsStatus(value: P13PreCutoverEvidence["schema"]): P13Verific
 function migrationStatus(value: P13PreCutoverEvidence["schema"]): P13VerificationStatus {
   if (!value?.expected_migration_version || !value.applied_migration_version) return "UNKNOWN";
   if (!boundedText(value.expected_migration_version, 128) || !boundedText(value.applied_migration_version, 128)) return "FAIL";
-  return value.expected_migration_version === value.applied_migration_version ? "PASS" : "FAIL";
+  return value.expected_migration_version === "008" && value.applied_migration_version === "008" ? "PASS" : "FAIL";
 }
 
 function readinessStatus(value: P13ReadinessReport | undefined, identity: string): P13VerificationStatus {

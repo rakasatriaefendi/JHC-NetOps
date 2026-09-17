@@ -26,6 +26,12 @@ window, the operator must explicitly run the immutable release file with
 "$REL/backend/migrations/007_application_persistence.sql"` using the reviewed
 owner role. Its transaction guards the database/cluster identity and records
 schema version 7; it does not create local Auth or Realtime schemas.
+
+`008_application_persistence_outbox.sql` is the separate P13 Batch 5 schema
+for the transactional Realtime shadow outbox, per-aggregate projection
+watermarks, and bounded internal cutover canary. It requires recorded version
+7, records version 8, leaves `asset.*` unchanged, and is likewise operator-run
+only during an approved P13 window.
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

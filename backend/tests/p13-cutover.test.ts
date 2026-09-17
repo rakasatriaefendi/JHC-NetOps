@@ -158,6 +158,7 @@ test("runner/heartbeat, legacy guards, projection, and identity disposition are 
   const report = evaluateP13Readiness(readinessFixture({
     source_writers_frozen: false,
     application_local_adapter_ready: false,
+    local_control_plane_ready: false,
     legacy_mutation_guards_ready: false,
     realtime_projection_ready: false,
     unresolved_identity_blockers: 1,
@@ -167,6 +168,7 @@ test("runner/heartbeat, legacy guards, projection, and identity disposition are 
     "identity_disposition_incomplete",
     "legacy_mutation_guards_not_ready",
     "local_application_adapter_not_ready",
+    "local_control_plane_not_ready",
     "realtime_projection_not_ready",
     "runner_probe_in_flight",
     "runner_writer_not_paused",
@@ -255,7 +257,7 @@ test("pre-cutover verification passes only with complete target, schema, readine
   const report = verifyP13PreCutover(preCutoverFixture(checkpointTwoRecord()));
   assert.equal(report.status, "PASS");
   assert.deepEqual(report.blockers, []);
-  assert.equal(report.checks.length, 10);
+  assert.equal(report.checks.length, 14);
   assert.doesNotThrow(() => assertP13VerificationPassed(report));
 });
 
@@ -294,6 +296,20 @@ test("pre-cutover UNKNOWN and FAIL never become PASS", () => {
   const failed = verifyP13PreCutover({ ...preCutoverFixture(record), persistence_authority: "local_postgres" });
   assert.equal(failed.status, "FAIL");
   assert.ok(failed.blockers.includes("authority_not_switched:FAIL"));
+});
+
+test("migration 008 and a clean projection outbox are mandatory pre-cutover", () => {
+  const staleMigration = preCutoverFixture(checkpointTwoRecord());
+  const stale = verifyP13PreCutover({
+    ...staleMigration,
+    schema: { ...staleMigration.schema!, expected_migration_version: "007", applied_migration_version: "007" },
+  });
+  assert.equal(stale.status, "FAIL");
+  assert.ok(stale.blockers.includes("migration_version:FAIL"));
+
+  const failedOutbox = evaluateP13Readiness(readinessFixture({ outbox_failed_count: 1 }));
+  assert.equal(failedOutbox.status, "BLOCKED");
+  assert.ok(failedOutbox.blockers.includes("outbox_failed_events_present"));
 });
 
 test("final verification mismatch blocks pre-cutover acceptance", () => {
@@ -437,8 +453,15 @@ function readinessFixture(overrides: Partial<P13ReadinessEvidence> = {}): P13Rea
     cleanup_schedules_paused: true,
     asset_evidence_sync_enabled: false,
     application_local_adapter_ready: true,
+    local_control_plane_ready: true,
     legacy_mutation_guards_ready: true,
     realtime_projection_ready: true,
+    outbox_schema_ready: true,
+    outbox_pending_count: 0,
+    outbox_failed_count: 0,
+    outbox_oldest_pending_age_ms: null,
+    projector_allowlist_valid: true,
+    projector_configured: true,
     unresolved_identity_blockers: 0,
     runner: { process_paused: true, heartbeat_writer_paused: true, active_probe_count: 0 },
     workflows: {
@@ -509,7 +532,7 @@ function preCutoverFixture(record = checkpointTwoRecord()): P13PreCutoverEvidenc
     schema: {
       application_schema_objects: "PASS", asset_schema_objects: "PASS",
       projection_outbox_object: "PASS", cutover_canary_object: "PASS",
-      expected_migration_version: "007", applied_migration_version: "007",
+      expected_migration_version: "008", applied_migration_version: "008",
     },
     readiness: evaluateP13Readiness(readinessFixture()),
     final_source_manifest: {
@@ -524,6 +547,10 @@ function preCutoverFixture(record = checkpointTwoRecord()): P13PreCutoverEvidenc
     },
     identity: { unresolved_blockers: 0, disposition_manifest_sha256: "d".repeat(64) },
     persistence_authority: "supabase",
+    outbox_health: "PASS",
+    projector_allowlist_valid: "PASS",
+    projector_configured: "PASS",
+    local_control_plane_adapters: "PASS",
   };
 }
 
@@ -543,6 +570,7 @@ function postCutoverFixture(record = postflightRecord()): P13PostCutoverEvidence
     cutover_record: record,
     persistence_authority: "local_postgres",
     local_backend_health: "PASS",
+    local_control_plane_health: "PASS",
     write_canary: {
       status: "PASS", kind: "internal_cutover_canary", approved_application_path: true,
       local_commit_observed: true, cleanup_completed: true, application_domain_rows_created: 0,

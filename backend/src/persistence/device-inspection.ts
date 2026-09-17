@@ -1,4 +1,5 @@
 import type { PostgresTransactionalQuery } from "./postgres-query.js";
+import { ControlPlanePersistenceError, RUNNER_ID, UUID, privateIpv4, record, requireFreshRunner, requireOperator } from "./control-plane.js";
 
 type Row = Record<string, unknown>;
 
@@ -13,9 +14,7 @@ export interface DeviceInspectionRepository {
 
 export type InspectionCreateInput = Readonly<{
   runnerId: string;
-  requestedBy: string;
   targetIp: string;
-  authorizationSource: "discovery" | "inventory";
 }>;
 
 export type InspectionUpdateInput = Readonly<{
@@ -39,28 +38,60 @@ export class PostgresDeviceInspectionRepository implements DeviceInspectionRepos
   }
 
   async create(actorId: string, input: InspectionCreateInput, signal: AbortSignal): Promise<Row> {
-    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!UUID.test(actorId)) throw new Error("Invalid actor");
-    if (!/^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/.test(input.targetIp)) {
-      throw new Error("Invalid target IP");
+    if (!UUID.test(actorId) || !RUNNER_ID.test(input.runnerId) || !privateIpv4(input.targetIp)) {
+      throw new ControlPlanePersistenceError("INVALID_CONTROL_PLANE_INPUT");
     }
-    if (!["discovery", "inventory"].includes(input.authorizationSource)) {
-      throw new Error("Invalid authorization source");
-    }
-    const rows = await this.database.rows(`
-      INSERT INTO public.device_inspection_sessions
-        (runner_id,requested_by,target_ip,authorization_source,status,stage)
-      VALUES ($1,$2,$3::inet,$4,'queued','validating_target')
-      ON CONFLICT (runner_id) DO UPDATE SET
-        requested_by=EXCLUDED.requested_by,
-        target_ip=EXCLUDED.target_ip,
-        authorization_source=EXCLUDED.authorization_source,
-        status='queued',stage='validating_target',
-        expires_at=now() + interval '10 minutes', updated_at=now()
-      RETURNING *
-    `, [input.runnerId, actorId, input.targetIp, input.authorizationSource], signal);
-    if (!rows[0]) throw new Error("Inspection session create failed");
-    return rows[0];
+    return this.database.transaction(signal, async (query) => {
+      await requireOperator(query, actorId, signal);
+      await query.rows(`
+        UPDATE public.device_inspection_sessions SET status='expired',result=NULL,error_code=NULL,updated_at=now()
+        WHERE expires_at < now() AND status <> 'expired'
+      `, [], signal);
+      const runner = await requireFreshRunner(query, input.runnerId, "device_inspect", signal);
+      const inspector = record(runner.capabilities.device_inspector);
+      if (inspector && inspector.available !== true) {
+        throw new ControlPlanePersistenceError("OPERATION_NOT_AUTHORIZED");
+      }
+      let authorizationSource: "inventory" | "discovery" | null = null;
+      const inventory = await query.rows(`
+        SELECT id FROM public.network_nodes WHERE ip_address=$1::inet LIMIT 1
+      `, [input.targetIp], signal);
+      if (inventory[0]) authorizationSource = "inventory";
+      if (!authorizationSource) {
+        const discovery = await query.rows(`
+          SELECT status,expires_at,results FROM public.network_discovery_sessions
+          WHERE runner_id=$1 AND expires_at > now() AND status IN ('idle','running','completed')
+        `, [input.runnerId], signal);
+        const results = discovery[0]?.results;
+        if (Array.isArray(results) && results.some((item) => record(item)?.ip_address === input.targetIp)) {
+          authorizationSource = "discovery";
+        }
+      }
+      if (!authorizationSource) throw new ControlPlanePersistenceError("TARGET_NOT_AUTHORIZED");
+      const busy = await query.rows(`
+        SELECT
+          EXISTS(SELECT 1 FROM public.diagnostic_jobs WHERE runner_id=$1 AND status IN ('queued','running')) AS diagnostic,
+          EXISTS(SELECT 1 FROM public.traffic_live_sessions WHERE runner_id=$1 AND status IN ('queued','running','stopping')) AS traffic,
+          EXISTS(SELECT 1 FROM public.network_discovery_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS discovery,
+          EXISTS(SELECT 1 FROM public.device_inspection_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS inspection
+      `, [input.runnerId], signal);
+      if (busy[0]?.diagnostic === true || busy[0]?.traffic === true || busy[0]?.discovery === true ||
+          busy[0]?.inspection === true) throw new ControlPlanePersistenceError("RUNNER_BUSY");
+      const rows = await query.rows(`
+        INSERT INTO public.device_inspection_sessions
+          (runner_id,inspection_id,requested_by,target_ip,authorization_source,status,stage,result,error_code,
+           created_at,started_at,completed_at,expires_at,updated_at)
+        VALUES ($1,gen_random_uuid(),$2::uuid,$3::inet,$4,'queued','validating_target',NULL,NULL,
+          now(),NULL,NULL,now() + interval '10 minutes',now())
+        ON CONFLICT (runner_id) DO UPDATE SET inspection_id=gen_random_uuid(),requested_by=EXCLUDED.requested_by,
+          target_ip=EXCLUDED.target_ip,authorization_source=EXCLUDED.authorization_source,status='queued',
+          stage='validating_target',result=NULL,error_code=NULL,created_at=now(),started_at=NULL,completed_at=NULL,
+          expires_at=now() + interval '10 minutes',updated_at=now()
+        RETURNING *
+      `, [input.runnerId, actorId, input.targetIp, authorizationSource], signal);
+      if (!rows[0]) throw new ControlPlanePersistenceError("OPERATION_NOT_READY");
+      return rows[0];
+    });
   }
 
   async update(runnerId: string, patch: InspectionUpdateInput, signal: AbortSignal): Promise<Row | null> {

@@ -1,4 +1,5 @@
 import type { PostgresTransactionalQuery } from "./postgres-query.js";
+import { ControlPlanePersistenceError, UUID, record, requireFreshRunner, requireOperator } from "./control-plane.js";
 
 type Row = Record<string, unknown>;
 
@@ -14,8 +15,6 @@ export interface NetworkHealthPingJobsRepository {
 
 export type PingJobCreateInput = Readonly<{
   targetId: string;
-  runnerId: string;
-  requestedBy: string;
 }>;
 
 export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPingJobsRepository {
@@ -43,28 +42,39 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
   }
 
   async create(actorId: string, input: PingJobCreateInput, signal: AbortSignal): Promise<Row> {
-    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const RUNNER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-    if (!UUID.test(actorId) || !UUID.test(input.targetId) || !RUNNER.test(input.runnerId)) {
-      throw new Error("Invalid ping job input");
+    if (!UUID.test(actorId) || !UUID.test(input.targetId)) {
+      throw new ControlPlanePersistenceError("INVALID_CONTROL_PLANE_INPUT");
     }
-    const rows = await this.database.rows(`
-      INSERT INTO public.network_health_ping_jobs
-        (target_id,runner_id,requested_by,status)
-      VALUES ($1::uuid,$2,$3::uuid,'queued')
-      ON CONFLICT DO NOTHING
-      RETURNING *
-    `, [input.targetId, input.runnerId, actorId], signal);
-    if (!rows[0]) {
-      const existing = await this.database.rows(`
-        SELECT * FROM public.network_health_ping_jobs
-        WHERE target_id=$1::uuid AND status IN ('queued','running')
-        ORDER BY created_at DESC LIMIT 1
-      `, [input.targetId], signal);
-      if (existing[0]) return existing[0];
-      throw new Error("Ping job create failed");
+    try {
+      return await this.database.transaction(signal, async (query) => {
+        await requireOperator(query, actorId, signal);
+        await query.rows(`
+          UPDATE public.network_health_ping_jobs SET status='failed',completed_at=now(),updated_at=now(),
+            error_code='MANUAL_PING_TARGET_UNAVAILABLE'
+          WHERE status IN ('queued','running') AND expires_at < now()
+        `, [], signal);
+        const targets = await query.rows(`
+          SELECT id,runner_id FROM public.network_targets
+          WHERE id=$1::uuid AND enabled=true
+        `, [input.targetId], signal);
+        const target = targets[0];
+        if (!target || typeof target.runner_id !== "string") {
+          throw new ControlPlanePersistenceError("TARGET_NOT_AUTHORIZED");
+        }
+        await requireFreshRunner(query, target.runner_id, "manual_ping", signal);
+        const rows = await query.rows(`
+          INSERT INTO public.network_health_ping_jobs
+            (target_id,runner_id,requested_by,status,result,error_code,expires_at,updated_at)
+          VALUES ($1::uuid,$2,$3::uuid,'queued',NULL,NULL,now() + interval '30 seconds',now())
+          RETURNING *
+        `, [input.targetId, target.runner_id, actorId], signal);
+        if (!rows[0]) throw new ControlPlanePersistenceError("ALREADY_ACTIVE");
+        return rows[0];
+      });
+    } catch (error) {
+      if (record(error)?.code === "23505") throw new ControlPlanePersistenceError("ALREADY_ACTIVE");
+      throw error;
     }
-    return rows[0];
   }
 
   async claim(runnerId: string, signal: AbortSignal): Promise<Row | null> {

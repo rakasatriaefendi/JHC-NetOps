@@ -12,6 +12,10 @@ import { type PostgresBandwidthMeasurementsRepository } from "./bandwidth-measur
 import { type PostgresHopMeasurementsRepository } from "./hop-measurements.js";
 import { type PostgresTrafficMetricsRepository } from "./traffic-metrics.js";
 import { type PostgresEventsRepository } from "./events.js";
+import { type PostgresOutboxRepository } from "./outbox.js";
+import { type PostgresCutoverCanaryRepository } from "./cutover-canary.js";
+import { type PostgresTrafficRepository } from "./traffic.js";
+import { ControlPlanePersistenceError, RUNNER_ID, UUID, privateIpv4 } from "./control-plane.js";
 
 export type ApplicationRouteOptions = Readonly<{
   token: string;
@@ -25,6 +29,9 @@ export type ApplicationRouteOptions = Readonly<{
   hopMeasurements?: PostgresHopMeasurementsRepository;
   trafficMetrics?: PostgresTrafficMetricsRepository;
   events?: PostgresEventsRepository;
+  traffic?: PostgresTrafficRepository;
+  outbox?: PostgresOutboxRepository;
+  cutoverCanary?: PostgresCutoverCanaryRepository;
 }>;
 
 export function registerApplicationRoutes(server: FastifyInstance, options: ApplicationRouteOptions): void {
@@ -198,16 +205,146 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
   });
 
   if (options.diagnosticJobs) {
-    server.get<{ Params: { id: string } }>("/api/application/diagnostic-jobs/:id", async (request, reply) => {
+    server.post("/api/application/diagnostic-jobs/preflight", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
-      try { const row = await options.diagnosticJobs!.get(request.params.id, AbortSignal.timeout(7_000)); return row ? reply.code(200).send({ data: row }) : reply.code(404).send({ error: { code: "JOB_NOT_FOUND" } }); }
-      catch (error) { return persistenceFailure(reply, error); }
+      const body = actorInput(request.body);
+      if (!body || !onlyKeys(body.input, ["runner_id", "target_id"]) ||
+          typeof body.input.runner_id !== "string" || typeof body.input.target_id !== "string" ||
+          !RUNNER_ID.test(body.input.runner_id) || !RUNNER_ID.test(body.input.target_id)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.diagnosticJobs!.requestPreflight(body.actorId, body.input.runner_id,
+          body.input.target_id, AbortSignal.timeout(7_000));
+        return reply.code(202).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
     });
 
-    server.get<{ Params: { runnerId: string } }>("/api/application/diagnostic-jobs/runner/:runnerId", async (request, reply) => {
+    server.post("/api/application/diagnostic-jobs", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
-      try { return reply.code(200).send({ data: await options.diagnosticJobs!.listByRunner(request.params.runnerId, AbortSignal.timeout(7_000)) }); }
-      catch (error) { return persistenceFailure(reply, error); }
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !onlyKeys(input, ["runner_id", "source_label", "target_id", "duration_seconds"]) ||
+        typeof input.runner_id !== "string" || typeof input.source_label !== "string" ||
+        typeof input.target_id !== "string" || typeof input.duration_seconds !== "number") {
+        return reply.code(400).send(invalid);
+      }
+      if (!RUNNER_ID.test(input.runner_id) || !RUNNER_ID.test(input.target_id) ||
+        input.source_label.trim().length < 1 || input.source_label.length > 200 ||
+        ![5, 10].includes(input.duration_seconds)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.diagnosticJobs!.create(body.actorId, {
+          runnerId: input.runner_id, sourceLabel: input.source_label.trim(), targetId: input.target_id,
+          durationSeconds: input.duration_seconds,
+        }, AbortSignal.timeout(7_000));
+        return reply.code(201).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+  }
+
+  if (options.pingJobs) {
+    server.post("/api/application/ping-jobs", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !onlyKeys(input, ["target_id"]) || typeof input.target_id !== "string" ||
+          !UUID.test(input.target_id)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.pingJobs!.create(body.actorId, { targetId: input.target_id }, AbortSignal.timeout(7_000));
+        return reply.code(201).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+  }
+
+  if (options.networkDiscovery) {
+    server.post("/api/application/network-discovery", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !onlyKeys(input, ["runner_id"]) || typeof input.runner_id !== "string" ||
+          !RUNNER_ID.test(input.runner_id)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.networkDiscovery!.create(body.actorId, { runnerId: input.runner_id }, AbortSignal.timeout(7_000));
+        return reply.code(201).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
+    server.patch<{ Params: { runnerId: string } }>("/api/application/network-discovery/:runnerId", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !RUNNER_ID.test(request.params.runnerId) || !onlyKeys(input, ["session_id"]) ||
+          typeof input.session_id !== "string" || !UUID.test(input.session_id)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.networkDiscovery!.start(body.actorId, request.params.runnerId,
+          input.session_id, AbortSignal.timeout(7_000));
+        return reply.code(200).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+  }
+
+  if (options.deviceInspection) {
+    server.post("/api/application/device-inspection", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !onlyKeys(input, ["runner_id", "target_ip"]) ||
+        typeof input.runner_id !== "string" || typeof input.target_ip !== "string") {
+        return reply.code(400).send(invalid);
+      }
+      if (!RUNNER_ID.test(input.runner_id) || !privateIpv4(input.target_ip)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.deviceInspection!.create(body.actorId,
+          { runnerId: input.runner_id, targetIp: input.target_ip }, AbortSignal.timeout(7_000));
+        return reply.code(201).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+  }
+
+  if (options.traffic) {
+    server.post("/api/application/traffic-live-sessions", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !onlyKeys(input, ["runner_id", "duration_seconds"]) ||
+        typeof input.runner_id !== "string" ||
+        typeof input.duration_seconds !== "number") {
+        return reply.code(400).send(invalid);
+      }
+      if (!RUNNER_ID.test(input.runner_id) ||
+        ![300, 600, 900, 1800].includes(input.duration_seconds)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.traffic!.createSession(body.actorId, input.runner_id,
+          input.duration_seconds, AbortSignal.timeout(7_000));
+        return reply.code(201).send({ data: row });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
+    server.delete<{ Params: { id: string } }>("/api/application/traffic-live-sessions/:id", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = actorInput(request.body);
+      const input = body?.input;
+      if (!body || !input || !UUID.test(request.params.id) || !onlyKeys(input, ["session_id"]) ||
+          typeof input.session_id !== "string" || input.session_id !== request.params.id) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const row = await options.traffic!.stopSession(body.actorId, input.session_id, AbortSignal.timeout(7_000));
+        return row ? reply.code(200).send({ data: row }) :
+          reply.code(409).send({ error: { code: "SESSION_NOT_ACTIVE", message: "Active session not found" } });
+      } catch (error) { return persistenceFailure(reply, error); }
     });
   }
 
@@ -308,6 +445,80 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
       catch (error) { return persistenceFailure(reply, error); }
     });
   }
+
+  if (options.outbox) {
+    server.get("/api/application/outbox/health", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      try { return reply.code(200).send({ data: await options.outbox!.getHealth(AbortSignal.timeout(7_000)) }); }
+      catch (error) { return persistenceFailure(reply, error); }
+    });
+  }
+
+  if (options.cutoverCanary) {
+    server.post("/api/application/cutover-canary", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = record(request.body);
+      if (!body || !onlyKeys(body, ["cutover_identity", "payload"]) ||
+        !validCanaryIdentity(body.cutover_identity)) {
+        return reply.code(400).send(invalid);
+      }
+      const payload = record(body.payload);
+      if (!validCanaryPayload(payload)) return reply.code(400).send(invalid);
+      try {
+        const result = await options.cutoverCanary!.write(body.cutover_identity, payload, AbortSignal.timeout(7_000));
+        return reply.code(200).send({ data: result });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
+    server.get<{ Params: { id: string } }>("/api/application/cutover-canary/:id", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const query = request.query as Record<string, string>;
+      if (!validUuid(request.params.id) || !validCanaryIdentity(query.cutover_identity)) return reply.code(400).send(invalid);
+      try {
+        const row = await options.cutoverCanary!.read(query.cutover_identity, request.params.id, AbortSignal.timeout(7_000));
+        return row ? reply.code(200).send({ data: row }) : reply.code(404).send({ error: { code: "CANARY_NOT_FOUND" } });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
+    server.patch<{ Params: { id: string } }>("/api/application/cutover-canary/:id/verify", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = record(request.body);
+      if (!validUuid(request.params.id) || !body || !onlyKeys(body, ["cutover_identity"]) || !validCanaryIdentity(body.cutover_identity)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const verified = await options.cutoverCanary!.verify(body.cutover_identity, request.params.id, AbortSignal.timeout(7_000));
+        return verified ? reply.code(200).send({ data: { verified: true } }) :
+          reply.code(404).send({ error: { code: "CANARY_NOT_FOUND" } });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
+    server.delete<{ Params: { id: string } }>("/api/application/cutover-canary/:id", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = record(request.body);
+      if (!validUuid(request.params.id) || !body || !onlyKeys(body, ["cutover_identity"]) || !validCanaryIdentity(body.cutover_identity)) {
+        return reply.code(400).send(invalid);
+      }
+      try {
+        const deleted = await options.cutoverCanary!.cleanup(body.cutover_identity, request.params.id, AbortSignal.timeout(7_000));
+        return deleted ? reply.code(200).send({ data: { deleted: true } }) :
+          reply.code(404).send({ error: { code: "CANARY_NOT_FOUND" } });
+      } catch (error) { return persistenceFailure(reply, error); }
+});
+  }
+
+function validCanaryIdentity(value: unknown): value is string {
+  return typeof value === "string" && /^p13-cutover-[0-9]{13}-[a-z0-9]{6}$/.test(value);
+}
+
+function validUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function validCanaryPayload(value: Record<string, unknown> | null): value is Record<string, unknown> {
+  return value !== null && onlyKeys(value, ["test", "timestamp"]) &&
+    value.test === "internal-cutover-canary" && typeof value.timestamp === "string" &&
+    Number.isFinite(Date.parse(value.timestamp)) && JSON.stringify(value).length <= 1024;
 }
 
 function actorInput(value: unknown): { actorId: string; input: Record<string, unknown> } | null {
@@ -398,6 +609,12 @@ function onlyKeys(value: Record<string, unknown>, expected: string[]): boolean {
 }
 
 function persistenceFailure(reply: import("fastify").FastifyReply, error: unknown) {
+  if (error instanceof ControlPlanePersistenceError) {
+    const forbidden = error.code === "OPERATION_NOT_AUTHORIZED" || error.code === "TARGET_NOT_AUTHORIZED";
+    const invalidRequest = error.code === "INVALID_CONTROL_PLANE_INPUT";
+    const status = forbidden ? 403 : invalidRequest ? 400 : error.code === "RUNNER_NOT_FOUND" ? 404 : 409;
+    return reply.code(status).send({ error: { code: error.code, message: "Local control-plane request rejected" } });
+  }
   const failure = record(error);
   if (failure?.code === "23505") {
     return reply.code(409).send({ error: { code: "INVENTORY_DUPLICATE", message: "Inventory entry already exists" } });
@@ -407,4 +624,5 @@ function persistenceFailure(reply: import("fastify").FastifyReply, error: unknow
     return reply.code(forbidden ? 403 : 400).send({ error: { code: error.code, message: "Application persistence request rejected" } });
   }
   return reply.code(503).send({ error: { code: "APPLICATION_PERSISTENCE_FAILED", message: "Application data unavailable" } });
+}
 }

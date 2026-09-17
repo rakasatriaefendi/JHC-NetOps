@@ -29,6 +29,7 @@ export const P13_REQUIRED_BUFFERS = Object.freeze([
   "snmp-telemetry-state",
   "metrics-sqlite",
   "traffic-sqlite",
+  "projection-outbox",
 ] as const);
 
 export type P13BufferName = (typeof P13_REQUIRED_BUFFERS)[number];
@@ -44,8 +45,15 @@ export type P13ReadinessEvidence = Readonly<{
   cleanup_schedules_paused: boolean;
   asset_evidence_sync_enabled: boolean;
   application_local_adapter_ready: boolean;
+  local_control_plane_ready: boolean;
   legacy_mutation_guards_ready: boolean;
   realtime_projection_ready: boolean;
+  outbox_schema_ready: boolean;
+  outbox_pending_count: number;
+  outbox_failed_count: number;
+  outbox_oldest_pending_age_ms: number | null;
+  projector_allowlist_valid: boolean;
+  projector_configured: boolean;
   unresolved_identity_blockers: number;
   runner: Readonly<{
     process_paused: boolean;
@@ -106,8 +114,16 @@ export function evaluateP13Readiness(evidence: P13ReadinessEvidence): P13Readine
   if (!evidence.cleanup_schedules_paused) blockers.push("cleanup_schedules_not_paused");
   if (evidence.asset_evidence_sync_enabled) blockers.push("asset_evidence_sync_not_disabled");
   if (!evidence.application_local_adapter_ready) blockers.push("local_application_adapter_not_ready");
+  if (!evidence.local_control_plane_ready) blockers.push("local_control_plane_not_ready");
   if (!evidence.legacy_mutation_guards_ready) blockers.push("legacy_mutation_guards_not_ready");
   if (!evidence.realtime_projection_ready) blockers.push("realtime_projection_not_ready");
+  if (!evidence.outbox_schema_ready) blockers.push("outbox_schema_not_ready");
+  if (!evidence.projector_allowlist_valid) blockers.push("projector_allowlist_invalid");
+  if (!evidence.projector_configured) blockers.push("projector_not_configured");
+  if (evidence.outbox_failed_count > 0) blockers.push("outbox_failed_events_present");
+  if (evidence.outbox_oldest_pending_age_ms !== null && evidence.outbox_oldest_pending_age_ms > 300_000) {
+    blockers.push("outbox_oldest_pending_exceeds_threshold");
+  }
   if (evidence.unresolved_identity_blockers > 0) blockers.push("identity_disposition_incomplete");
   if (!evidence.runner.process_paused || !evidence.runner.heartbeat_writer_paused) {
     blockers.push("runner_writer_not_paused");
@@ -205,6 +221,19 @@ function validateEvidence(evidence: P13ReadinessEvidence): void {
   if (!Number.isSafeInteger(evidence.unresolved_identity_blockers) || evidence.unresolved_identity_blockers < 0 ||
       !Number.isSafeInteger(evidence.runner?.active_probe_count) || evidence.runner.active_probe_count < 0) {
     throw new P13ReadinessError("P13 readiness counts are invalid");
+  }
+  if (typeof evidence.local_control_plane_ready !== "boolean" ||
+      typeof evidence.outbox_schema_ready !== "boolean" ||
+      typeof evidence.outbox_pending_count !== "number" ||
+      typeof evidence.outbox_failed_count !== "number" ||
+      (evidence.outbox_oldest_pending_age_ms !== null && typeof evidence.outbox_oldest_pending_age_ms !== "number") ||
+      typeof evidence.projector_allowlist_valid !== "boolean" ||
+      typeof evidence.projector_configured !== "boolean") {
+    throw new P13ReadinessError("P13 readiness outbox/projector fields are invalid");
+  }
+  if (evidence.outbox_pending_count < 0 || evidence.outbox_failed_count < 0 ||
+      (evidence.outbox_oldest_pending_age_ms !== null && evidence.outbox_oldest_pending_age_ms < 0)) {
+    throw new P13ReadinessError("P13 readiness outbox counts are invalid");
   }
   for (const table of Object.keys(P13_WORKFLOW_POLICIES) as P13WorkflowTable[]) {
     const rows = evidence.workflows?.[table];

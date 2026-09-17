@@ -1,10 +1,12 @@
 import type { PostgresTransactionalQuery } from "./postgres-query.js";
+import { ControlPlanePersistenceError, RUNNER_ID, UUID, requireFreshRunner, requireOperator } from "./control-plane.js";
 
 type Row = Record<string, unknown>;
 
 export interface NetworkDiscoveryRepository {
   get(runnerId: string, signal: AbortSignal): Promise<Row | null>;
   create(actorId: string, input: DiscoveryCreateInput, signal: AbortSignal): Promise<Row>;
+  start(actorId: string, runnerId: string, sessionId: string, signal: AbortSignal): Promise<Row>;
   update(runnerId: string, patch: DiscoveryUpdateInput, signal: AbortSignal): Promise<Row | null>;
   complete(runnerId: string, now: string, results: Row, signal: AbortSignal): Promise<Row | null>;
   fail(runnerId: string, now: string, errorCode: string, signal: AbortSignal): Promise<Row | null>;
@@ -13,11 +15,6 @@ export interface NetworkDiscoveryRepository {
 
 export type DiscoveryCreateInput = Readonly<{
   runnerId: string;
-  requestedBy: string;
-  connectionType?: "wifi" | "ethernet" | "unknown";
-  interfaceAlias?: string;
-  localIpv4?: string;
-  subnetCidr?: string;
 }>;
 
 export type DiscoveryUpdateInput = Readonly<{
@@ -49,25 +46,66 @@ export class PostgresNetworkDiscoveryRepository implements NetworkDiscoveryRepos
   }
 
   async create(actorId: string, input: DiscoveryCreateInput, signal: AbortSignal): Promise<Row> {
-    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!UUID.test(actorId)) throw new Error("Invalid actor");
-    const rows = await this.database.rows(`
-      INSERT INTO public.network_discovery_sessions
-        (runner_id,requested_by,connection_type,interface_alias,local_ipv4,subnet_cidr,status,phase)
-      VALUES ($1,$2,$3,$4,$5::inet,$6::cidr,'queued','prepare')
-      ON CONFLICT (runner_id) DO UPDATE SET
-        requested_by=EXCLUDED.requested_by,
-        connection_type=EXCLUDED.connection_type,
-        interface_alias=EXCLUDED.interface_alias,
-        local_ipv4=EXCLUDED.local_ipv4,
-        subnet_cidr=EXCLUDED.subnet_cidr,
-        status='queued',phase='prepare',
-        expires_at=now() + interval '10 minutes', updated_at=now()
-      RETURNING *
-    `, [input.runnerId, actorId, input.connectionType ?? null,
-      input.interfaceAlias ?? null, input.localIpv4 ?? null, input.subnetCidr ?? null], signal);
-    if (!rows[0]) throw new Error("Discovery session create failed");
-    return rows[0];
+    if (!UUID.test(actorId) || !RUNNER_ID.test(input.runnerId)) {
+      throw new ControlPlanePersistenceError("INVALID_CONTROL_PLANE_INPUT");
+    }
+    return this.database.transaction(signal, async (query) => {
+      await requireOperator(query, actorId, signal);
+      await query.rows(`
+        UPDATE public.network_discovery_sessions SET status='expired',connection_type=NULL,interface_alias=NULL,
+          local_ipv4=NULL,subnet_cidr=NULL,total_hosts=0,scanned_hosts=0,found_count=0,results='[]'::jsonb,updated_at=now()
+        WHERE expires_at < now() AND status <> 'expired'
+      `, [], signal);
+      await requireFreshRunner(query, input.runnerId, "network_discovery", signal);
+      const current = await query.rows(`
+        SELECT * FROM public.network_discovery_sessions
+        WHERE runner_id=$1 AND status IN ('queued','running')
+      `, [input.runnerId], signal);
+      if (current[0]) return current[0];
+      const rows = await query.rows(`
+        INSERT INTO public.network_discovery_sessions
+          (runner_id,session_id,requested_by,status,phase,connection_type,interface_alias,local_ipv4,subnet_cidr,
+           total_hosts,scanned_hosts,found_count,results,error_code,created_at,started_at,completed_at,expires_at,updated_at)
+        VALUES ($1,gen_random_uuid(),$2::uuid,'queued','prepare',NULL,NULL,NULL,NULL,0,0,0,'[]'::jsonb,NULL,
+          now(),NULL,NULL,now() + interval '10 minutes',now())
+        ON CONFLICT (runner_id) DO UPDATE SET
+          session_id=gen_random_uuid(),requested_by=EXCLUDED.requested_by,status='queued',phase='prepare',
+          connection_type=NULL,interface_alias=NULL,local_ipv4=NULL,subnet_cidr=NULL,total_hosts=0,
+          scanned_hosts=0,found_count=0,results='[]'::jsonb,error_code=NULL,created_at=now(),started_at=NULL,
+          completed_at=NULL,expires_at=now() + interval '10 minutes',updated_at=now()
+        RETURNING *
+      `, [input.runnerId, actorId], signal);
+      if (!rows[0]) throw new ControlPlanePersistenceError("OPERATION_NOT_READY");
+      return rows[0];
+    });
+  }
+
+  async start(actorId: string, runnerId: string, sessionId: string, signal: AbortSignal): Promise<Row> {
+    if (!UUID.test(actorId) || !RUNNER_ID.test(runnerId) || !UUID.test(sessionId)) {
+      throw new ControlPlanePersistenceError("INVALID_CONTROL_PLANE_INPUT");
+    }
+    return this.database.transaction(signal, async (query) => {
+      await requireOperator(query, actorId, signal);
+      await requireFreshRunner(query, runnerId, "network_discovery", signal);
+      const busy = await query.rows(`
+        SELECT
+          EXISTS(SELECT 1 FROM public.diagnostic_jobs WHERE runner_id=$1 AND status IN ('queued','running')) AS diagnostic,
+          EXISTS(SELECT 1 FROM public.traffic_live_sessions WHERE runner_id=$1 AND status IN ('queued','running','stopping')) AS traffic,
+          EXISTS(SELECT 1 FROM public.device_inspection_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS inspection
+      `, [runnerId], signal);
+      if (busy[0]?.diagnostic === true || busy[0]?.traffic === true || busy[0]?.inspection === true) {
+        throw new ControlPlanePersistenceError("RUNNER_BUSY");
+      }
+      const rows = await query.rows(`
+        UPDATE public.network_discovery_sessions SET status='queued',phase='scan',scanned_hosts=0,found_count=0,
+          results='[]'::jsonb,error_code=NULL,started_at=NULL,completed_at=NULL,
+          expires_at=now() + interval '10 minutes',updated_at=now()
+        WHERE runner_id=$1 AND session_id=$2::uuid AND status IN ('idle','completed','failed')
+        RETURNING *
+      `, [runnerId, sessionId], signal);
+      if (!rows[0]) throw new ControlPlanePersistenceError("OPERATION_NOT_READY");
+      return rows[0];
+    });
   }
 
   async update(runnerId: string, patch: DiscoveryUpdateInput, signal: AbortSignal): Promise<Row | null> {

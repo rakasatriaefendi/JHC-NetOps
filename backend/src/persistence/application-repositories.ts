@@ -1,6 +1,7 @@
 import type { RunnerHeartbeatRepository } from "../runner-heartbeat/repository.js";
 import type { NetworkHealthRepository } from "../network-health/repository.js";
 import type { TrafficRepository } from "../traffic/repository.js";
+import type { PostgresTrafficRepository } from "./traffic.js";
 import type { ManagedTelemetryRepository } from "../managed-telemetry/repository.js";
 import type { PostgresProfilesRepository } from "./profiles.js";
 import type { PostgresNetworkInventoryRepository } from "./inventory.js";
@@ -12,11 +13,13 @@ import type { PostgresBandwidthMeasurementsRepository } from "./bandwidth-measur
 import type { PostgresHopMeasurementsRepository } from "./hop-measurements.js";
 import type { PostgresTrafficMetricsRepository } from "./traffic-metrics.js";
 import type { PostgresEventsRepository } from "./events.js";
+import type { PostgresOutboxRepository } from "./outbox.js";
+import type { PostgresCutoverCanaryRepository } from "./cutover-canary.js";
 
 export interface ApplicationRepositories {
   heartbeat: RunnerHeartbeatRepository;
   health: NetworkHealthRepository;
-  traffic: TrafficRepository;
+  traffic: PostgresTrafficRepository;
   telemetry: ManagedTelemetryRepository;
   diagnosticJobs: PostgresDiagnosticJobsRepository;
   networkDiscovery: PostgresNetworkDiscoveryRepository;
@@ -28,6 +31,8 @@ export interface ApplicationRepositories {
   events: PostgresEventsRepository;
   profiles: PostgresProfilesRepository;
   inventory: PostgresNetworkInventoryRepository;
+  outbox: PostgresOutboxRepository;
+  cutoverCanary: PostgresCutoverCanaryRepository;
 }
 
 export interface SupabaseApplicationRepositories {

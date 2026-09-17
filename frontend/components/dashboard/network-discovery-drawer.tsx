@@ -14,6 +14,7 @@ import type { NetworkHealthTarget } from "@/lib/network-health-client";
 import { createClient } from "@/lib/supabase/client";
 import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import type { TrafficSnapshot } from "@/lib/traffic";
+import { mutateDiscoverySessionAction } from "@/app/actions/legacy-network-control";
 
 export function NetworkDiscoveryDrawer({
   open,
@@ -107,16 +108,17 @@ export function NetworkDiscoveryDrawer({
     if (!targetRunnerId) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    const body = action === "prepare_session"
-      ? { action, runner_id: targetRunnerId }
-      : { action, runner_id: targetRunnerId, session_id: session?.session_id };
-    const { data, error: invokeError } = await supabase.functions.invoke<{ data: DiscoverySession }>("network-discovery", { body });
-    if (invokeError || !data?.data) {
+    const result = await mutateDiscoverySessionAction({
+      action, runnerId: targetRunnerId, ...(session?.session_id ? { sessionId: session.session_id } : {}),
+    });
+    if (!result.ok || !result.data) {
       prepared.current.delete(targetRunnerId);
-      setError(await functionError(invokeError, t));
+      setError(t("requestFailed"));
     }
-    else setSessions((current) => [data.data, ...current.filter((item) => item.runner_id !== data.data.runner_id)]);
+    else {
+      const updated = result.data;
+      setSessions((current) => [updated, ...current.filter((item) => item.runner_id !== updated.runner_id)]);
+    }
     setBusy(false);
   }
 
@@ -285,4 +287,3 @@ function Notice({ children, tone = "normal" }: { children: React.ReactNode; tone
 function connectionLabel(value: DiscoverySession["connection_type"], t: TFunction) { return value === "wifi" ? "WiFi" : value === "ethernet" ? "Ethernet" : t("unknownConnection"); }
 function toggleSelection(setter: React.Dispatch<React.SetStateAction<Set<string>>>, ip: string) { setter((current) => { const next = new Set(current); if (next.has(ip)) next.delete(ip); else next.add(ip); return next; }); }
 function discoveryError(code: string | null, t: TFunction) { return code === "DISCOVERY_SCOPE_TOO_LARGE" ? t("errors.scope") : code === "DISCOVERY_CONTEXT_UNAVAILABLE" ? t("errors.context") : t("errors.safe"); }
-async function functionError(error: unknown, t: TFunction) { if (error && typeof error === "object" && "context" in error) { const response = (error as { context?: unknown }).context; if (response instanceof Response) { try { const payload = await response.clone().json() as { error?: string }; if (payload.error) return payload.error; } catch {} } } return t("errors.request"); }

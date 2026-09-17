@@ -23,6 +23,7 @@ import type { BandwidthMeasurement, DiagnosticsData } from "@/lib/diagnostics";
 import { createClient } from "@/lib/supabase/client";
 import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 import { localeForLanguage } from "@/i18n/config";
+import { createDiagnosticJobAction, requestDiagnosticPreflightAction } from "@/app/actions/legacy-network-control";
 
 type Props = {
   initialState: DiagnosticJobState;
@@ -112,11 +113,8 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
     const freshComplete = preflight?.status === "completed" && preflight.completed_at && now - Date.parse(preflight.completed_at) < 80_000;
     if (requestedPreflight.current === key && (preflight?.status === "queued" || preflight?.status === "running" || freshComplete)) return;
     requestedPreflight.current = key;
-    const supabase = createClient();
-    void supabase.functions.invoke("diagnostic-jobs", {
-      body: { action: "request_preflight", runner_id: runner.id, target_id: target.id },
-    }).then(async ({ error }) => {
-      if (error) setFormError(await diagnosticJobErrorMessage(error, t));
+    void requestDiagnosticPreflightAction(runner.id, target.id).then(({ ok }) => {
+      if (!ok) setFormError(t("workspace.requestFailed"));
     });
   }, [jobActive, now, preflight?.completed_at, preflight?.status, role, runner, runnerOnline, t, target]);
 
@@ -125,20 +123,15 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
     if (!canOperateNetwork(role) || !runner || !target || !location || jobActive || !preflightReady) return;
     setSubmitting(true);
     setFormError(null);
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase.functions.invoke<{ data: DiagnosticJob }>("diagnostic-jobs", {
-        body: {
-          action: "create_job",
-          type: "bandwidth_and_path",
-          runner_id: runner.id,
-          source_label: location,
-          target_id: target.id,
-          duration_seconds: selectedDuration,
-        },
+      const result = await createDiagnosticJobAction({
+        runnerId: runner.id, sourceLabel: location, targetId: target.id, durationSeconds: selectedDuration,
       });
-      if (error || !data?.data) setFormError(await diagnosticJobErrorMessage(error, t));
-      else setJobs((current) => [data.data, ...current.filter((item) => item.id !== data.data.id)]);
+      if (!result.ok || !result.data) setFormError(t("workspace.requestFailed"));
+      else {
+        const job = result.data;
+        setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
+      }
     } finally { setSubmitting(false); }
   }
 
@@ -260,7 +253,6 @@ function LiveValue({ label, value, suffix }: { label: string; value?: number; su
 function ResultValue({ label, value, suffix }: { label: string; value: number|null|undefined; suffix: string }) { return <div className="rounded-control border border-border bg-bg-base p-3"><dt className="text-meta text-text-secondary">{label}</dt><dd className="mt-2 font-data text-section text-accent">{value==null?"-":`${value.toFixed(2)}${suffix?` ${suffix}`:""}`}</dd></div>; }
 
 async function reloadMeasurements(supabase: ReturnType<typeof createClient>, setData: (data: DiagnosticsData) => void) { const {data}=await supabase.functions.invoke<{data:DiagnosticsData}>("diagnostics",{method:"GET"}); if(data?.data)setData(data.data); }
-async function diagnosticJobErrorMessage(error: unknown, t: TFunction) { if(error&&typeof error==="object"&&"context" in error){const response=(error as {context?:unknown}).context;if(response instanceof Response){try{const payload=(await response.clone().json()) as {code?:unknown;error?:unknown};if(typeof payload.error==="string")return typeof payload.code==="string"?`${payload.error} (${payload.code})`:payload.error;}catch{}}} return t("workspace.requestFailed"); }
 function measurementSummary(value?: BandwidthMeasurement): DirectionSummary|null { if(!value?.direction)return null; return {direction:value.direction,average_mbps:value.bitrate_mbps,peak_mbps:value.peak_mbps,minimum_mbps:value.minimum_mbps,transferred_mb:value.transferred_mb,retransmits:value.retransmits,duration_seconds:value.duration_seconds}; }
 function connectionLabel(value?: string, t?: TFunction) { return value==="wifi"?"WiFi":value==="ethernet"?"Ethernet":t ? t("workspace.otherConnection") : "Other / Unknown"; }
 function pingDetail(value: PreflightContext["target"]|null|undefined, t: TFunction) { if(!value)return t("workspace.unusedUnchecked"); return value.status==="responded"?`${t("workspace.responded")}${value.latency_ms==null?"":` · ${value.latency_ms.toFixed(1)} ms`}`:t("workspace.noIcmp"); }

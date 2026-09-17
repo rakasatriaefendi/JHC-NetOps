@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeObservedHosts, persistObservedHostRows, prepareObservedHostRows } from "./observed-hosts.ts";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -20,6 +21,7 @@ const SECRET_KEY = /"(?:password|passwd|secret|community|auth_password|priv_pass
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (request.method !== "POST") return reply({ error: "Method not allowed" }, 405);
+  if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse(CORS);
   const service = serviceClient(request);
   if (!service.ok) return service.response;
   let body: Record<string, unknown>;

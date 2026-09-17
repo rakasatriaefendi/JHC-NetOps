@@ -81,7 +81,10 @@ test("local authority rejects legacy Supabase application REST and RPC before ne
 
 test("local Health Watch rejects an unassigned target before any mutation", async () => {
   const queries: string[] = [];
-  const database: PostgresQuery = { async rows(sql) { queries.push(sql); return []; } };
+  const database: PostgresTransactionalQuery = {
+    async rows(sql) { queries.push(sql); return []; },
+    async transaction(_signal, action) { return action(this); },
+  };
   const repository = new PostgresNetworkHealthRepository(database);
   await assert.rejects(repository.publish("runner-1", [{
     target_id: "11111111-1111-4111-8111-111111111111", status: "online", latency_ms: 1,
@@ -118,7 +121,10 @@ test("local Health Watch reuses minute coalescing and event deduplication semant
 
 test("local Traffic claim is runner-scoped and cannot double-claim a queued session", async () => {
   const queries: string[] = [];
-  const database: PostgresQuery = { async rows(sql) { queries.push(sql); return []; } };
+  const database: PostgresTransactionalQuery = {
+    async rows(sql) { queries.push(sql); return []; },
+    async transaction(_signal, action) { return action(this); },
+  };
   const claim = await new PostgresTrafficRepository(database).claim("runner-1", new Date("2026-09-16T00:00:00Z"),
     new AbortController().signal);
   assert.equal(claim, null);
@@ -130,7 +136,10 @@ test("local Traffic claim is runner-scoped and cannot double-claim a queued sess
 
 test("local Traffic rejects snapshot publication for a non-active runner session", async () => {
   const queries: string[] = [];
-  const database: PostgresQuery = { async rows(sql) { queries.push(sql); return []; } };
+  const database: PostgresTransactionalQuery = {
+    async rows(sql) { queries.push(sql); return []; },
+    async transaction(_signal, action) { return action(this); },
+  };
   const repository = new PostgresTrafficRepository(database);
   await assert.rejects(repository.updateSnapshot({
     action: "update_snapshot", runner_id: "runner-1", session_id: "11111111-1111-4111-8111-111111111111",

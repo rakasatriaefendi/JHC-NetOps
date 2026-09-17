@@ -35,9 +35,13 @@ import { PostgresBandwidthMeasurementsRepository } from "./persistence/bandwidth
 import { PostgresHopMeasurementsRepository } from "./persistence/hop-measurements.js";
 import { PostgresTrafficMetricsRepository } from "./persistence/traffic-metrics.js";
 import { PostgresEventsRepository } from "./persistence/events.js";
+import { PostgresOutboxRepository } from "./persistence/outbox.js";
+import { PostgresCutoverCanaryRepository } from "./persistence/cutover-canary.js";
+import { SupabaseShadowProjector } from "./persistence/shadow-projector.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
+  const shadowProjector: { current: SupabaseShadowProjector | null } = { current: null };
   const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
     supabase: () => ({
       heartbeat: new SupabaseRunnerHeartbeatRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
@@ -56,7 +60,9 @@ async function main(): Promise<void> {
         application_name: "jhc-netops-backend-application",
       });
       const query = new PoolPostgresQuery(appPool);
-      return {
+      const outbox = new PostgresOutboxRepository(query);
+      const cutoverCanary = new PostgresCutoverCanaryRepository(query);
+      const repos = {
         heartbeat: new PostgresRunnerHeartbeatRepository(query),
         health: new PostgresNetworkHealthRepository(query),
         traffic: new PostgresTrafficRepository(query),
@@ -71,8 +77,12 @@ async function main(): Promise<void> {
         events: new PostgresEventsRepository(query),
         profiles: new PostgresProfilesRepository(query),
         inventory: new PostgresNetworkInventoryRepository(query),
+        outbox,
+        cutoverCanary,
         _pool: appPool,
       };
+      shadowProjector.current = new SupabaseShadowProjector(outbox, config.supabaseUrl, config.supabaseServiceRoleKey);
+      return repos;
     },
   });
   const assetPool = config.assets ? new Pool({
@@ -162,6 +172,9 @@ async function main(): Promise<void> {
       hopMeasurements: localRepos.hopMeasurements,
       trafficMetrics: localRepos.trafficMetrics,
       events: localRepos.events,
+      traffic: localRepos.traffic,
+      outbox: localRepos.outbox,
+      cutoverCanary: localRepos.cutoverCanary,
     };
   }
 
@@ -169,7 +182,10 @@ async function main(): Promise<void> {
   if (assetPool) server.addHook("onClose", async () => {
     try { if (assetScanController) await assetScanController.shutdown(); } finally { await assetPool.end(); }
   });
-  if (appPool) server.addHook("onClose", async () => { await appPool.end(); });
+  if (appPool) server.addHook("onClose", async () => {
+    await shadowProjector.current?.stop();
+    await appPool.end();
+  });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {
     void shutdown(signal).catch(() => {
@@ -179,6 +195,7 @@ async function main(): Promise<void> {
   };
   process.once("SIGINT", () => handleSignal("SIGINT"));
   process.once("SIGTERM", () => handleSignal("SIGTERM"));
+  shadowProjector.current?.start();
   try { await server.listen({ host: config.host, port: config.port }); }
   catch (error) { await server.close().catch(() => undefined); throw error; }
 }

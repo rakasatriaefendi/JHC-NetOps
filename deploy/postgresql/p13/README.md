@@ -20,11 +20,12 @@ Realtime remain in place through P13.
    artifacts, and every restricted identity disposition.
 3. Confirm no P12 environment variable is present in the P13 operator shell.
 4. Review, but do not apply automatically, the prepared production application
-   schema at `backend/migrations/007_application_persistence.sql`. It derives
-   from the accepted P12 public schema and leaves `asset.*` unchanged. The
-   transactional projection outbox is a separate source blocker for the next
-   batch; no operator should execute 007 or arm local authority until the
-   complete repository/outbox design is reviewed and approved.
+   schema at `backend/migrations/007_application_persistence.sql` and the
+   transactional outbox/canary schema at `backend/migrations/008_application_persistence_outbox.sql`.
+   Both derive from the accepted P12 public schema and leave `asset.*` unchanged.
+   The transactional projection outbox and internal cutover canary are required
+   source blockers; no operator should execute 007/008 or arm local authority
+   until the complete repository/outbox/canary design is reviewed and approved.
 5. Run source tests and builds. Do not claim runtime acceptance from them.
 
 ## Explicit P13 command contract
@@ -211,7 +212,8 @@ Its evidence must prove the exact loopback `16/jhcnetops:5433/jhc_netops`
 identity and runtime role, required application/Asset/outbox/canary schema
 objects, exact reviewed migration version, passing active-work and buffer
 readiness, immutable S1 manifest, completed import, passing final verification,
-completed identity dispositions, and `PERSISTENCE_AUTHORITY=supabase`. Every
+completed identity dispositions, `PERSISTENCE_AUTHORITY=supabase`, outbox
+schema present, projector allowlist valid, and projector configured. Every
 missing observation is `UNKNOWN`, not `PASS`. Any `UNKNOWN` or `FAIL` blocks the
 stage. A passing report hash is written into the cutover record and is required
 before `arm-local-authority` can advance.
@@ -224,21 +226,31 @@ copy production rows into the report.
 
 `post-cutover-verify` runs only after Checkpoint 3 and postflight. It requires
 local application authority, healthy local backend, a clean internal cutover
-canary through an approved application path, a legacy Supabase mutation rejected
-before network access, Supabase Auth and shadow Realtime health, zero split-brain
-indications, the expected immutable release, healthy projection outbox, and
+canary through an approved application path (write, read-after-write, cleanup),
+a legacy Supabase mutation rejected before network access, Supabase Auth and
+shadow Realtime health, zero split-brain indications, the expected immutable
+release, healthy projection outbox (zero failed events, bounded lag), and
 exactly these stable PM2 processes:
 
 - `jhc-netops-backend`
 - `jhc-netops-frontend`
 - `jhc-netops-runner`
 
-There is no safe zero-footprint application-domain mutation in the current
-source. The reviewed production schema/local adapter batch must therefore add a
-dedicated internal cutover canary that creates no Asset, Medical Equipment,
-network, traffic, health, diagnostic, or telemetry row. Until that exists, the
-canary schema check remains `UNKNOWN` and P13 cannot be armed. Do not substitute
-a fake production device, target, medical record, event, or traffic row.
+The projection loop is owned by `jhc-netops-backend`; it is not a fourth PM2
+process. Backend shutdown stops and awaits the loop before closing PostgreSQL.
+
+The internal cutover canary uses only `public.cutover_canary`. Its Admin-only
+server action writes, reads, verifies, and deletes the bounded row through the
+loopback application API; it creates no Asset, Medical Equipment, network,
+traffic, health, diagnostic, or telemetry row. Do not substitute a fake
+production device, target, medical record, event, or traffic row.
+
+In `local_postgres` mode, diagnostic preflight/job creation, Manual Ping queue
+creation, Discovery prepare/start, Device Inspector start, and Traffic
+create/stop cross a Next server action and the loopback application API before
+writing PostgreSQL. These actions have no per-operation Supabase fallback or
+dual write. Their source-table writes use migration 008 triggers for the
+temporary Realtime shadow; Supabase mode keeps its existing Edge paths.
 
 ## Browser and operator smoke contract
 
@@ -269,7 +281,7 @@ Stop acceptance and classify rollback when any of these occurs:
   still active;
 - sustained backend/frontend/runner 5xx, crash, or PM2 instability;
 - Supabase Auth or required shadow Realtime fails unexpectedly;
-- outbox failure, unbounded lag, or any other split-brain indication.
+- outbox failure, unbounded lag, failed events, or any other split-brain indication.
 
 Before the first accepted local write, application release/configuration
 rollback may use the simple pre-authority procedure. After a local authoritative
@@ -336,8 +348,10 @@ database, run `import-final` and `verify-final`, then run
 ### 9. Arm local authority
 
 Capture fresh readiness evidence, run `arm-local-authority`, and set the reviewed
-candidate environment to `PERSISTENCE_AUTHORITY=local_postgres`. Do not permit
-per-operation fallback or independent dual writes.
+candidate environment to `PERSISTENCE_AUTHORITY=local_postgres`. The same
+reviewed authority value must be configured for the deployed legacy Edge
+mutation guard before writers are unfrozen; Supabase Auth and Realtime remain
+unchanged. Do not permit per-operation fallback or independent dual writes.
 
 ### 10. Deploy/switch current
 
@@ -391,10 +405,11 @@ evidence.
 
 ## P13 acceptance criteria
 
-- **P13 SOURCE READY:** production migration, complete local repositories,
+- **P13 SOURCE READY:** production migrations (007, 008), complete local repositories,
   authority guards, transactional shadow outbox/projector, internal canary,
   verifier tooling, tests, and runbook are reviewed and green. Current status:
-  **NO** because the migration, local repositories/outbox, and canary remain.
+  **NO** until the now-implemented Batch 5B local mutation adapters and all
+  focused/full source gates are reviewed.
 - **P13 RUNTIME READY:** immutable candidate is installed dormant, target/schema
   preflight passes, identities are dispositioned, writers can be frozen, and
   buffers can be drained or checkpointed. Requires Mini PC evidence.

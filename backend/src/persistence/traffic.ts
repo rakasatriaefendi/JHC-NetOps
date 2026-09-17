@@ -1,12 +1,13 @@
 import type { TrafficRequest } from "../traffic/contract.js";
 import { persistentFlow, TrafficRepositoryError, type TrafficRepository } from "../traffic/repository.js";
 import { PostgresRunnerHeartbeatRepository } from "./runner-heartbeat.js";
-import type { PostgresQuery } from "./postgres-query.js";
+import { ControlPlanePersistenceError, RUNNER_ID, UUID, record, requireFreshRunner, requireOperator } from "./control-plane.js";
+import type { PostgresTransactionalQuery } from "./postgres-query.js";
 
 type Row = Record<string, unknown>;
 
 export class PostgresTrafficRepository implements TrafficRepository {
-  constructor(private readonly database: PostgresQuery) {}
+  constructor(private readonly database: PostgresTransactionalQuery) {}
 
   async claim(runnerId: string, now: Date, signal: AbortSignal): Promise<Row | null> {
     await new PostgresRunnerHeartbeatRepository(this.database).expireStaleTrafficSessions(runnerId, signal);
@@ -108,5 +109,75 @@ export class PostgresTrafficRepository implements TrafficRepository {
     `, [], signal);
     const row = rows[0];
     return row ? { ...row, storage_mb: Number(row.storage_mb) } : null;
+  }
+
+  async createSession(actorId: string, runnerId: string, durationSeconds: number, signal: AbortSignal): Promise<Row> {
+    const DURATIONS = new Set([300, 600, 900, 1800]);
+    if (!UUID.test(actorId) || !RUNNER_ID.test(runnerId) || !DURATIONS.has(durationSeconds)) {
+      throw new ControlPlanePersistenceError("INVALID_CONTROL_PLANE_INPUT");
+    }
+    try {
+      return await this.database.transaction(signal, async (query) => {
+        await requireOperator(query, actorId, signal);
+        await query.rows(`
+          UPDATE public.traffic_live_sessions SET status='expired',stage='expired',completed_at=now(),updated_at=now(),
+            error_code='SESSION_ORPHANED',error_message='Traffic session lost its runner lease and was recovered automatically'
+          WHERE runner_id=$1 AND ((status='queued' AND created_at < now() - interval '10 minutes') OR
+            (status='stopping' AND (started_at IS NULL OR expires_at < now() OR updated_at < now() - interval '30 seconds')) OR
+            (status='running' AND (expires_at < now() OR updated_at < now() - interval '45 seconds')))
+        `, [runnerId], signal);
+        const runner = await requireFreshRunner(query, runnerId, "traffic_live", signal);
+        const durations = runner.capabilities.traffic_durations_seconds;
+        if (!Array.isArray(durations) || !durations.includes(durationSeconds)) {
+          throw new ControlPlanePersistenceError("OPERATION_NOT_AUTHORIZED");
+        }
+        const storage = await query.rows(`
+          SELECT CASE WHEN pg_total_relation_size('public.flows'::regclass) > 400 * 1024 * 1024
+            THEN 'critical' WHEN pg_total_relation_size('public.flows'::regclass) > 300 * 1024 * 1024
+            THEN 'warning' ELSE 'healthy' END AS status
+        `, [], signal);
+        if (storage[0]?.status === "critical") throw new ControlPlanePersistenceError("STORAGE_CRITICAL");
+        const busy = await query.rows(`
+          SELECT
+            EXISTS(SELECT 1 FROM public.diagnostic_jobs WHERE runner_id=$1 AND status IN ('queued','running')) AS diagnostic,
+            EXISTS(SELECT 1 FROM public.network_discovery_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS discovery,
+            EXISTS(SELECT 1 FROM public.device_inspection_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS inspection
+        `, [runnerId], signal);
+        if (busy[0]?.diagnostic === true || busy[0]?.discovery === true || busy[0]?.inspection === true) {
+          throw new ControlPlanePersistenceError("RUNNER_BUSY");
+        }
+        const rows = await query.rows(`
+          INSERT INTO public.traffic_live_sessions
+            (runner_id,requested_by,duration_seconds,status,stage)
+          VALUES ($1,$2::uuid,$3,'queued','queued')
+          RETURNING *
+        `, [runnerId, actorId, durationSeconds], signal);
+        if (!rows[0]) throw new ControlPlanePersistenceError("RUNNER_BUSY");
+        return rows[0];
+      });
+    } catch (error) {
+      if (record(error)?.code === "23505") throw new ControlPlanePersistenceError("RUNNER_BUSY");
+      throw error;
+    }
+  }
+
+  async stopSession(actorId: string, sessionId: string, signal: AbortSignal): Promise<Row | null> {
+    if (!UUID.test(actorId) || !UUID.test(sessionId)) {
+      throw new ControlPlanePersistenceError("INVALID_CONTROL_PLANE_INPUT");
+    }
+    return this.database.transaction(signal, async (query) => {
+      await requireOperator(query, actorId, signal);
+      const rows = await query.rows(`
+        UPDATE public.traffic_live_sessions SET
+          status='completed',stage='complete',completed_at=now(),updated_at=now()
+        WHERE id=$1::uuid AND status='queued' RETURNING *
+      `, [sessionId], signal);
+      if (rows[0]) return rows[0];
+      const running = await query.rows(`
+        UPDATE public.traffic_live_sessions SET status='stopping',stage='stopping',updated_at=now()
+        WHERE id=$1::uuid AND status='running' RETURNING *
+      `, [sessionId], signal);
+      return running[0] ?? null;
+    });
   }
 }

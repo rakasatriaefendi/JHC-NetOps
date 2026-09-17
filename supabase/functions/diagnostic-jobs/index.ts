@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { validateSnmpTelemetryCapability, type SnmpTelemetryCapability } from "./capabilities.ts";
 import { canOperateNetwork } from "../_shared/authorization.ts";
+import { legacyApplicationMutationBlocked, legacyApplicationMutationBlockedResponse } from "../_shared/persistence-authority.ts";
 
 type ConnectionType = "wifi" | "ethernet";
 type Environment = "lan" | "localhost_demo";
@@ -102,6 +103,7 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405, { Allow: "GET, POST" });
   }
+  if (legacyApplicationMutationBlocked()) return legacyApplicationMutationBlockedResponse(CORS_HEADERS);
 
   let payload: unknown;
   try {
