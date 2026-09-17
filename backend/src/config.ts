@@ -13,6 +13,7 @@ export type BackendConfig = Readonly<{
   runnerApiToken: string;
   frontendApiToken: string;
   persistenceAuthority: PersistenceAuthority;
+  candidateReadOnly: boolean;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   applicationDatabaseUrl: string;
@@ -53,6 +54,12 @@ export function loadBackendConfig(
   const runnerApiToken = requiredSecret(environment.RUNNER_API_TOKEN, "RUNNER_API_TOKEN", 32, 512);
   const frontendApiToken = requiredSecret(environment.FRONTEND_API_TOKEN, "FRONTEND_API_TOKEN", 32, 512);
   const persistenceAuthority = parsePersistenceAuthority(environment.PERSISTENCE_AUTHORITY);
+  const candidateReadOnly = parseCandidateReadOnly(environment.P13_CANDIDATE_READ_ONLY);
+  if (candidateReadOnly && persistenceAuthority === "local_postgres") {
+    throw new BackendConfigurationError(
+      "P13_CANDIDATE_READ_ONLY cannot be enabled with local_postgres authority",
+    );
+  }
   const supabaseUrl = parseSupabaseUrl(environment.SUPABASE_URL);
   const supabaseServiceRoleKey = requiredSecret(
     environment.SUPABASE_SERVICE_ROLE_KEY,
@@ -75,7 +82,15 @@ export function loadBackendConfig(
       scan: parseAssetScanConfig(environment),
     })
     : null;
-  return Object.freeze({ host, port, runnerApiToken, frontendApiToken, persistenceAuthority, supabaseUrl, supabaseServiceRoleKey, applicationDatabaseUrl, assets });
+  return Object.freeze({ host, port, runnerApiToken, frontendApiToken, persistenceAuthority, candidateReadOnly,
+    supabaseUrl, supabaseServiceRoleKey, applicationDatabaseUrl, assets });
+}
+
+function parseCandidateReadOnly(value: string | undefined): boolean {
+  const configured = value?.trim();
+  if (!configured || configured === "false") return false;
+  if (configured === "true") return true;
+  throw new BackendConfigurationError("P13_CANDIDATE_READ_ONLY must be true or false");
 }
 
 function parseReportBrandingDir(value: string | undefined): string {

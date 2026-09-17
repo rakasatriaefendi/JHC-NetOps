@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   }) : null;
   const assetRepository = assetPool ? new PostgresAssetRepository(assetPool) : null;
   const reportBranding = config.assets ? new FileReportBrandingStore(config.assets.reportBrandingDir) : null;
-  const assetSynchronizer = assetRepository
+  const assetSynchronizer = assetRepository && !config.candidateReadOnly
     ? new BoundedAssetSynchronizer(
       new SupabaseAssetEvidenceSource(config.supabaseUrl, config.supabaseServiceRoleKey),
       assetRepository,
@@ -105,7 +105,9 @@ async function main(): Promise<void> {
   const scanNetworkManager = assetPool && config.assets
     ? new ScanNetworkManager(new PostgresScanNetworkRepository(assetPool), new LinuxIpRouteAdapter())
     : null;
-  if (scanNetworkManager && config.assets) await scanNetworkManager.initialize(config.assets.scan.networks);
+  if (!config.candidateReadOnly && scanNetworkManager && config.assets) {
+    await scanNetworkManager.initialize(config.assets.scan.networks);
+  }
   const assetScanController = assetPool && config.assets && scanNetworkManager
     ? new AssetScanController(
       new PostgresAssetScanRepository(assetPool),
@@ -116,13 +118,14 @@ async function main(): Promise<void> {
       config.assets.scan.discoveryTimeoutMs,
     )
     : null;
-  if (assetScanController) await assetScanController.initialize();
+  if (!config.candidateReadOnly && assetScanController) await assetScanController.initialize();
   const appPool = config.persistenceAuthority === "local_postgres" && "_pool" in applicationRepositories
     ? (applicationRepositories as Record<string, unknown>)._pool as Pool
     : null;
   const localRepos = config.persistenceAuthority === "local_postgres" ? applicationRepositories as ApplicationRepositories : null;
 
   const buildServerOptions: Record<string, unknown> = {
+    candidateReadOnly: config.candidateReadOnly,
     runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },
     networkHealth: { token: config.runnerApiToken, repository: applicationRepositories.health },
     traffic: { token: config.runnerApiToken, repository: applicationRepositories.traffic },

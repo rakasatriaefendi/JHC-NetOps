@@ -304,6 +304,22 @@ Build and verify one immutable P13 release. Record its full SHA and work only
 from `/var/www/jhc/jhc_noc/releases/<P13_SHA>`. Keep `current` on the accepted
 release until step 10.
 
+For P13.10 parallel backend runtime validation only, start the immutable
+candidate with both:
+
+```text
+PERSISTENCE_AUTHORITY=supabase
+P13_CANDIDATE_READ_ONLY=true
+```
+
+This candidate-only switch is invalid with `local_postgres`. It prevents
+Scan Network bootstrap, interrupted Asset Scan recovery, Asset evidence
+synchronization, and all non-GET/HEAD/OPTIONS HTTP requests before a repository
+handler runs. `/healthz` and required authenticated read paths remain usable.
+Do not point the live frontend or runner at this parallel candidate. Normal
+live/current behavior uses `P13_CANDIDATE_READ_ONLY=false` or leaves it unset;
+the switch is not part of the final authority cutover configuration.
+
 ### 2. Backup/checkpoint
 
 Retain S0/P12 evidence and create the reviewed pre-apply checkpoint of only

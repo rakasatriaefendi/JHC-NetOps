@@ -16,6 +16,7 @@ export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 
 type BuildServerOptions = Readonly<{
+  candidateReadOnly?: boolean;
   assets?: AssetRouteOptions;
   assetChanges?: AssetChangeRouteOptions;
   assetScan?: AssetScanRouteOptions;
@@ -62,9 +63,23 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     }, "request completed");
   });
 
+  if (options.candidateReadOnly) {
+    server.addHook("onRequest", async (request, reply) => {
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+        return reply.code(503).send({
+          error: {
+            code: "CANDIDATE_READ_ONLY",
+            message: "Candidate runtime does not accept mutating requests",
+          },
+        });
+      }
+    });
+  }
+
   server.get("/healthz", async () => ({
     status: "ok",
     service: BACKEND_SERVICE_NAME,
+    ...(options.candidateReadOnly ? { candidate_read_only: true } : {}),
   }));
 
   if (options.runnerHeartbeat) {
