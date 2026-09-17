@@ -2,15 +2,20 @@
 BEGIN;
 
 -- P13 Batch 5: transactional Realtime shadow outbox and internal cutover canary.
--- Execute explicitly, once, only against PostgreSQL 16/jhcnetops on loopback
--- port 5433 after migration 007. Supabase internal schemas and asset.* stay unchanged.
+-- Execute explicitly, once, only against PostgreSQL 16/jhcnetops through its
+-- reviewed Unix socket or a loopback connection on port 5433 after migration
+-- 007. Supabase internal schemas and asset.* stay unchanged.
 DO $$
 BEGIN
   IF current_database() <> 'jhc_netops'
-     OR inet_server_port() IS DISTINCT FROM 5433
-     OR host(inet_server_addr()) IS NULL
-     OR host(inet_server_addr()) NOT IN ('127.0.0.1', '::1')
+     OR current_setting('port')::integer <> 5433
+     OR (
+       inet_server_addr() IS NOT NULL
+       AND host(inet_server_addr()) NOT IN ('127.0.0.1', '::1')
+     )
      OR current_setting('server_version_num')::integer NOT BETWEEN 160000 AND 169999
+     OR current_setting('data_directory') <> '/var/lib/postgresql/16/jhcnetops'
+     OR session_user <> 'postgres'
      OR to_regclass('asset.assets') IS NULL
      OR to_regclass('public.application_schema_migrations') IS NULL
      OR NOT EXISTS (SELECT 1 FROM public.application_schema_migrations WHERE version = 7)

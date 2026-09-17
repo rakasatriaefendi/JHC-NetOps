@@ -217,6 +217,11 @@ The command validates the raw manifest SHA-256, exact 21-table allowlist,
 per-table artifact SHA/count/schema/key uniqueness, immutable cutover record,
 and exact peer-authenticated `postgres` session over `/var/run/postgresql` to
 `16/jhcnetops:5433/jhc_netops` (including exact data-directory verification).
+The production migration guards accept a null `inet_server_addr()` only for
+this reviewed Unix-socket path. A non-null server address must be loopback, and
+the guards still require PostgreSQL 16, database `jhc_netops`, port 5433, exact
+data directory `/var/lib/postgresql/16/jhcnetops`, session user `postgres`, and
+the existing `asset.assets` relation.
 No postgres password or owner-login credential is introduced. Under one
 advisory-locked transaction it runs the migration 007 body, `SET ROLE
 jhc_netops_owner`, complete S1 inserts in FK order, only the

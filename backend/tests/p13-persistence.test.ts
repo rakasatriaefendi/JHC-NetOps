@@ -21,7 +21,7 @@ test("migration 007 carries all 21 reviewed application tables without Auth, Rea
   const created = [...migration.matchAll(/CREATE TABLE public\.([a-z_]+)\s*\(/g)].map((match) => match[1]);
   assert.deepEqual(new Set(created), new Set([...P12_TABLES.map(({ table }) => table), "application_schema_migrations"]));
   assert.match(migration, /current_database\(\) <> 'jhc_netops'/);
-  assert.match(migration, /inet_server_port\(\) IS DISTINCT FROM 5433/);
+  assert.match(migration, /current_setting\('port'\)::integer <> 5433/);
   assert.match(migration, /to_regclass\('asset\.assets'\) IS NULL/);
   assert.match(migration, /INSERT INTO public\.application_schema_migrations\(version\) VALUES \(7\)/);
   assert.doesNotMatch(migration, /(?:CREATE|ALTER|DROP|INSERT INTO|UPDATE|DELETE FROM)\s+(?:TABLE\s+)?(?:auth|realtime|storage|asset)\./i);

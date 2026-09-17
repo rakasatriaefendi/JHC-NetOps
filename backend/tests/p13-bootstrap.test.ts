@@ -195,6 +195,31 @@ test("migration body loader accepts only reviewed hashes and strips exactly the 
   }
 });
 
+test("production migration guards accept the reviewed Unix socket and reject other target identities", () => {
+  for (const source of [MIGRATION_007, MIGRATION_008]) {
+    assert.match(source, /current_database\(\) <> 'jhc_netops'/);
+    assert.match(source, /current_setting\('port'\)::integer <> 5433/);
+    assert.match(
+      source,
+      /inet_server_addr\(\) IS NOT NULL\s+AND host\(inet_server_addr\(\)\) NOT IN \('127\.0\.0\.1', '::1'\)/,
+    );
+    assert.doesNotMatch(source, /host\(inet_server_addr\(\)\) IS NULL/);
+    assert.match(source, /current_setting\('server_version_num'\)::integer NOT BETWEEN 160000 AND 169999/);
+    assert.match(source, /current_setting\('data_directory'\) <> '\/var\/lib\/postgresql\/16\/jhcnetops'/);
+    assert.match(source, /session_user <> 'postgres'/);
+    assert.match(source, /to_regclass\('asset\.assets'\) IS NULL/);
+  }
+});
+
+test("production migrations contain no asset schema mutation", () => {
+  for (const source of [MIGRATION_007, MIGRATION_008]) {
+    assert.doesNotMatch(
+      source,
+      /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE|ALTER\s+TABLE|CREATE\s+TABLE|DROP\s+TABLE)\s+asset\./i,
+    );
+  }
+});
+
 test("asset schema and complete data fingerprint changes abort and roll back", async () => {
   const fixture = s1Fixture();
   const fake = fakeBootstrapDatabase(fixture, { mutateAssetAfterImport: true });

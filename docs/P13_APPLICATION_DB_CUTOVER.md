@@ -333,6 +333,10 @@ peer-authenticated administrative `postgres` connection on the dedicated Unix
 socket with `SET ROLE jhc_netops_owner`; the
 non-SQL journal continues using `jhc_netops_app` and records that owner
 execution role in bounded evidence.
+The migration guards treat a null `inet_server_addr()` as the reviewed Unix
+socket path; any non-null address must be loopback. They additionally pin the
+database, port, PostgreSQL major version, session user, existing Asset schema,
+and exact data directory `/var/lib/postgresql/16/jhcnetops`.
 
 On the verified Mini PC, that administrative bootstrap runs from the immutable
 backend release with the dedicated executable

@@ -2,16 +2,21 @@
 BEGIN;
 
 -- P13 production application schema. Execute explicitly, once, only against
--- the dedicated PostgreSQL 16/jhcnetops cluster on loopback port 5433.
+-- the dedicated PostgreSQL 16/jhcnetops cluster through its reviewed Unix
+-- socket or a loopback connection on port 5433.
 -- This transaction never creates or changes asset.*, Supabase Auth, Realtime,
 -- RLS publications, cron jobs, or Supabase internal schemas.
 DO $$
 BEGIN
   IF current_database() <> 'jhc_netops'
-     OR inet_server_port() IS DISTINCT FROM 5433
-     OR host(inet_server_addr()) IS NULL
-     OR host(inet_server_addr()) NOT IN ('127.0.0.1', '::1')
+     OR current_setting('port')::integer <> 5433
+     OR (
+       inet_server_addr() IS NOT NULL
+       AND host(inet_server_addr()) NOT IN ('127.0.0.1', '::1')
+     )
      OR current_setting('server_version_num')::integer NOT BETWEEN 160000 AND 169999
+     OR current_setting('data_directory') <> '/var/lib/postgresql/16/jhcnetops'
+     OR session_user <> 'postgres'
      OR to_regclass('asset.assets') IS NULL
   THEN
     RAISE EXCEPTION 'P13 application migration target is not the dedicated reviewed PostgreSQL 16 cluster';

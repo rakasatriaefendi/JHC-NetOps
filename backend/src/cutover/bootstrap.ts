@@ -28,8 +28,8 @@ export const P13_SHADOW_TRIGGERS = Object.freeze([
 ] as const);
 
 const MIGRATION_SHA256 = Object.freeze({
-  7: "3bca710e7bde75505af29d5abe1bf858527b0718e38ec329e07211912de23983",
-  8: "0067542c718a39bb542c305f09bc891a852050406494fb8996be5440eb5645c5",
+  7: "d33d8b69f8c0df2f5231b952d62670eb05d3abd50e47f5ce4902c0d28d85fb9e",
+  8: "d9b78cb7578b323cae0a24bf1244415bb5de3980497b9ca78d6c114797792735",
 } as const);
 
 export type P13ImportMode = "bootstrap" | "delta";
