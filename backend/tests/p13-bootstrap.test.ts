@@ -181,17 +181,21 @@ test("S1 artifacts reject SHA mismatch, row-count mismatch, malformed arrays, sc
   }
 });
 
-test("migration body loader accepts only reviewed hashes and strips exactly the outer transaction wrapper", () => {
+test("migration body loader accepts equivalent line endings and strips exactly the outer transaction wrapper", () => {
   for (const [version, source] of [[7, MIGRATION_007], [8, MIGRATION_008]] as const) {
-    const body = migrationBody(source, version);
-    assert.doesNotMatch(body, /^\s*BEGIN;/);
-    assert.doesNotMatch(body, /COMMIT;\s*$/);
-    assert.doesNotMatch(body, /^\s*\\set/m);
-    assert.match(body, /SET ROLE jhc_netops_owner;/);
-    assert.match(body, new RegExp(`application_schema_migrations\\(version\\) VALUES \\(${version}\\);`));
-    assert.throws(() => migrationBody(`${source}\n-- changed`, version), /reviewed hash/);
-    assert.throws(() => migrationBody(source.replace("BEGIN;", ""), version), /reviewed hash/);
-    assert.throws(() => migrationBody(source.replace(/COMMIT;\s*$/, ""), version), /reviewed hash/);
+    const lfSource = source.replace(/\r\n?|\n/g, "\n");
+    const variants = [lfSource, lfSource.replaceAll("\n", "\r\n"), lfSource.replaceAll("\n", "\r")];
+    for (const variant of variants) {
+      const body = migrationBody(variant, version);
+      assert.doesNotMatch(body, /^\s*BEGIN;/);
+      assert.doesNotMatch(body, /COMMIT;\s*$/);
+      assert.doesNotMatch(body, /^\s*\\set/m);
+      assert.match(body, /SET ROLE jhc_netops_owner;/);
+      assert.match(body, new RegExp(`application_schema_migrations\\(version\\) VALUES \\(${version}\\);`));
+    }
+    assert.throws(() => migrationBody(`${lfSource}\n-- changed`, version), /reviewed hash/);
+    assert.throws(() => migrationBody(lfSource.replace("BEGIN;", ""), version), /reviewed hash/);
+    assert.throws(() => migrationBody(lfSource.replace(/COMMIT;\s*$/, ""), version), /reviewed hash/);
   }
 });
 

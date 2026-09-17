@@ -28,8 +28,8 @@ export const P13_SHADOW_TRIGGERS = Object.freeze([
 ] as const);
 
 const MIGRATION_SHA256 = Object.freeze({
-  7: "d33d8b69f8c0df2f5231b952d62670eb05d3abd50e47f5ce4902c0d28d85fb9e",
-  8: "d9b78cb7578b323cae0a24bf1244415bb5de3980497b9ca78d6c114797792735",
+  7: "33d813730b0403179c5c2a3b45e5df7578dd793eaac3713f26b9989fb3a2cef2",
+  8: "902a2925632da47adbb2a3e44f36bf0ef175e59d0550b33fa422bf77bc1799c1",
 } as const);
 
 export type P13ImportMode = "bootstrap" | "delta";
@@ -187,8 +187,9 @@ export function assertP13ImportMode(mode: P13ImportMode, inventory: P13TargetInv
 }
 
 export function migrationBody(source: string, version: 7 | 8): string {
-  if (sha256(source) !== MIGRATION_SHA256[version]) throw new P13BootstrapError(`Migration ${version} source hash is not the reviewed hash`);
-  const lines = source.replaceAll("\r\n", "\n").trim().split("\n");
+  const normalizedSource = source.replace(/\r\n?|\n/g, "\n");
+  if (sha256(normalizedSource) !== MIGRATION_SHA256[version]) throw new P13BootstrapError(`Migration ${version} source hash is not the reviewed hash`);
+  const lines = normalizedSource.trim().split("\n");
   const transactionLines = lines.map((line, index) => ({ line: line.trim(), index }))
     .filter(({ line }) => line === "BEGIN;" || line === "COMMIT;");
   if (lines[0]?.trim() !== "\\set ON_ERROR_STOP on" || lines[1]?.trim() !== "BEGIN;" || lines.at(-1)?.trim() !== "COMMIT;" ||

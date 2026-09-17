@@ -355,11 +355,13 @@ root. P12 `asset-baseline.dump` contains the local Asset baseline only; it is
 not an application S0 seed and cannot authorize delta mode.
 
 Both migration files retain their reviewed `BEGIN`/`COMMIT` wrappers on disk.
-The bootstrap loader pins each complete file SHA-256 and exact outer wrapper,
-then removes only `\set ON_ERROR_STOP on`, the outer `BEGIN`, and the final
-`COMMIT` before executing the remaining migration body inside one
-advisory-locked bootstrap transaction. Any file or wrapper drift blocks before
-schema mutation. The transaction order is migration 007 body, full S1 insert
+The bootstrap loader pins each complete migration source SHA-256 after
+canonicalizing CRLF and lone-CR line endings to LF, while preserving all other
+content, and validates the exact outer wrapper. It then removes only `\set
+ON_ERROR_STOP on`, the outer `BEGIN`, and the final `COMMIT` before executing
+the remaining migration body inside one advisory-locked bootstrap transaction.
+Any SQL/content or wrapper drift blocks before schema mutation. The transaction
+order is migration 007 body, full S1 insert
 in the existing FK-safe P12 import order, only the Health-sample sequence
 reset, migration 008 body, full parity/outbox/trigger/Asset invariants, then
 one final commit.
