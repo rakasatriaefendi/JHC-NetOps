@@ -40,7 +40,12 @@ export type P13ImportEvidence = Readonly<{
   status: "PASS" | "FAIL";
   source_checkpoint_identity: string;
   final_snapshot_sha256: string;
-  target: Readonly<{ cluster: string; port: number; database: string }>;
+  target: Readonly<{
+    cluster: string;
+    port: number;
+    database: string;
+    execution_role: "jhc_netops_owner";
+  }>;
 }>;
 
 export type P13VerificationEvidence = P13ImportEvidence;
@@ -103,7 +108,8 @@ export function recordFreezeReadiness(
   now: () => Date = () => new Date(),
 ): P13CutoverRecord {
   assertRecord(record);
-  if (record.checkpoint !== "CHECKPOINT_0_PRE_FREEZE" || readiness.status !== "PASS" ||
+  if (record.checkpoint !== "CHECKPOINT_0_PRE_FREEZE" || readiness.gate !== "pre_migration_freeze" ||
+      readiness.status !== "PASS" ||
       readiness.source_checkpoint_identity !== record.source_checkpoint_identity || readiness.evidence_sha256.length !== 64) {
     throw new P13CutoverError("P13 freeze readiness is blocked");
   }
@@ -164,7 +170,8 @@ export function armLocalAuthority(
   assertRecord(record);
   if (record.checkpoint !== "CHECKPOINT_2_LOCAL_IMPORTED_VERIFIED" || !record.final_parity_verified ||
       !record.pre_cutover_verification_sha256 ||
-      readiness.status !== "PASS" || readiness.source_checkpoint_identity !== record.source_checkpoint_identity) {
+      readiness.gate !== "post_import_authority" || readiness.status !== "PASS" ||
+      readiness.source_checkpoint_identity !== record.source_checkpoint_identity) {
     throw new P13CutoverError("P13 local authority cannot be armed without fresh passing freeze evidence and final parity");
   }
   assertP13CheckpointTransition(record.checkpoint, "CHECKPOINT_3_LOCAL_ARMED_NO_WRITES");
@@ -275,7 +282,7 @@ function assertEvidence(record: P13CutoverRecord, evidence: P13ImportEvidence, l
       evidence.source_checkpoint_identity !== record.source_checkpoint_identity ||
       evidence.final_snapshot_sha256 !== record.final_snapshot_sha256 ||
       evidence.target?.cluster !== record.target.cluster || evidence.target.port !== record.target.port ||
-      evidence.target.database !== record.target.database) {
+      evidence.target.database !== record.target.database || evidence.target.execution_role !== "jhc_netops_owner") {
     throw new P13CutoverError(`P13 ${label} evidence does not match the guarded target/checkpoint`);
   }
 }

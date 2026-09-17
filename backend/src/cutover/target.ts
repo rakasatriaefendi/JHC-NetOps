@@ -46,8 +46,8 @@ export function loadP13Target(action: P13Action, environment: Readonly<Record<st
     throw new P13TargetError("P13 target must be 16/jhcnetops on port 5433 database jhc_netops");
   }
   if (role !== "jhc_netops_owner" && role !== "jhc_netops_app") throw new P13TargetError("P13 expected role is invalid");
-  if (action === "import-final" && role !== "jhc_netops_owner") {
-    throw new P13TargetError("P13 final import requires the explicit jhc_netops_owner role");
+  if (action === "import-final" && role !== "jhc_netops_app") {
+    throw new P13TargetError("P13 final import journal requires the explicit jhc_netops_app role");
   }
   if (["verify-final", "pre-cutover-verify", "postflight", "post-cutover-verify"].includes(action) && role !== "jhc_netops_app") {
     throw new P13TargetError(`P13 ${action} requires the explicit jhc_netops_app role`);

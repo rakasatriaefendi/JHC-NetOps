@@ -369,9 +369,13 @@ writer-specific:
    the end of the complete capture window.
 9. Produce the signed/canonical S0-to-S1 delta and delete manifest. Checkpoint
    local `jhc_netops` (including `asset.*`) before apply.
-10. Apply the P13 delta once, transactionally, to local `public`; adjust the
-    Health sample sequence; run P12 parity plus P13 active-state and identity
-    verification against S1.
+10. Apply migrations `007`/`008` and the P13 delta once, transactionally, to
+    local `public` through the reviewed administrative path using
+    `SET ROLE jhc_netops_owner`; adjust the Health sample sequence; run P12
+    parity plus P13 active-state and identity verification against S1. The
+    non-SQL evidence journal uses the login-capable `jhc_netops_app` DSN and
+    separately records the owner execution role; `jhc_netops_owner` remains
+    `NOLOGIN`.
 11. Switch application configuration once to local authority. Start backend
     first, then frontend, runner, and agent. They must have no fallback to an
     old Edge persistence path. Enable the local outbox projector only after the
@@ -486,6 +490,14 @@ The runtime authority selector requires an explicit value and refuses local mode
 until the complete local application repository/outbox layer exists. A missing,
 invalid, or partial local setting therefore cannot silently fall back to Supabase
 writes.
+
+Readiness is stage-specific. The pre-migration freeze gate proves source
+quiescence and the four existing runner/SQLite buffers without claiming
+migration-`008` objects. The post-import authority gate and pre-cutover verifier
+then require migration `008`, outbox/canary readiness, the projection-outbox
+buffer, projector configuration/allowlist, and bounded outbox health before
+Checkpoint 3 can be armed. Missing evidence at either applicable gate fails
+closed.
 
 Migration `007` now exists as unexecuted source and is protected by an explicit
 dedicated-target check. Initial local profiles, runner-heartbeat,

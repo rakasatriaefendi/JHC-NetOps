@@ -24,15 +24,20 @@ export const P13_WORKFLOW_POLICIES = Object.freeze({
 export type P13WorkflowTable = keyof typeof P13_WORKFLOW_POLICIES;
 export type P13WorkflowCategory = "safe_terminal" | "active" | "queued" | "transitional" | "expired";
 
-export const P13_REQUIRED_BUFFERS = Object.freeze([
+export const P13_FREEZE_BUFFERS = Object.freeze([
   "network-health-state",
   "snmp-telemetry-state",
   "metrics-sqlite",
   "traffic-sqlite",
+] as const);
+
+export const P13_REQUIRED_BUFFERS = Object.freeze([
+  ...P13_FREEZE_BUFFERS,
   "projection-outbox",
 ] as const);
 
 export type P13BufferName = (typeof P13_REQUIRED_BUFFERS)[number];
+export type P13ReadinessGate = "pre_migration_freeze" | "post_import_authority";
 
 export type P13BufferEvidence = P13ReadinessEvidence["buffers"][number];
 
@@ -44,16 +49,16 @@ export type P13ReadinessEvidence = Readonly<{
   registration_frozen: boolean;
   cleanup_schedules_paused: boolean;
   asset_evidence_sync_enabled: boolean;
-  application_local_adapter_ready: boolean;
-  local_control_plane_ready: boolean;
-  legacy_mutation_guards_ready: boolean;
-  realtime_projection_ready: boolean;
-  outbox_schema_ready: boolean;
-  outbox_pending_count: number;
-  outbox_failed_count: number;
-  outbox_oldest_pending_age_ms: number | null;
-  projector_allowlist_valid: boolean;
-  projector_configured: boolean;
+  application_local_adapter_ready?: boolean;
+  local_control_plane_ready?: boolean;
+  legacy_mutation_guards_ready?: boolean;
+  realtime_projection_ready?: boolean;
+  outbox_schema_ready?: boolean;
+  outbox_pending_count?: number;
+  outbox_failed_count?: number;
+  outbox_oldest_pending_age_ms?: number | null;
+  projector_allowlist_valid?: boolean;
+  projector_configured?: boolean;
   unresolved_identity_blockers: number;
   runner: Readonly<{
     process_paused: boolean;
@@ -73,6 +78,7 @@ export type P13ReadinessEvidence = Readonly<{
 
 export type P13ReadinessReport = Readonly<{
   version: 1;
+  gate: P13ReadinessGate;
   status: "PASS" | "BLOCKED";
   source_checkpoint_identity: string;
   evidence_sha256: string;
@@ -94,8 +100,11 @@ export class P13ReadinessError extends Error {
   }
 }
 
-export function evaluateP13Readiness(evidence: P13ReadinessEvidence): P13ReadinessReport {
-  validateEvidence(evidence);
+export function evaluateP13Readiness(
+  evidence: P13ReadinessEvidence,
+  gate: P13ReadinessGate,
+): P13ReadinessReport {
+  validateEvidence(evidence, gate);
   const blockers: string[] = [];
   const activeWork: Array<P13ReadinessReport["active_work"][number]> = [];
 
@@ -113,16 +122,18 @@ export function evaluateP13Readiness(evidence: P13ReadinessEvidence): P13Readine
   if (!evidence.registration_frozen) blockers.push("registration_not_frozen");
   if (!evidence.cleanup_schedules_paused) blockers.push("cleanup_schedules_not_paused");
   if (evidence.asset_evidence_sync_enabled) blockers.push("asset_evidence_sync_not_disabled");
-  if (!evidence.application_local_adapter_ready) blockers.push("local_application_adapter_not_ready");
-  if (!evidence.local_control_plane_ready) blockers.push("local_control_plane_not_ready");
-  if (!evidence.legacy_mutation_guards_ready) blockers.push("legacy_mutation_guards_not_ready");
-  if (!evidence.realtime_projection_ready) blockers.push("realtime_projection_not_ready");
-  if (!evidence.outbox_schema_ready) blockers.push("outbox_schema_not_ready");
-  if (!evidence.projector_allowlist_valid) blockers.push("projector_allowlist_invalid");
-  if (!evidence.projector_configured) blockers.push("projector_not_configured");
-  if (evidence.outbox_failed_count > 0) blockers.push("outbox_failed_events_present");
-  if (evidence.outbox_oldest_pending_age_ms !== null && evidence.outbox_oldest_pending_age_ms > 300_000) {
-    blockers.push("outbox_oldest_pending_exceeds_threshold");
+  if (gate === "post_import_authority") {
+    if (!evidence.application_local_adapter_ready) blockers.push("local_application_adapter_not_ready");
+    if (!evidence.local_control_plane_ready) blockers.push("local_control_plane_not_ready");
+    if (!evidence.legacy_mutation_guards_ready) blockers.push("legacy_mutation_guards_not_ready");
+    if (!evidence.realtime_projection_ready) blockers.push("realtime_projection_not_ready");
+    if (!evidence.outbox_schema_ready) blockers.push("outbox_schema_not_ready");
+    if (!evidence.projector_allowlist_valid) blockers.push("projector_allowlist_invalid");
+    if (!evidence.projector_configured) blockers.push("projector_not_configured");
+    if (evidence.outbox_failed_count! > 0) blockers.push("outbox_failed_events_present");
+    if (evidence.outbox_oldest_pending_age_ms !== null && evidence.outbox_oldest_pending_age_ms! > 300_000) {
+      blockers.push("outbox_oldest_pending_exceeds_threshold");
+    }
   }
   if (evidence.unresolved_identity_blockers > 0) blockers.push("identity_disposition_incomplete");
   if (!evidence.runner.process_paused || !evidence.runner.heartbeat_writer_paused) {
@@ -131,7 +142,8 @@ export function evaluateP13Readiness(evidence: P13ReadinessEvidence): P13Readine
   if (evidence.runner.active_probe_count > 0) blockers.push("runner_probe_in_flight");
 
   const buffers = new Map(evidence.buffers.map((buffer) => [buffer.name, buffer]));
-  for (const name of P13_REQUIRED_BUFFERS) {
+  const requiredBuffers = gate === "pre_migration_freeze" ? P13_FREEZE_BUFFERS : P13_REQUIRED_BUFFERS;
+  for (const name of requiredBuffers) {
     const buffer = buffers.get(name);
     if (!buffer) {
       blockers.push(`buffer_evidence_missing:${name}`);
@@ -150,6 +162,7 @@ export function evaluateP13Readiness(evidence: P13ReadinessEvidence): P13Readine
   const uniqueBlockers = Object.freeze([...new Set(blockers)].sort());
   return Object.freeze({
     version: 1,
+    gate,
     status: uniqueBlockers.length ? "BLOCKED" : "PASS",
     source_checkpoint_identity: evidence.source_checkpoint_identity,
     evidence_sha256: sha256(canonicalJson(evidence)),
@@ -213,7 +226,7 @@ export function buildP13SqliteBufferEvidence(options: Readonly<{
   });
 }
 
-function validateEvidence(evidence: P13ReadinessEvidence): void {
+function validateEvidence(evidence: P13ReadinessEvidence, gate: P13ReadinessGate): void {
   if (!evidence || evidence.version !== 1 || !/^[0-9a-f]{64}$/.test(evidence.source_checkpoint_identity) ||
       !validTimestamp(evidence.captured_at)) {
     throw new P13ReadinessError("P13 readiness evidence header is invalid");
@@ -222,18 +235,23 @@ function validateEvidence(evidence: P13ReadinessEvidence): void {
       !Number.isSafeInteger(evidence.runner?.active_probe_count) || evidence.runner.active_probe_count < 0) {
     throw new P13ReadinessError("P13 readiness counts are invalid");
   }
-  if (typeof evidence.local_control_plane_ready !== "boolean" ||
-      typeof evidence.outbox_schema_ready !== "boolean" ||
-      typeof evidence.outbox_pending_count !== "number" ||
-      typeof evidence.outbox_failed_count !== "number" ||
-      (evidence.outbox_oldest_pending_age_ms !== null && typeof evidence.outbox_oldest_pending_age_ms !== "number") ||
-      typeof evidence.projector_allowlist_valid !== "boolean" ||
-      typeof evidence.projector_configured !== "boolean") {
-    throw new P13ReadinessError("P13 readiness outbox/projector fields are invalid");
-  }
-  if (evidence.outbox_pending_count < 0 || evidence.outbox_failed_count < 0 ||
-      (evidence.outbox_oldest_pending_age_ms !== null && evidence.outbox_oldest_pending_age_ms < 0)) {
-    throw new P13ReadinessError("P13 readiness outbox counts are invalid");
+  if (gate === "post_import_authority") {
+    if (typeof evidence.application_local_adapter_ready !== "boolean" ||
+        typeof evidence.local_control_plane_ready !== "boolean" ||
+        typeof evidence.legacy_mutation_guards_ready !== "boolean" ||
+        typeof evidence.realtime_projection_ready !== "boolean" ||
+        typeof evidence.outbox_schema_ready !== "boolean" ||
+        typeof evidence.outbox_pending_count !== "number" ||
+        typeof evidence.outbox_failed_count !== "number" ||
+        (evidence.outbox_oldest_pending_age_ms !== null && typeof evidence.outbox_oldest_pending_age_ms !== "number") ||
+        typeof evidence.projector_allowlist_valid !== "boolean" ||
+        typeof evidence.projector_configured !== "boolean") {
+      throw new P13ReadinessError("P13 post-import readiness fields are missing or invalid");
+    }
+    if (evidence.outbox_pending_count < 0 || evidence.outbox_failed_count < 0 ||
+        (evidence.outbox_oldest_pending_age_ms !== null && evidence.outbox_oldest_pending_age_ms < 0)) {
+      throw new P13ReadinessError("P13 readiness outbox counts are invalid");
+    }
   }
   for (const table of Object.keys(P13_WORKFLOW_POLICIES) as P13WorkflowTable[]) {
     const rows = evidence.workflows?.[table];

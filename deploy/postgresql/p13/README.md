@@ -47,10 +47,16 @@ P13_CUTOVER_RECORD_PATH=<immutable-shared-P13-record-path>
 P13_EVIDENCE_PATH=<stage-specific-evidence-path> # except preflight
 ```
 
-`import-final` requires `jhc_netops_owner`; `verify-final` and `postflight`
-require `jhc_netops_app`. `pre-cutover-verify` and `post-cutover-verify` also
-require `jhc_netops_app`. The non-SQL journal stages accept either only when
-the role and DSN agree exactly.
+`import-final` is an evidence-journal action and requires the login-capable
+`jhc_netops_app` identity, as do `verify-final`, `pre-cutover-verify`,
+`postflight`, and `post-cutover-verify`. The journal never logs in as
+`jhc_netops_owner`: provisioning intentionally keeps that owner role `NOLOGIN`.
+The separately reviewed administrative schema/import transaction still targets
+the exact dedicated database and uses `SET ROLE jhc_netops_owner` as designed.
+Its bounded import evidence must record
+`target.execution_role = jhc_netops_owner`; the journal rejects any other
+execution-role claim. Other non-SQL journal stages accept either declared role
+only when the role and DSN agree exactly.
 
 The DSN is validated but never written to the record or printed. A P12 variable,
 wrong action, wrong checkpoint hash, wrong role, cluster `16/main`, port `5432`,
@@ -114,9 +120,10 @@ Each buffer must have its producer paused, a bounded pending count, and a SHA-25
 when its immutable manifest explicitly binds replay to `local_postgres`. Missing
 or dirty evidence blocks. The tool never clears or deletes buffer content.
 
-The same readiness evidence also requires no unresolved identity blocker, Asset
-evidence sync disabled, all local application adapters ready, legacy mutation
-guards ready, and the Realtime shadow projector ready.
+This pre-migration freeze evidence also requires no unresolved identity blocker
+and Asset evidence sync disabled. It intentionally does not claim migration
+`008` objects, Realtime projector readiness, or a `projection-outbox` buffer:
+those do not exist until the reviewed final schema/import has completed.
 
 ## Final copy — CHECKPOINT 1
 
@@ -141,8 +148,10 @@ maximum. Do not touch `asset.*`, change identity dispositions, or delete source
 data.
 
 `import-final` records a bounded PASS report that must name the exact cluster,
-port, database, operator checkpoint identity, and captured S1 hash. It never
-substitutes for the actual transaction.
+port, database, owner execution role (`jhc_netops_owner`), operator checkpoint
+identity, and captured S1 hash. The journal invocation itself uses the
+`jhc_netops_app` DSN and never substitutes for the actual administrative
+transaction or executes SQL.
 
 ## Verify — CHECKPOINT 2
 
@@ -154,9 +163,14 @@ then records `CHECKPOINT_2_LOCAL_IMPORTED_VERIFIED`.
 
 ## Authority switch — CHECKPOINT 3
 
-Immediately capture fresh freeze evidence under the same cutover identity.
-`arm-local-authority` advances only from Checkpoint 2 when the new evidence also
-passes; both the original and authority-time evidence hashes remain recorded.
+Immediately capture fresh post-import authority evidence under the same cutover
+identity. Unlike the earlier freeze gate, this gate requires migration `008`
+outbox/canary readiness, the `projection-outbox` buffer, the configured and
+allowlisted projector, zero failed outbox events, bounded pending-event age,
+all local adapters/guards, and all original source-quiescence checks.
+`arm-local-authority` advances only from Checkpoint 2 when this new evidence
+passes; both the original freeze and authority-time evidence hashes remain
+recorded.
 The operator may
 then make the one reviewed environment/symlink change to
 `PERSISTENCE_AUTHORITY=local_postgres` and start the local backend before the
@@ -358,12 +372,17 @@ writer audits, derive the deterministic S0-to-S1 delta/delete manifest, and run
 ### 8. Final verification
 
 Apply the reviewed final schema/delta transaction to the dedicated local
-database, run `import-final` and `verify-final`, then run
+database through the administrative path with `SET ROLE jhc_netops_owner`.
+Run the non-SQL `import-final` journal with the `jhc_netops_app` DSN and import
+evidence that names `target.execution_role = jhc_netops_owner`, then run
+`verify-final` and
 `pre-cutover-verify`. Continue only with Checkpoint 2 and every check `PASS`.
 
 ### 9. Arm local authority
 
-Capture fresh readiness evidence, run `arm-local-authority`, and set the reviewed
+Capture fresh post-import authority readiness evidence (including migration
+`008`, outbox/canary, projector, and `projection-outbox` observations), run
+`arm-local-authority`, and set the reviewed
 candidate environment to `PERSISTENCE_AUTHORITY=local_postgres`. The same
 reviewed authority value must be configured for the deployed legacy Edge
 mutation guard before writers are unfrozen; Supabase Auth and Realtime remain
