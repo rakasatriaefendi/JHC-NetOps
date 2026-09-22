@@ -82,7 +82,7 @@ test("local backend moves only recurring operations and retains low-frequency Ed
   await client.publishManagedTelemetry("runner-test", DEVICE, [], []);
   assert.deepEqual(requests.map(({ url }) => url), [
     "https://example.invalid/functions/v1/diagnostic-jobs",
-    "https://example.invalid/functions/v1/network-health",
+    "http://127.0.0.1:3402/api/runner/network-health",
     "http://127.0.0.1:3402/api/runner/traffic",
     "http://127.0.0.1:3402/api/runner/network-health",
     "http://127.0.0.1:3402/api/runner/network-health",
@@ -91,7 +91,7 @@ test("local backend moves only recurring operations and retains low-frequency Ed
     "http://127.0.0.1:3402/api/runner/managed-telemetry",
     "http://127.0.0.1:3402/api/runner/managed-telemetry",
   ]);
-  for (const request of requests.slice(2, 5).concat(requests.slice(7))) {
+  for (const request of requests.slice(1, 5).concat(requests.slice(7))) {
     assert.equal("apikey" in request.headers, false);
     assert.equal(request.headers.Authorization, `Bearer ${LOCAL_TOKEN}`);
   }
@@ -125,19 +125,21 @@ test("local authority blocks legacy Edge control-plane mutations before fetch", 
   }, "local_postgres");
   for (const action of [
     () => client.claim("runner-test"),
-    () => client.claimManualPing("runner-test"),
   ]) {
     await assert.rejects(action(), /Legacy Supabase application mutation is blocked/);
   }
   assert.deepEqual(urls, []);
+  await client.claimManualPing("runner-test");
   await client.claimDiscovery("runner-test");
   await client.claimInspection("runner-test");
   assert.deepEqual(urls, [
+    "http://127.0.0.1:3402/api/runner/network-health",
     "http://127.0.0.1:3402/api/runner/network-discovery",
     "http://127.0.0.1:3402/api/runner/device-inspector",
   ]);
   await client.heartbeat(HEARTBEAT);
   assert.deepEqual(urls, [
+    "http://127.0.0.1:3402/api/runner/network-health",
     "http://127.0.0.1:3402/api/runner/network-discovery",
     "http://127.0.0.1:3402/api/runner/device-inspector",
     "http://127.0.0.1:3402/api/runner/heartbeat",

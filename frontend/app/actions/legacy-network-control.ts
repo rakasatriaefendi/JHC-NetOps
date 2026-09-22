@@ -7,7 +7,7 @@ import type { DiscoverySession } from "@/lib/network-discovery-client";
 import type { DeviceInspectionSession } from "@/lib/device-inspector";
 import { createDiagnosticJobLocal, createPingJobLocal, createNetworkDiscoveryLocal,
   startNetworkDiscoveryLocal, createDeviceInspectionLocal, createTrafficSessionLocal,
-  requestDiagnosticPreflightLocal, stopTrafficSessionLocal } from "@/lib/application-persistence";
+  requestDiagnosticPreflightLocal, stopTrafficSessionLocal, localPingJob } from "@/lib/application-persistence";
 
 const runnerId = (value: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(value);
 const targetId = (value: string) => /^[a-z0-9][a-z0-9_-]{0,127}$/i.test(value);
@@ -151,4 +151,17 @@ export async function mutateTrafficSessionAction(input: Readonly<{
     : { action: input.action, session_id: input.sessionId };
   const { data, error } = await supabase.functions.invoke<{ data: unknown }>("traffic-live", { body });
   return { ok: !error && Boolean(data?.data) };
+}
+
+export async function pollManualPingAction(pingId: string): Promise<{ ok: boolean; data: Record<string, unknown> | null }> {
+  if (!uuid(pingId)) return { ok: false, data: null };
+  if (applicationAuthority() === "local_postgres") {
+    await requireAdminProfile();
+    const result = await localPingJob(pingId);
+    return { ok: !!result, data: result as Record<string, unknown> | null };
+  }
+  const { supabase } = await requireAdminProfile();
+  const { data, error } = await supabase.from("network_health_ping_jobs")
+    .select("id,status,result,error_code").eq("id", pingId).maybeSingle();
+  return { ok: !error, data: data as Record<string, unknown> | null };
 }

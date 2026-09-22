@@ -29,15 +29,22 @@ export function registerNetworkHealthRoute(
     }
     const signal = AbortSignal.timeout(options.timeoutMs ?? NETWORK_HEALTH_PERSISTENCE_TIMEOUT_MS);
     try {
-      const data = validated.value.action === "list_targets"
-        ? await options.repository.listTargets(validated.value.runner_id, signal)
-        : await options.repository.publish(
-          validated.value.runner_id,
-          validated.value.states,
-          validated.value.transitions,
-          now.toISOString(),
-          signal,
-        );
+      const value = validated.value;
+      let data;
+      if (value.action === "list_targets") {
+        data = await options.repository.listTargets(value.runner_id, signal);
+      } else if (value.action === "publish") {
+        data = await options.repository.publish(value.runner_id, value.states, value.transitions, now.toISOString(), signal);
+      } else if (value.action === "claim_manual_ping") {
+        data = await options.repository.claimManualPing(value.runner_id, signal);
+        if (!data) return reply.code(404).send({ error: { code: "NO_MANUAL_PING_QUEUED", message: "No manual ping job queued" } });
+      } else if (value.action === "complete_manual_ping") {
+        data = await options.repository.completeManualPing(value.ping_id, value.runner_id, now.toISOString(), value.result, signal);
+        if (!data) return reply.code(409).send({ error: { code: "MANUAL_PING_NOT_CLAIMED", message: "Manual ping job not claimed or already terminal" } });
+      } else if (value.action === "fail_manual_ping") {
+        data = await options.repository.failManualPing(value.ping_id, value.runner_id, now.toISOString(), value.error_code, signal);
+        if (!data) return reply.code(409).send({ error: { code: "MANUAL_PING_NOT_CLAIMED", message: "Manual ping job not claimed or already terminal" } });
+      }
       return reply.code(200).send({ data });
     } catch (error) {
       if (error instanceof NetworkHealthRepositoryError && error.code === "TARGET_NOT_AUTHORIZED") {

@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import type { NetworkHealthTarget } from "@/lib/network-health";
 import { createClient } from "@/lib/supabase/client";
-import { queueManualPingAction } from "@/app/actions/legacy-network-control";
+import { queueManualPingAction, pollManualPingAction } from "@/app/actions/legacy-network-control";
+import { applicationAuthority } from "@/lib/application-authority";
 
 export type ManualPingPhase = "loading" | "success" | "error";
 export type ManualPingState = { phase: ManualPingPhase; message: string };
@@ -30,7 +31,7 @@ const ManualPingContext = createContext<ManualPingContextValue>({
   run: () => {},
 });
 
-function waitForManualPing(client: ReturnType<typeof createClient>, pingId: string) {
+function waitForManualPingSupabase(client: ReturnType<typeof createClient>, pingId: string) {
   return new Promise<ManualPingJob>((resolve, reject) => {
     let settled = false;
     const channel = client.channel(`manual-ping-${pingId}`);
@@ -64,6 +65,29 @@ function waitForManualPing(client: ReturnType<typeof createClient>, pingId: stri
   });
 }
 
+async function waitForManualPingLocal(pingId: string): Promise<ManualPingJob> {
+  const startTime = Date.now();
+  const maxWaitMs = 15_000;
+  const pollIntervalMs = 1500;
+  let lastJob: ManualPingJob | null = null;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const response = await pollManualPingAction(pingId);
+    if (!response.ok || !response.data) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      continue;
+    }
+    const job = response.data as ManualPingJob;
+    lastJob = job;
+    if (job.status === "completed" || job.status === "failed") {
+      return job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+  if (lastJob) return lastJob;
+  throw new Error("Manual ping timed out");
+}
+
 function manualPingOutcome(job: ManualPingJob): ManualPingState {
   if (job.status !== "completed" || !job.result) return { phase: "error", message: "Ping gagal" };
   if (job.result.ok === true && typeof job.result.latency_ms === "number") {
@@ -82,6 +106,7 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
   const client = useMemo(() => createClient(), []);
   const clearTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const inFlight = useRef(new Set<string>());
+  const authority = applicationAuthority();
 
   const run = useCallback(async (targetId: string) => {
     const target = targets.find((candidate) => candidate.id === targetId);
@@ -97,7 +122,10 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
       const queued = await queueManualPingAction(targetId);
       const pingId = queued.id;
       if (!queued.ok || typeof pingId !== "string") throw new Error("Manual ping could not be queued");
-      outcome = manualPingOutcome(await waitForManualPing(client, pingId));
+      const job = authority === "local_postgres"
+        ? await waitForManualPingLocal(pingId)
+        : await waitForManualPingSupabase(client, pingId);
+      outcome = manualPingOutcome(job);
     } catch {
       outcome = { phase: "error", message: "Ping gagal" };
     } finally {
@@ -109,7 +137,7 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
       setStates((current) => ({ ...current, [targetId]: undefined }));
       delete clearTimers.current[targetId];
     }, 2500);
-  }, [client, isAdmin, targets]);
+  }, [client, isAdmin, targets, authority]);
 
   useEffect(() => () => {
     Object.values(clearTimers.current).forEach(clearTimeout);

@@ -12,6 +12,9 @@ export interface NetworkHealthRepository {
     now: string,
     signal: AbortSignal,
   ): Promise<{ states: number; events: number }>;
+  claimManualPing(runnerId: string, signal: AbortSignal): Promise<Row | null>;
+  completeManualPing(pingId: string, runnerId: string, now: string, result: Row, signal: AbortSignal): Promise<Row | null>;
+  failManualPing(pingId: string, runnerId: string, now: string, errorCode: string, signal: AbortSignal): Promise<Row | null>;
 }
 
 export class SupabaseNetworkHealthRepository implements NetworkHealthRepository {
@@ -143,6 +146,60 @@ export class SupabaseNetworkHealthRepository implements NetworkHealthRepository 
       if (transition.new_status === "online") seen.add(transition.event_id);
     }
     return { states: latestRows.length, events: inserted };
+  }
+
+  async claimManualPing(runnerId: string, signal: AbortSignal): Promise<Row | null> {
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(runnerId)) return null;
+    const rows = await this.#client.table<Row[]>("network_health_ping_jobs", {
+      method: "PATCH",
+      query: {
+        runner_id: `eq.${runnerId}`,
+        status: "eq.queued",
+        order: "created_at.asc",
+        limit: 1,
+      },
+      prefer: "return=representation",
+      body: { status: "running", started_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      signal,
+    });
+    return rows[0] ?? null;
+  }
+
+  async completeManualPing(pingId: string, runnerId: string, now: string, result: Row, signal: AbortSignal): Promise<Row | null> {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const RUNNER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+    if (!UUID.test(pingId) || !RUNNER.test(runnerId)) return null;
+    const rows = await this.#client.table<Row[]>("network_health_ping_jobs", {
+      method: "PATCH",
+      query: {
+        id: `eq.${pingId}`,
+        runner_id: `eq.${runnerId}`,
+        status: "in.(queued,running)",
+      },
+      prefer: "return=representation",
+      body: { status: "completed", completed_at: now, updated_at: now, result: JSON.stringify(result) },
+      signal,
+    });
+    return rows[0] ?? null;
+  }
+
+  async failManualPing(pingId: string, runnerId: string, now: string, errorCode: string, signal: AbortSignal): Promise<Row | null> {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const RUNNER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+    const ALLOWED_CODES = new Set(["MANUAL_PING_FAILED", "MANUAL_PING_TARGET_UNAVAILABLE"]);
+    if (!UUID.test(pingId) || !RUNNER.test(runnerId) || !ALLOWED_CODES.has(errorCode)) return null;
+    const rows = await this.#client.table<Row[]>("network_health_ping_jobs", {
+      method: "PATCH",
+      query: {
+        id: `eq.${pingId}`,
+        runner_id: `eq.${runnerId}`,
+        status: "in.(queued,running)",
+      },
+      prefer: "return=representation",
+      body: { status: "failed", completed_at: now, updated_at: now, error_code: errorCode },
+      signal,
+    });
+    return rows[0] ?? null;
   }
 }
 

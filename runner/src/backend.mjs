@@ -62,12 +62,12 @@ export class BackendClient {
   completeTraffic(runnerId, sessionId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "complete_session", runner_id: runnerId, session_id: sessionId }); }
   failTraffic(runnerId, sessionId, code, message) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: code, error_message: message }); }
   healthTargets(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "list_targets", runner_id: runnerId }); }
-  claimManualPing(runnerId) { return this.#postHealth({ action: "claim_manual_ping", runner_id: runnerId }); }
+  claimManualPing(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "claim_manual_ping", runner_id: runnerId }); }
   completeManualPing(runnerId, pingId, result) {
-    return this.#postHealth({ action: "complete_manual_ping", runner_id: runnerId, ping_id: pingId, result });
+    return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "complete_manual_ping", runner_id: runnerId, ping_id: pingId, result });
   }
   failManualPing(runnerId, pingId, errorCode) {
-    return this.#postHealth({ action: "fail_manual_ping", runner_id: runnerId, ping_id: pingId, error_code: errorCode });
+    return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "fail_manual_ping", runner_id: runnerId, ping_id: pingId, error_code: errorCode });
   }
   publishHealth(runnerId, states, transitions) {
     return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "publish", runner_id: runnerId, states, transitions });
@@ -134,14 +134,7 @@ export class BackendClient {
     }
     return payload.data;
   }
-  async #postHealth(body) {
-    this.#assertEdgeMutationAllowed();
-    const response = await fetch(this.healthEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(backendFailureMessage("Network health backend", response.status, payload));
-    return payload.data;
-  }
-  async #postDiscovery(body) {
+async #postDiscovery(body) {
     return this.#postRecurring("Network discovery", this.localDiscoveryEndpoint, this.discoveryEndpoint, body);
   }
   async #postInspection(body) {

@@ -22,6 +22,9 @@ class FakeHealth implements NetworkHealthRepository {
   calls: string[] = [];
   async listTargets() { this.calls.push("list"); return { targets: [{ id: TARGET }] }; }
   async publish() { this.calls.push("publish"); return { states: 1, events: 0 }; }
+  async claimManualPing() { this.calls.push("claim_manual_ping"); return null; }
+  async completeManualPing() { this.calls.push("complete_manual_ping"); return null; }
+  async failManualPing() { this.calls.push("fail_manual_ping"); return null; }
 }
 class FakeTraffic implements TrafficRepository {
   calls: string[] = [];
@@ -117,6 +120,9 @@ test("bounded persistence deadline and repository failures return sanitized cate
       return { targets: [] };
     },
     async publish() { return { states: 0, events: 0 }; },
+    async claimManualPing() { return null; },
+    async completeManualPing() { return null; },
+    async failManualPing() { return null; },
   };
   const telemetry: ManagedTelemetryRepository = {
     async listTargets() { throw new Error("authorization=Bearer leaked-token community=private"); },
