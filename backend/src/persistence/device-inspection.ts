@@ -1,27 +1,25 @@
 import type { PostgresTransactionalQuery } from "./postgres-query.js";
 import { ControlPlanePersistenceError, RUNNER_ID, UUID, privateIpv4, record, requireFreshRunner, requireOperator } from "./control-plane.js";
+import type { DeviceFingerprint, DeviceInspectionStage } from "../device-inspector/contract.js";
 
 type Row = Record<string, unknown>;
 
 export interface DeviceInspectionRepository {
   get(runnerId: string, signal: AbortSignal): Promise<Row | null>;
   create(actorId: string, input: InspectionCreateInput, signal: AbortSignal): Promise<Row>;
-  update(runnerId: string, patch: InspectionUpdateInput, signal: AbortSignal): Promise<Row | null>;
-  complete(runnerId: string, now: string, result: Row, signal: AbortSignal): Promise<Row | null>;
-  fail(runnerId: string, now: string, errorCode: string, signal: AbortSignal): Promise<Row | null>;
+  claim(runnerId: string, now: string, signal: AbortSignal): Promise<Row | null>;
+  updateStage(runnerId: string, inspectionId: string, stage: DeviceInspectionStage,
+    now: string, signal: AbortSignal): Promise<Row | null>;
+  complete(runnerId: string, inspectionId: string, result: DeviceFingerprint,
+    now: string, signal: AbortSignal): Promise<Row | null>;
+  fail(runnerId: string, inspectionId: string, errorCode: string,
+    now: string, signal: AbortSignal): Promise<Row | null>;
   expireStale(signal: AbortSignal): Promise<void>;
 }
 
 export type InspectionCreateInput = Readonly<{
   runnerId: string;
   targetIp: string;
-}>;
-
-export type InspectionUpdateInput = Readonly<{
-  status?: "queued" | "running" | "completed" | "failed" | "expired";
-  stage?: "validating_target" | "network_role" | "identity" | "services" | "normalizing" | "complete";
-  result?: Row | null;
-  errorCode?: string | null;
 }>;
 
 export class PostgresDeviceInspectionRepository implements DeviceInspectionRepository {
@@ -94,43 +92,59 @@ export class PostgresDeviceInspectionRepository implements DeviceInspectionRepos
     });
   }
 
-  async update(runnerId: string, patch: InspectionUpdateInput, signal: AbortSignal): Promise<Row | null> {
-    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(runnerId)) return null;
-    const fields: string[] = [];
-    const values: unknown[] = [runnerId];
-    let paramIndex = 2;
-    if (patch.status !== undefined) { fields.push(`status=$${paramIndex++}`); values.push(patch.status); }
-    if (patch.stage !== undefined) { fields.push(`stage=$${paramIndex++}`); values.push(patch.stage); }
-    if (patch.result !== undefined) { fields.push(`result=$${paramIndex++}::jsonb`); values.push(JSON.stringify(patch.result)); }
-    if (patch.errorCode !== undefined) { fields.push(`error_code=$${paramIndex++}`); values.push(patch.errorCode); }
-    if (!fields.length) return this.get(runnerId, signal);
-    fields.push(`updated_at=now()`);
+  async claim(runnerId: string, now: string, signal: AbortSignal): Promise<Row | null> {
+    if (!RUNNER_ID.test(runnerId)) return null;
+    await this.expireStale(signal);
     const rows = await this.database.rows(`
-      UPDATE public.device_inspection_sessions SET ${fields.join(",")}
-      WHERE runner_id=$1 RETURNING *
-    `, values, signal);
+      UPDATE public.device_inspection_sessions AS session SET
+        status='running',started_at=$2::timestamptz,updated_at=$2::timestamptz
+      WHERE session.runner_id=$1 AND session.status='queued'
+        AND session.inspection_id=(
+          SELECT queued.inspection_id FROM public.device_inspection_sessions AS queued
+          WHERE queued.runner_id=$1 AND queued.status='queued'
+          ORDER BY queued.created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
+        )
+      RETURNING *
+    `, [runnerId, now], signal);
     return rows[0] ?? null;
   }
 
-  async complete(runnerId: string, now: string, result: Row, signal: AbortSignal): Promise<Row | null> {
-    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(runnerId)) return null;
+  async updateStage(runnerId: string, inspectionId: string, stage: DeviceInspectionStage,
+    now: string, signal: AbortSignal): Promise<Row | null> {
+    if (!RUNNER_ID.test(runnerId) || !UUID.test(inspectionId)) return null;
     const rows = await this.database.rows(`
-      UPDATE public.device_inspection_sessions SET
-        status='completed', stage='complete', completed_at=$2::timestamptz, updated_at=$2::timestamptz,
-        result=$3::jsonb
-      WHERE runner_id=$1 AND status IN ('queued','running') RETURNING *
-    `, [runnerId, now, JSON.stringify(result)], signal);
+      UPDATE public.device_inspection_sessions SET stage=$3,updated_at=$4::timestamptz
+      WHERE runner_id=$1 AND inspection_id=$2::uuid AND status='running'
+      RETURNING *
+    `, [runnerId, inspectionId, stage, now], signal);
     return rows[0] ?? null;
   }
 
-  async fail(runnerId: string, now: string, errorCode: string, signal: AbortSignal): Promise<Row | null> {
-    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(runnerId) || !/^[A-Z0-9_]{1,64}$/.test(errorCode)) return null;
+  async complete(runnerId: string, inspectionId: string, result: DeviceFingerprint,
+    now: string, signal: AbortSignal): Promise<Row | null> {
+    if (!RUNNER_ID.test(runnerId) || !UUID.test(inspectionId)) return null;
     const rows = await this.database.rows(`
       UPDATE public.device_inspection_sessions SET
-        status='failed', stage='complete', completed_at=$2::timestamptz, updated_at=$2::timestamptz,
-        error_code=$3
-      WHERE runner_id=$1 AND status IN ('queued','running') RETURNING *
-    `, [runnerId, now, errorCode], signal);
+        status='completed',stage='complete',completed_at=$5::timestamptz,
+        expires_at=$5::timestamptz + interval '10 minutes',updated_at=$5::timestamptz,
+        result=$3::jsonb,error_code=NULL
+      WHERE runner_id=$1 AND inspection_id=$2::uuid AND status='running' AND target_ip=$4::inet
+      RETURNING *
+    `, [runnerId, inspectionId, JSON.stringify(result), result.ip, now], signal);
+    return rows[0] ?? null;
+  }
+
+  async fail(runnerId: string, inspectionId: string, errorCode: string,
+    now: string, signal: AbortSignal): Promise<Row | null> {
+    if (!RUNNER_ID.test(runnerId) || !UUID.test(inspectionId) || !/^[A-Z0-9_]{1,64}$/.test(errorCode)) return null;
+    const rows = await this.database.rows(`
+      UPDATE public.device_inspection_sessions SET
+        status='failed',stage='complete',completed_at=$4::timestamptz,
+        expires_at=$4::timestamptz + interval '10 minutes',updated_at=$4::timestamptz,
+        result=NULL,error_code=$3
+      WHERE runner_id=$1 AND inspection_id=$2::uuid AND status='running'
+      RETURNING *
+    `, [runnerId, inspectionId, errorCode, now], signal);
     return rows[0] ?? null;
   }
 

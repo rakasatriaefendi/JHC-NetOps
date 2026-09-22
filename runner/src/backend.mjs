@@ -25,6 +25,9 @@ export class BackendClient {
     this.localDiscoveryEndpoint = localBackend && persistenceAuthority === "local_postgres"
       ? `${localBackend.url}/api/runner/network-discovery`
       : null;
+    this.localInspectionEndpoint = localBackend && persistenceAuthority === "local_postgres"
+      ? `${localBackend.url}/api/runner/device-inspector`
+      : null;
     this.localBackendHeaders = localBackend ? {
       Authorization: `Bearer ${localBackend.token}`,
       "Content-Type": "application/json",
@@ -142,11 +145,7 @@ export class BackendClient {
     return this.#postRecurring("Network discovery", this.localDiscoveryEndpoint, this.discoveryEndpoint, body);
   }
   async #postInspection(body) {
-    this.#assertEdgeMutationAllowed();
-    const response = await fetch(this.inspectionEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(backendFailureMessage("Device inspection backend", response.status, payload));
-    return payload.data;
+    return this.#postRecurring("Device inspection", this.localInspectionEndpoint, this.inspectionEndpoint, body);
   }
 
   #assertEdgeMutationAllowed() {

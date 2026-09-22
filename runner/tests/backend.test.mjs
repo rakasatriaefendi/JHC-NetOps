@@ -126,18 +126,60 @@ test("local authority blocks legacy Edge control-plane mutations before fetch", 
   for (const action of [
     () => client.claim("runner-test"),
     () => client.claimManualPing("runner-test"),
-    () => client.claimInspection("runner-test"),
   ]) {
     await assert.rejects(action(), /Legacy Supabase application mutation is blocked/);
   }
   assert.deepEqual(urls, []);
   await client.claimDiscovery("runner-test");
-  assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/network-discovery"]);
+  await client.claimInspection("runner-test");
+  assert.deepEqual(urls, [
+    "http://127.0.0.1:3402/api/runner/network-discovery",
+    "http://127.0.0.1:3402/api/runner/device-inspector",
+  ]);
   await client.heartbeat(HEARTBEAT);
   assert.deepEqual(urls, [
     "http://127.0.0.1:3402/api/runner/network-discovery",
+    "http://127.0.0.1:3402/api/runner/device-inspector",
     "http://127.0.0.1:3402/api/runner/heartbeat",
   ]);
+});
+
+test("local authority sends every Device Inspector lifecycle mutation only to the local runner route", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(options.body), headers: options.headers });
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", {
+    url: "http://127.0.0.1:3402", token: LOCAL_TOKEN,
+  }, "local_postgres");
+  const inspectionId = "30000000-0000-4000-8000-000000000003";
+  const result = { ip: "192.168.1.50", confidence: "medium", likely_device_type: "server",
+    capabilities: [], evidence: [] };
+  await client.claimInspection("it-lt8");
+  await client.inspectionStage("it-lt8", inspectionId, "identity");
+  await client.completeInspection("it-lt8", inspectionId, result);
+  await client.failInspection("it-lt8", inspectionId, "INSPECTION_FAILED");
+  assert.equal(requests.length, 4);
+  assert.ok(requests.every(({ url }) => url === "http://127.0.0.1:3402/api/runner/device-inspector"));
+  assert.ok(requests.every(({ url }) => !url.includes("functions/v1/device-inspector")));
+  assert.ok(requests.every(({ headers }) => headers.Authorization === `Bearer ${LOCAL_TOKEN}` && !("apikey" in headers)));
+  assert.deepEqual(requests.map(({ body }) => body.action), [
+    "claim_session", "update_stage", "complete_session", "fail_session",
+  ]);
+});
+
+test("Supabase authority keeps the existing Device Inspector Edge transport", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient("https://example.invalid", "test-service-key", {
+    url: "http://127.0.0.1:3402", token: LOCAL_TOKEN,
+  }, "supabase");
+  await client.claimInspection("runner-test");
+  assert.deepEqual(urls, ["https://example.invalid/functions/v1/device-inspector"]);
 });
 
 test("local authority sends every Discovery lifecycle mutation only to the local runner route", async (t) => {
@@ -185,6 +227,7 @@ test("local authority cannot fall back to recurring Edge endpoint", async (t) =>
   const client = new BackendClient("https://example.invalid", "test-service-key", null, "local_postgres");
   await assert.rejects(client.healthTargets("runner-test"), /Legacy Supabase application mutation is blocked/);
   await assert.rejects(client.claimDiscovery("runner-test"), /Legacy Supabase application mutation is blocked/);
+  await assert.rejects(client.claimInspection("runner-test"), /Legacy Supabase application mutation is blocked/);
   assert.deepEqual(urls, []);
   assert.throws(() => new BackendClient("https://example.invalid", "test-service-key", null, "unknown"),
     /Persistence authority is invalid/);

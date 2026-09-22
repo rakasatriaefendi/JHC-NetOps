@@ -91,6 +91,40 @@ test("local Device Inspector derives inventory authorization and does not accept
   assert.deepEqual(insert.values, [RUNNER, ACTOR, "192.168.1.50", "inventory"]);
 });
 
+test("local Device Inspector runner lifecycle binds runner, inspection, status, and target", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresDeviceInspectionRepository(database);
+  const now = new Date().toISOString();
+  const claimed = await repository.claim(RUNNER, now, signal());
+  assert.equal(claimed?.status, "running");
+  await repository.updateStage(RUNNER, SESSION, "identity", now, signal());
+  await repository.complete(RUNNER, SESSION, {
+    ip: "192.168.1.50", confidence: "medium", likely_device_type: "server",
+    capabilities: [], evidence: [],
+  }, now, signal());
+  const claim = database.calls.find(({ sql }) => sql.includes("UPDATE public.device_inspection_sessions AS session"));
+  const stage = database.calls.find(({ sql }) => sql.includes("SET stage=$3"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed',stage='complete'"));
+  assert.ok(claim);
+  assert.match(claim.sql, /runner_id=\$1[\s\S]*status='queued'[\s\S]*FOR UPDATE SKIP LOCKED/);
+  assert.ok(stage);
+  assert.match(stage.sql, /runner_id=\$1 AND inspection_id=\$2::uuid AND status='running'/);
+  assert.ok(complete);
+  assert.match(complete.sql, /inspection_id=\$2::uuid AND status='running' AND target_ip=\$4::inet/);
+  assert.deepEqual(complete.values.slice(0, 2), [RUNNER, SESSION]);
+});
+
+test("Discovery remains busy only while a Device Inspection is active", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkDiscoveryRepository(database);
+  database.inspectionBusy = true;
+  await assert.rejects(repository.start(ACTOR, RUNNER, SESSION, signal()),
+    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "RUNNER_BUSY");
+  database.inspectionBusy = false;
+  const started = await repository.start(ACTOR, RUNNER, SESSION, signal());
+  assert.equal(started.status, "queued");
+});
+
 test("local Traffic create and stop use the actor, runner capability, bounds, and transactional lifecycle", async () => {
   const database = new ControlDatabase();
   const repository = new PostgresTrafficRepository(database);
@@ -120,6 +154,7 @@ class ControlDatabase implements PostgresTransactionalQuery {
   transactions = 0;
   profileStatus = "approved";
   preflight: Record<string, unknown> | null = completedPreflight();
+  inspectionBusy = false;
 
   async rows(sql: string, values: readonly unknown[]): Promise<readonly Record<string, unknown>[]> {
     this.calls.push({ sql, values });
@@ -133,7 +168,7 @@ class ControlDatabase implements PostgresTransactionalQuery {
     if (sql.includes("SELECT id,runner_id FROM public.network_targets")) return [{ id: TARGET, runner_id: RUNNER }];
     if (sql.includes("SELECT id FROM public.network_nodes")) return [{ id: TARGET }];
     if (sql.includes(" AS diagnostic") || sql.includes(" AS traffic,")) {
-      return [{ diagnostic: false, traffic: false, discovery: false, inspection: false }];
+      return [{ diagnostic: false, traffic: false, discovery: false, inspection: this.inspectionBusy }];
     }
     if (sql.includes("SELECT * FROM public.network_discovery_sessions") && sql.includes("status IN ('queued','running')")) return [];
     if (sql.includes("pg_total_relation_size")) return [{ status: "healthy" }];
@@ -151,6 +186,15 @@ class ControlDatabase implements PostgresTransactionalQuery {
     }
     if (sql.includes("INSERT INTO public.device_inspection_sessions")) {
       return [{ runner_id: RUNNER, inspection_id: SESSION, status: "queued", authorization_source: values[3] }];
+    }
+    if (sql.includes("UPDATE public.device_inspection_sessions AS session")) {
+      return [{ runner_id: RUNNER, inspection_id: SESSION, target_ip: "192.168.1.50", status: "running" }];
+    }
+    if (sql.includes("UPDATE public.device_inspection_sessions SET stage=$3")) {
+      return [{ runner_id: RUNNER, inspection_id: SESSION, status: "running", stage: values[2] }];
+    }
+    if (sql.includes("UPDATE public.device_inspection_sessions SET") && sql.includes("status='completed'")) {
+      return [{ runner_id: RUNNER, inspection_id: SESSION, status: "completed" }];
     }
     if (sql.includes("INSERT INTO public.traffic_live_sessions")) {
       return [{ id: SESSION, runner_id: RUNNER, status: "queued" }];

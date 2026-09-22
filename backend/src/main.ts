@@ -167,6 +167,10 @@ async function main(): Promise<void> {
       token: config.runnerApiToken,
       repository: localRepos.networkDiscovery,
     };
+    buildServerOptions.deviceInspection = {
+      token: config.runnerApiToken,
+      repository: localRepos.deviceInspection,
+    };
     buildServerOptions.application = {
       token: config.frontendApiToken,
       profiles: localRepos.profiles,

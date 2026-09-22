@@ -107,12 +107,19 @@ test("server actions preserve Supabase mode but switch writes to loopback in loc
 
 test("browser Device Profile uses server actions for authoritative reads and exposes no local token", () => {
   const profile = source("../components/device-profile/device-profile-provider.tsx");
+  const inspectionAction = source("../app/actions/device-inspection.ts");
   const telemetry = source("../components/device-profile/managed-telemetry-section.tsx");
   assert.match(profile, /healthTargetMonitoringStateAction/);
+  assert.match(profile, /getDeviceInspectionSessionAction/);
+  assert.match(profile, /inspectionAuthority !== "local_postgres"/);
+  assert.match(profile, /window\.setInterval[^]*2_000/);
+  assert.match(profile, /inspectionAuthority !== "supabase"/);
+  assert.match(inspectionAction, /localDeviceInspection/);
+  assert.match(inspectionAction, /\.from\("device_inspection_sessions"\)/);
   assert.match(telemetry, /loadManagedTelemetryForNodeAction/);
   assert.doesNotMatch(profile, /\.from\("network_targets"\)/);
   assert.doesNotMatch(telemetry, /\.from\("(?:managed_telemetry_targets|managed_device_latest|managed_interface_latest|managed_observed_hosts_latest)"\)/);
-  for (const component of [profile, telemetry]) {
+  for (const component of [profile, inspectionAction, telemetry]) {
     assert.doesNotMatch(component, /LOCAL_BACKEND_FRONTEND_TOKEN|localApplicationRequest/);
   }
   assert.match(telemetry, /postgres_changes/);
