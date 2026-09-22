@@ -8,7 +8,7 @@ import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
-import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerOnline, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery-client";
+import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerAvailable, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery-client";
 import { NETWORK_NODE_TYPES, findNetworkNode, networkNodeTypeLabel, type NetworkNode, type NetworkNodeInput, type NetworkNodeType } from "@/lib/network-nodes";
 import type { NetworkHealthTarget } from "@/lib/network-health-client";
 import { createClient } from "@/lib/supabase/client";
@@ -53,7 +53,7 @@ export function NetworkDiscoveryDrawer({
     ? { ...selectedRunner, ...realtimeRunner }
     : selectedRunner;
   const session = sessions.find((item) => item.runner_id === runner?.id) ?? null;
-  const runnerOnline = isDiscoveryRunnerOnline(runner, freshnessNow);
+  const runnerOnline = isDiscoveryRunnerAvailable(runner, freshnessNow);
 
   const runnerLastSeenAt = runner?.last_seen_at;
 

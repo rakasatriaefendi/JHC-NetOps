@@ -5,7 +5,7 @@ import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-pro
 import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadDiagnostics } from "@/lib/diagnostics";
-import { loadDiscoverySessions } from "@/lib/network-discovery";
+import { loadDiscoveryRunners, loadDiscoverySessions } from "@/lib/network-discovery";
 import { observedTrafficIps } from "@/lib/network-discovery-client";
 import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
 import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
@@ -28,6 +28,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     loadDiscoverySessions(supabase, canOperate),
     loadHealthSamples(supabase, health.data.map((t) => t.id), "1h"),
   ]);
+  const discoveryRunners = await loadDiscoveryRunners(traffic.data.runners);
 
   return (
     <main className="p-4 md:p-6">
@@ -48,7 +49,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           samples={samples.data ?? []}
           loadError={health.error || discovery.error}
           isAdmin={canOperate}
-          discoveryRunners={traffic.data.runners}
+          discoveryRunners={discoveryRunners.data}
           discoverySessions={discovery.data}
           trafficIps={observedTrafficIps(traffic.data.snapshots)}
           {...(params.target ? { initialTargetId: params.target } : {})}

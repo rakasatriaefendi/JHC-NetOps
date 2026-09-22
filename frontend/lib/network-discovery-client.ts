@@ -37,7 +37,7 @@ export type DiscoveryRunner = {
   display_name: string;
   last_seen_at: string;
   health_status: "online" | "degraded";
-  capabilities: { operations?: string[] };
+  capabilities: { operations?: string[]; targets?: unknown[] };
 };
 
 export function isDiscoveryRunnerOnline(
@@ -47,6 +47,14 @@ export function isDiscoveryRunnerOnline(
   if (!runner || runner.health_status !== "online") return false;
   const lastSeen = Date.parse(runner.last_seen_at);
   return Number.isFinite(lastSeen) && nowMs - lastSeen <= DISCOVERY_RUNNER_FRESHNESS_MS;
+}
+
+export function isDiscoveryRunnerAvailable(
+  runner: DiscoveryRunner | null | undefined,
+  nowMs = Date.now(),
+) {
+  return runner?.capabilities.operations?.includes("network_discovery") === true
+    && isDiscoveryRunnerOnline(runner, nowMs);
 }
 
 export function observedTrafficIps(snapshots: { flows: { src_ip: string; dst_ip: string }[]; top_talkers: { ip: string }[] }[]) {
