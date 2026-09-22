@@ -38,6 +38,7 @@ export class PostgresOutboxRepository {
       LEFT JOIN public.realtime_projection_watermarks w
         ON w.aggregate_type=o.aggregate_type AND w.aggregate_key=o.aggregate_key
       WHERE o.status IN ('pending','failed')
+        AND (o.status='pending' OR o.last_error_category IN ('transient_network','supabase_unavailable'))
         AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= now())
         AND o.id > COALESCE(w.last_delivered_outbox_id,0)
         AND NOT EXISTS (
@@ -85,19 +86,26 @@ export class PostgresOutboxRepository {
   }
 
   async getHealth(signal: AbortSignal): Promise<{
+    total_count: number;
+    delivered_count: number;
     pending_count: number;
     failed_count: number;
     oldest_pending_age_ms: number | null;
   }> {
     const rows = await this.database.rows(`
-      SELECT COUNT(*) FILTER (WHERE status='pending') AS pending_count,
+      SELECT COUNT(*) AS total_count,
+        COUNT(*) FILTER (WHERE status='delivered') AS delivered_count,
+        COUNT(*) FILTER (WHERE status='pending') AS pending_count,
         COUNT(*) FILTER (WHERE status='failed') AS failed_count,
-        EXTRACT(EPOCH FROM (now()-MIN(created_at)))*1000
-          FILTER (WHERE status IN ('pending','failed')) AS oldest_pending_age_ms
+        EXTRACT(EPOCH FROM (
+          now() - MIN(created_at) FILTER (WHERE status IN ('pending','failed'))
+        ))*1000 AS oldest_pending_age_ms
       FROM public.realtime_outbox
     `, [], signal);
     const row = rows[0];
     return {
+      total_count: Number(row?.total_count ?? 0),
+      delivered_count: Number(row?.delivered_count ?? 0),
       pending_count: Number(row?.pending_count ?? 0),
       failed_count: Number(row?.failed_count ?? 0),
       oldest_pending_age_ms: row?.oldest_pending_age_ms === null || row?.oldest_pending_age_ms === undefined

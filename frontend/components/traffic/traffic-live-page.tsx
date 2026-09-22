@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
@@ -14,11 +14,14 @@ import { createClient } from "@/lib/supabase/client";
 import { canOperateNetwork } from "@/lib/authorization";
 import {
   filterFlows,
+  isTrafficRunnerAvailable,
+  mergeTrafficRunnerSnapshots,
   type TrafficFlow,
   type TrafficSnapshot,
   type TrafficState,
 } from "@/lib/traffic";
 import { mutateTrafficSessionAction } from "@/app/actions/legacy-network-control";
+import { getTrafficRunnersAction } from "@/app/actions/traffic";
 
 type Tab = "flows" | "conversations" | "talkers";
 
@@ -46,6 +49,8 @@ export function TrafficLivePage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
+  const [runnerAuthority, setRunnerAuthority] = useState<"supabase" | "local_postgres" | null>(null);
+  const runnerAuthorityRef = useRef<"supabase" | "local_postgres" | null>(null);
 
   const runner = state.runners.find((item) => item.id === runnerId) ?? state.runners[0];
   const active = state.sessions.find(
@@ -59,14 +64,49 @@ export function TrafficLivePage({
     () => filterFlows(snapshot?.flows ?? [], search, protocol, status),
     [snapshot, search, protocol, status],
   );
-  const online = Boolean(
-    runner &&
-      runner.health_status === "online" &&
-      now - Date.parse(runner.last_seen_at) <= 30_000,
-  );
+  const online = isTrafficRunnerAvailable(runner, now);
   const elapsedSeconds = active?.started_at
     ? Math.max(0, Math.floor((now - Date.parse(active.started_at)) / 1000))
     : 0;
+
+  useEffect(() => {
+    let disposed = false;
+    void getTrafficRunnersAction().then((result) => {
+      if (disposed) return;
+      runnerAuthorityRef.current = result.authority;
+      setRunnerAuthority(result.authority);
+      if (result.ok) {
+        setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
+        setNow(Date.now());
+      }
+    }).catch(() => {
+      // Retain the last runner snapshot until its normal freshness window expires.
+    });
+    return () => { disposed = true; };
+  }, []);
+
+  useEffect(() => {
+    if (runnerAuthority !== "local_postgres") return;
+    let disposed = false;
+    let refreshing = false;
+    async function refreshRunners() {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const result = await getTrafficRunnersAction();
+        if (!disposed && result.ok && result.authority === "local_postgres") {
+          setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
+          setNow(Date.now());
+        }
+      } catch {
+        // A transient refresh failure does not erase the last authoritative heartbeat.
+      } finally {
+        refreshing = false;
+      }
+    }
+    const interval = window.setInterval(() => void refreshRunners(), 10_000);
+    return () => { disposed = true; window.clearInterval(interval); };
+  }, [runnerAuthority]);
 
   useEffect(() => {
     let disposed = false;
@@ -77,7 +117,11 @@ export function TrafficLivePage({
         "traffic-live",
         { method: "GET" },
       );
-      if (!disposed && !error && data?.data) setState(data.data);
+      if (!disposed && !error && data?.data) {
+        setState((current) => runnerAuthorityRef.current === "local_postgres"
+          ? { ...data.data, runners: current.runners }
+          : data.data);
+      }
     }
 
     const poll = window.setInterval(() => void refresh(), 5_000);
@@ -124,7 +168,12 @@ export function TrafficLivePage({
     const latest = await supabase.functions.invoke<{ data: TrafficState }>("traffic-live", {
       method: "GET",
     });
-    if (latest.data?.data) setState(latest.data.data);
+    const latestState = latest.data?.data;
+    if (latestState) {
+      setState((current) => runnerAuthorityRef.current === "local_postgres"
+        ? { ...latestState, runners: current.runners }
+        : latestState);
+    }
     setBusy(false);
   }
 

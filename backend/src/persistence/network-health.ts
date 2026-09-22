@@ -119,9 +119,9 @@ export class PostgresNetworkHealthRepository implements NetworkHealthRepository 
         status='running', started_at=now(), updated_at=now()
       WHERE id = (
         SELECT id FROM public.network_health_ping_jobs
-        WHERE runner_id=$1 AND status='queued'
+        WHERE runner_id=$1 AND status='queued' AND expires_at >= now()
         ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
-      ) AND status='queued'
+      ) AND status='queued' AND expires_at >= now()
       RETURNING *
     `, [runnerId], signal);
     return rows[0] ?? null;
@@ -135,7 +135,7 @@ export class PostgresNetworkHealthRepository implements NetworkHealthRepository 
       UPDATE public.network_health_ping_jobs SET
         status='completed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
         result=$4::jsonb
-      WHERE id=$1::uuid AND runner_id=$2 AND status IN ('queued','running') RETURNING *
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' AND expires_at >= $3::timestamptz RETURNING *
     `, [pingId, runnerId, now, JSON.stringify(result)], signal);
     return rows[0] ?? null;
   }
@@ -149,7 +149,7 @@ export class PostgresNetworkHealthRepository implements NetworkHealthRepository 
       UPDATE public.network_health_ping_jobs SET
         status='failed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
         error_code=$4
-      WHERE id=$1::uuid AND runner_id=$2 AND status IN ('queued','running') RETURNING *
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' RETURNING *
     `, [pingId, runnerId, now, errorCode], signal);
     return rows[0] ?? null;
   }

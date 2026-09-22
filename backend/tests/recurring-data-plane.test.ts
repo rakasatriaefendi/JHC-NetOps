@@ -20,11 +20,13 @@ const EVENT = "33333333-3333-4333-8333-333333333333";
 
 class FakeHealth implements NetworkHealthRepository {
   calls: string[] = [];
+  manualResult: Record<string, unknown> | null = null;
+  claimResult: Record<string, unknown> | null = null;
   async listTargets() { this.calls.push("list"); return { targets: [{ id: TARGET }] }; }
   async publish() { this.calls.push("publish"); return { states: 1, events: 0 }; }
-  async claimManualPing() { this.calls.push("claim_manual_ping"); return null; }
-  async completeManualPing() { this.calls.push("complete_manual_ping"); return null; }
-  async failManualPing() { this.calls.push("fail_manual_ping"); return null; }
+  async claimManualPing() { this.calls.push("claim_manual_ping"); return this.claimResult; }
+  async completeManualPing() { this.calls.push("complete_manual_ping"); return this.manualResult; }
+  async failManualPing() { this.calls.push("fail_manual_ping"); return this.manualResult; }
 }
 class FakeTraffic implements TrafficRepository {
   calls: string[] = [];
@@ -91,6 +93,49 @@ test("valid list and publish contracts dispatch to the matching subsystem only",
   assert.deepEqual(health.calls, ["list", "publish"]);
   assert.deepEqual(traffic.calls, ["claim", "snapshot"]);
   assert.deepEqual(telemetry.calls, ["list", "publish"]);
+  await server.close();
+});
+
+test("Manual Ping claim accepts the runner payload and no queued job is a successful empty response", async () => {
+  const health = new FakeHealth();
+  const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health, now: () => NOW } });
+  const response = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "claim_manual_ping", runner_id: "it-lt8" } });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { data: null });
+  assert.deepEqual(health.calls, ["claim_manual_ping"]);
+  await server.close();
+});
+
+test("Manual Ping claim returns a valid queued job claimed by the local repository", async () => {
+  const health = new FakeHealth();
+  health.claimResult = { id: SESSION, runner_id: "it-lt8", status: "running" };
+  const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health, now: () => NOW } });
+  const response = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "claim_manual_ping", runner_id: "it-lt8" } });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { data: health.claimResult });
+  assert.deepEqual(health.calls, ["claim_manual_ping"]);
+  await server.close();
+});
+
+test("Manual Ping complete and fail contracts bind a bounded job id and result", async () => {
+  const health = new FakeHealth();
+  health.manualResult = { id: SESSION };
+  const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health, now: () => NOW } });
+  const complete = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "complete_manual_ping", runner_id: "it-lt8", ping_id: SESSION,
+      result: { ok: true, latency_ms: 4.2 } } });
+  const fail = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "fail_manual_ping", runner_id: "it-lt8", ping_id: SESSION,
+      error_code: "MANUAL_PING_FAILED" } });
+  const unbounded = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "complete_manual_ping", runner_id: "it-lt8", ping_id: SESSION,
+      result: { ok: true, latency_ms: 4.2, raw: "forbidden" } } });
+  assert.equal(complete.statusCode, 200);
+  assert.equal(fail.statusCode, 200);
+  assert.equal(unbounded.statusCode, 400);
+  assert.deepEqual(health.calls, ["complete_manual_ping", "fail_manual_ping"]);
   await server.close();
 });
 

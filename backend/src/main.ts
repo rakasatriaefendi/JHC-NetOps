@@ -185,6 +185,7 @@ async function main(): Promise<void> {
       events: localRepos.events,
       traffic: localRepos.traffic,
       outbox: localRepos.outbox,
+      ...(shadowProjector.current ? { shadowProjector: shadowProjector.current } : {}),
       cutoverCanary: localRepos.cutoverCanary,
     };
   }

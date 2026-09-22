@@ -78,19 +78,18 @@ export function validateNetworkHealthRequest(value: unknown, nowMs = Date.now())
     }
     return { ok: true, value: { action: "publish", runner_id: value.runner_id, states, transitions } };
   }
+  if (value.action === "claim_manual_ping") {
+    return exactKeys(value, ["action", "runner_id"])
+      ? { ok: true, value: { action: "claim_manual_ping", runner_id: value.runner_id } }
+      : invalid();
+  }
   const action = typeof value.action === "string" ? value.action : "";
   if (MANUAL_PING_ACTIONS.has(action)) {
     const manualValue = value as Record<string, unknown>;
     const pingId = typeof manualValue.ping_id === "string" ? manualValue.ping_id : "";
     if (!uuid(pingId)) return invalid();
-    if (action === "claim_manual_ping") {
-      const result = Object.keys(manualValue).length === 3
-        ? { action: "claim_manual_ping", runner_id: value.runner_id, ping_id: pingId } as const
-        : null;
-      return result ? { ok: true as const, value: result } : invalid();
-    }
     if (action === "complete_manual_ping") {
-      if (!record(manualValue.result)) return invalid();
+      if (!validManualPingResult(manualValue.result)) return invalid();
       const result = exactKeys(manualValue, ["action", "runner_id", "ping_id", "result"])
         ? { action: "complete_manual_ping", runner_id: value.runner_id, ping_id: pingId, result: manualValue.result as Record<string, unknown> } as const
         : null;
@@ -132,5 +131,14 @@ function integer(value: unknown, min: number, max: number): value is number {
 }
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]) {
   return Object.keys(value).length === expected.length && Object.keys(value).every((key) => expected.includes(key));
+}
+function validManualPingResult(value: unknown): value is Record<string, unknown> {
+  if (!record(value) || typeof value.ok !== "boolean") return false;
+  if (value.ok) {
+    return exactKeys(value, ["ok", "latency_ms"])
+      && number(value.latency_ms, 0, 60_000);
+  }
+  return exactKeys(value, ["ok", "category"])
+    && (value.category === "timeout" || value.category === "unreachable");
 }
 function invalid() { return { ok: false as const, message: "Network health payload is invalid" }; }

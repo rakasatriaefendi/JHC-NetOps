@@ -583,11 +583,16 @@ data verification, identity dispositions, Checkpoint 2, and the still-Supabase
 authority state. Its evidence hash must be recorded before Checkpoint 3 can be
 armed.
 
-The post-cutover report binds local authority and backend health, an internal
-non-domain canary through the approved application path, the disabled legacy
-Supabase mutation boundary, external Supabase Auth and shadow Realtime,
-split-brain/outbox evidence, immutable release identity, and only the three
-reviewed NetOps PM2 processes. The exact numbered operator procedure, browser
+The post-cutover report binds local authority, exact
+`16/jhcnetops:5433/jhc_netops` identity and `jhc_netops_app` role,
+backend/control-plane health, a fresh online runner heartbeat with
+`local_postgres` authority, zero active foreground work, an internal non-domain
+canary through the approved application path, the disabled legacy Supabase
+mutation boundary, external Supabase Auth and shadow Realtime, split-brain
+evidence, consistent outbox totals with zero failed rows and bounded pending
+lag, a recent healthy projector pass with no persistent batch failure, exact
+immutable 40-character Git commit identity, and only the three reviewed NetOps
+PM2 processes. The exact numbered operator procedure, browser
 smoke checks, rollback triggers, and acceptance-state definitions are in
 `deploy/postgresql/p13/README.md`.
 

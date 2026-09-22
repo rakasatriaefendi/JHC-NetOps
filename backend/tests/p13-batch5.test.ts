@@ -56,6 +56,64 @@ test("projection plans preserve upsert and actual delete semantics", () => {
   assert.deepEqual(deletion, { kind: "delete", table: "network_targets", match: { id: "target-1" } });
 });
 
+test("projection plans preserve required Traffic and reviewed control-plane fields", () => {
+  const traffic = projectionPlan("traffic_live_sessions", { id: "30000000-0000-4000-8000-000000000001" }, {
+    id: "30000000-0000-4000-8000-000000000001", runner_id: "it-lt8",
+    capture_scope: "this_device", status: "queued",
+  });
+  if (traffic.kind !== "upsert") assert.fail("Traffic shadow plan must be an upsert");
+  assert.equal(traffic.payload.capture_scope, "this_device");
+
+  const reviewed = [
+    ["diagnostic_runners", { id: "it-lt8" }, { id: "it-lt8", health_status: "online", preflight: {} }],
+    ["network_health_ping_jobs", { id: "30000000-0000-4000-8000-000000000002" },
+      { id: "30000000-0000-4000-8000-000000000002", runner_id: "it-lt8", status: "queued" }],
+    ["device_inspection_sessions", { runner_id: "it-lt8" },
+      { runner_id: "it-lt8", inspection_id: "30000000-0000-4000-8000-000000000003", status: "queued" }],
+    ["network_discovery_sessions", { runner_id: "it-lt8" },
+      { runner_id: "it-lt8", session_id: "30000000-0000-4000-8000-000000000004", status: "queued" }],
+  ] as const;
+  for (const [aggregateType, key, payload] of reviewed) {
+    const plan = projectionPlan(aggregateType, key, payload);
+    if (plan.kind !== "upsert") assert.fail(`${aggregateType} shadow plan must be an upsert`);
+    assert.deepEqual(Object.fromEntries(Object.keys(key).map((column) => [column, plan.payload[column]])), key);
+  }
+});
+
+test("malformed aggregate keys become a visible poison failure and are never delivered", async () => {
+  const store = new FakeOutbox([event({ aggregate_key: { id: null } })]);
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: false }));
+  const result = await projector.processBatch(new AbortController().signal);
+  assert.deepEqual(result, { delivered: 0, failed: 1 });
+  assert.deepEqual(store.failed, [{ id: 1, category: "payload_validation" }]);
+  assert.deepEqual(store.delivered, []);
+});
+
+test("transient shadow failure is retained for retry and never marked delivered", async () => {
+  const store = new FakeOutbox([event()]);
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: true, errorCategory: "transient_network", backendCode: "PGRST000" }));
+  const result = await projector.processBatch(new AbortController().signal);
+  assert.deepEqual(result, { delivered: 0, failed: 1 });
+  assert.deepEqual(store.failed, [{ id: 1, category: "transient_network" }]);
+  assert.deepEqual(store.delivered, []);
+});
+
+test("delivery bookkeeping failures retain the event and expose a bounded batch stage", async () => {
+  const store = new FakeOutbox([event()]);
+  store.failDelivery = true;
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: false }));
+  await assert.rejects(() => projector.processBatch(new AbortController().signal),
+    /OUTBOX_DELIVERY_BOOKKEEPING_FAILED/);
+  assert.deepEqual(store.delivered, []);
+  assert.deepEqual(store.failed, []);
+});
+
 test("projector retries one stored event identity and marks it delivered once", async () => {
   const store = new FakeOutbox([event()]);
   let attempts = 0;
@@ -78,6 +136,20 @@ test("unknown projection events fail visibly and never become delivered", async 
   assert.deepEqual(result, { delivered: 0, failed: 1 });
   assert.deepEqual(store.failed, [{ id: 1, category: "projection_not_allowed" }]);
   assert.deepEqual(store.delivered, []);
+});
+
+test("outbox polling retries only transient failures and health aggregation is valid and complete", async () => {
+  const database = new RecordingDatabase();
+  const repository = new PostgresOutboxRepository(database);
+  await repository.fetchPending(50, new AbortController().signal);
+  await repository.getHealth(new AbortController().signal);
+  const pollSql = database.calls[0]?.sql ?? "";
+  const healthSql = database.calls[1]?.sql ?? "";
+  assert.match(pollSql, /o\.status='pending' OR o\.last_error_category IN \('transient_network','supabase_unavailable'\)/);
+  assert.match(healthSql, /COUNT\(\*\) AS total_count/);
+  assert.match(healthSql, /COUNT\(\*\) FILTER \(WHERE status='delivered'\) AS delivered_count/);
+  assert.match(healthSql, /MIN\(created_at\) FILTER \(WHERE status IN \('pending','failed'\)\)/);
+  assert.doesNotMatch(healthSql, /\)\*1000\s+FILTER/);
 });
 
 test("projector lifecycle aborts and awaits its in-process loop", async () => {
@@ -127,6 +199,7 @@ test("legacy Edge mutation surfaces share the local-authority guard while projec
   assert.match(guard, /local_postgres/);
   const projector = source("../src/persistence/shadow-projector.ts");
   assert.match(projector, /SHADOW_PROJECTION_ALLOWLIST/);
+  assert.match(projector, /defaultToNull:\s*false/);
   assert.doesNotMatch(projector, /caller.*table|table.*body/i);
 });
 
@@ -145,9 +218,13 @@ class FakeOutbox implements OutboxProjectionStore {
   delivered: number[] = [];
   failed: { id: number; category: string }[] = [];
   fetches = 0;
+  failDelivery = false;
   constructor(private readonly events: OutboxEvent[]) {}
   async fetchPending(): Promise<OutboxEvent[]> { this.fetches++; return this.events; }
-  async markDelivered(value: Pick<OutboxEvent, "id">): Promise<void> { this.delivered.push(value.id); }
+  async markDelivered(value: Pick<OutboxEvent, "id">): Promise<void> {
+    if (this.failDelivery) throw new Error("fixture delivery failure");
+    this.delivered.push(value.id);
+  }
   async markFailed(id: number, category: "transient_network" | "supabase_unavailable" | "payload_validation" | "projection_not_allowed"): Promise<void> {
     this.failed.push({ id, category });
   }
@@ -181,6 +258,16 @@ function event(overrides: Partial<OutboxEvent> = {}): OutboxEvent {
     status: "pending", attempt_count: 0, next_attempt_at: null, created_at: "2026-09-16T00:00:00Z",
     delivered_at: null, last_error_category: null, ...overrides,
   };
+}
+
+function projectionPlan(
+  aggregateType: string,
+  aggregateKey: Record<string, unknown>,
+  payload: Record<string, unknown>,
+) {
+  const approved = SHADOW_PROJECTION_ALLOWLIST.find(({ aggregate_type }) => aggregate_type === aggregateType);
+  assert.ok(approved);
+  return buildProjectionPlan(event({ aggregate_type: aggregateType, aggregate_key: aggregateKey, payload }), approved);
 }
 
 function source(relative: string): string {

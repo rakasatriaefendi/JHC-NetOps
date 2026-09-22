@@ -45,6 +45,24 @@ test("local Manual Ping resolves the enabled target runner and never accepts a b
   assert.match(insert.sql, /interval '30 seconds'/);
 });
 
+test("local Manual Ping claim excludes expired jobs and terminal mutations bind runner and job", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkHealthPingJobsRepository(database);
+  const now = new Date().toISOString();
+  await repository.claim(RUNNER, signal());
+  await repository.complete(SESSION, RUNNER, now, { ok: true, latency_ms: 2 }, signal());
+  await repository.fail(SESSION, RUNNER, now, "MANUAL_PING_FAILED", signal());
+  const claim = database.calls.find(({ sql }) => sql.includes("FOR UPDATE SKIP LOCKED") && sql.includes("network_health_ping_jobs"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed'") && sql.includes("result=$4::jsonb"));
+  const fail = database.calls.find(({ sql }) => sql.includes("status='failed'") && sql.includes("error_code=$4"));
+  assert.ok(claim);
+  assert.match(claim.sql, /runner_id=\$1 AND status='queued' AND expires_at >= now\(\)/);
+  assert.ok(complete);
+  assert.match(complete.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running' AND expires_at >= \$3::timestamptz/);
+  assert.ok(fail);
+  assert.match(fail.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running'/);
+});
+
 test("local Discovery prepare and start preserve the prepared session lifecycle", async () => {
   const database = new ControlDatabase();
   const repository = new PostgresNetworkDiscoveryRepository(database);

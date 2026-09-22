@@ -111,7 +111,7 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
       UPDATE public.network_health_ping_jobs SET
         status='completed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
         result=$4::jsonb
-      WHERE id=$1::uuid AND runner_id=$2 AND status IN ('queued','running') RETURNING *
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' AND expires_at >= $3::timestamptz RETURNING *
     `, [jobId, runnerId, now, JSON.stringify(result)], signal);
     return rows[0] ?? null;
   }
@@ -125,7 +125,7 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
       UPDATE public.network_health_ping_jobs SET
         status='failed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
         error_code=$4
-      WHERE id=$1::uuid AND runner_id=$2 AND status IN ('queued','running') RETURNING *
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' RETURNING *
     `, [jobId, runnerId, now, errorCode], signal);
     return rows[0] ?? null;
   }

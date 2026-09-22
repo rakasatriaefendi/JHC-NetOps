@@ -37,7 +37,6 @@ export function registerNetworkHealthRoute(
         data = await options.repository.publish(value.runner_id, value.states, value.transitions, now.toISOString(), signal);
       } else if (value.action === "claim_manual_ping") {
         data = await options.repository.claimManualPing(value.runner_id, signal);
-        if (!data) return reply.code(404).send({ error: { code: "NO_MANUAL_PING_QUEUED", message: "No manual ping job queued" } });
       } else if (value.action === "complete_manual_ping") {
         data = await options.repository.completeManualPing(value.ping_id, value.runner_id, now.toISOString(), value.result, signal);
         if (!data) return reply.code(409).send({ error: { code: "MANUAL_PING_NOT_CLAIMED", message: "Manual ping job not claimed or already terminal" } });
