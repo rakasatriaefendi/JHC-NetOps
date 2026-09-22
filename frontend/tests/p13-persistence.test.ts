@@ -6,10 +6,11 @@ const source = (path: string) => readFileSync(new URL(path, import.meta.url), "u
 
 test("frontend authority remains explicit and local API has no Supabase fallback", () => {
   const adapter = source("../lib/application-persistence.ts");
+  const authority = source("../lib/application-authority.ts");
   assert.match(adapter, /import "server-only"/);
   assert.doesNotMatch(adapter, /NEXT_PUBLIC_[A-Z0-9_]*(?:TOKEN|KEY|SECRET)/);
-  assert.match(adapter, /value !== "supabase" && value !== "local_postgres"/);
-  assert.match(adapter, /if \(applicationAuthority\(\) !== "local_postgres"\)/);
+  assert.match(authority, /value !== "supabase" && value !== "local_postgres"/);
+  assert.match(adapter, /if \(getApplicationAuthority\(\) !== "local_postgres"\)/);
   assert.match(adapter, /LOCAL_APPLICATION_UNAVAILABLE/);
   assert.doesNotMatch(adapter, /supabase\.from|functions\/v1/);
   for (const path of ["runners", "network-targets", "managed-targets", "managed-interfaces", "managed-observed-hosts"]) {

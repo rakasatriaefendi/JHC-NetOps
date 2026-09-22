@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { NetworkHealthTarget } from "@/lib/network-health";
 import { createClient } from "@/lib/supabase/client";
 import { queueManualPingAction, pollManualPingAction } from "@/app/actions/legacy-network-control";
-import { applicationAuthority } from "@/lib/application-authority";
+import { useApplicationAuthority } from "@/lib/application-authority-client";
 
 export type ManualPingPhase = "loading" | "success" | "error";
 export type ManualPingState = { phase: ManualPingPhase; message: string };
@@ -106,7 +106,7 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
   const client = useMemo(() => createClient(), []);
   const clearTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const inFlight = useRef(new Set<string>());
-  const authority = applicationAuthority();
+  const authority = useApplicationAuthority();
 
   const run = useCallback(async (targetId: string) => {
     const target = targets.find((candidate) => candidate.id === targetId);

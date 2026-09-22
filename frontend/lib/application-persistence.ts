@@ -1,16 +1,16 @@
 import "server-only";
 
 import { localBackendConfig } from "./assets.ts";
-import { applicationAuthority, type ApplicationAuthority } from "./application-authority.ts";
+import { getApplicationAuthority, type ApplicationAuthority } from "./application-authority.ts";
 
-export { applicationAuthority, type ApplicationAuthority };
+export { getApplicationAuthority as applicationAuthority, type ApplicationAuthority };
 
 export async function localApplicationRequest(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: Record<string, unknown>,
 ): Promise<{ ok: boolean; data: unknown; code: string }> {
-  if (applicationAuthority() !== "local_postgres") {
+  if (getApplicationAuthority() !== "local_postgres") {
     throw new Error("Local application request requires local_postgres authority");
   }
   const config = localBackendConfig();
