@@ -8,7 +8,7 @@ import { loadDiagnostics } from "@/lib/diagnostics";
 import { loadDiscoverySessions } from "@/lib/network-discovery";
 import { observedTrafficIps } from "@/lib/network-discovery-client";
 import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
-import { loadNetworkNodes } from "@/lib/network-nodes";
+import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { loadTrafficState } from "@/lib/traffic";
 import { canOperateNetwork } from "@/lib/authorization";
 import { getServerTranslation } from "@/i18n/server";
@@ -24,7 +24,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
     loadDiagnostics(supabase),
     loadTrafficState(supabase, profile.role),
-    loadNetworkNodes(supabase),
+    loadAuthoritativeNetworkNodes(supabase),
     loadDiscoverySessions(supabase, canOperate),
     loadHealthSamples(supabase, health.data.map((t) => t.id), "1h"),
   ]);

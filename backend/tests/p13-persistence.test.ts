@@ -338,6 +338,71 @@ test("local application routes reject unauthenticated and malformed frontend wri
   }
 });
 
+test("local Health and SNMP list routes require bearer auth and return UI read models", async () => {
+  const queries: string[] = [];
+  const targetId = "22222222-2222-4222-8222-222222222222";
+  const node = { id: "11111111-1111-4111-8111-111111111111", ip_address: "192.168.1.8",
+    name: "Ruijie", device_type: "router", location: "IT", detected_fingerprint: null,
+    last_inspected_at: null };
+  const database: PostgresTransactionalQuery = {
+    async rows(sql) {
+      queries.push(sql);
+      if (sql.includes("FROM public.diagnostic_runners ORDER BY")) {
+        return [{ id: "runner-1", display_name: "Runner", capabilities: { operations: ["manual_ping"] } }];
+      }
+      if (sql.includes("FROM public.network_targets t")) {
+        return [{ id: targetId, node_id: node.id, runner_id: "runner-1", enabled: true,
+          critical: true, node, latest: { status: "online", latency_ms: 1.2 } }];
+      }
+      if (sql.includes("FROM public.managed_telemetry_targets t")) {
+        return [{ id: targetId, node_id: node.id, runner_id: "runner-1", enabled: true,
+          util_warning_percent: "80", util_critical_percent: "95", node,
+          latest: { target_id: targetId, status: "connected", sys_name: "core" } }];
+      }
+      if (sql.includes("FROM public.managed_interface_latest")) {
+        return [{ target_id: targetId, if_index: 1, name: "eth0", is_physical: true }];
+      }
+      if (sql.includes("FROM public.managed_observed_hosts_latest")) {
+        return [{ target_id: targetId, ip_address: "192.168.1.20", status: "current",
+          network_nodes: { name: "Workstation" } }];
+      }
+      return [];
+    },
+    async transaction(_signal, action) { return action(this); },
+  };
+  const server = buildServer({ logger: false, application: {
+    token: "frontend-server-token-for-tests-only",
+    profiles: new PostgresProfilesRepository(database),
+    inventory: new PostgresNetworkInventoryRepository(database),
+  } });
+  const routes = [
+    "/api/application/runners",
+    "/api/application/network-targets",
+    "/api/application/managed-targets",
+    `/api/application/managed-interfaces?target_id=${targetId}`,
+    `/api/application/managed-observed-hosts?target_id=${targetId}`,
+  ];
+  try {
+    for (const url of routes) {
+      const unauthorized = await server.inject({ method: "GET", url });
+      assert.equal(unauthorized.statusCode, 401);
+    }
+    assert.deepEqual(queries, []);
+    const responses = await Promise.all(routes.map((url) => server.inject({ method: "GET", url,
+      headers: { authorization: "Bearer frontend-server-token-for-tests-only" } })));
+    assert.ok(responses.every((response) => response.statusCode === 200));
+    assert.equal(responses[0]?.json().data[0].capabilities.operations[0], "manual_ping");
+    assert.equal(responses[1]?.json().data[0].node.ip_address, "192.168.1.8");
+    assert.equal(responses[1]?.json().data[0].latest.status, "online");
+    assert.equal(responses[2]?.json().data[0].latest.sys_name, "core");
+    assert.equal(responses[2]?.json().data[0].util_warning_percent, 80);
+    assert.equal(responses[3]?.json().data[0].target_id, targetId);
+    assert.equal(responses[4]?.json().data[0].network_nodes.name, "Workstation");
+  } finally {
+    await server.close();
+  }
+});
+
 test("local target deletion requires a backend-checked exact confirmation", async () => {
   const queries: string[] = [];
   const database: PostgresTransactionalQuery = {

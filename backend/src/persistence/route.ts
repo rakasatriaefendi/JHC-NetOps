@@ -86,6 +86,42 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
     catch (error) { return persistenceFailure(reply, error); }
   });
 
+  server.get("/api/application/runners", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    try { return reply.code(200).send({ data: await options.inventory.listRunners(AbortSignal.timeout(7_000)) }); }
+    catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/network-targets", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    try { return reply.code(200).send({ data: await options.inventory.listHealthTargets(AbortSignal.timeout(7_000)) }); }
+    catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/managed-targets", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    try { return reply.code(200).send({ data: await options.inventory.listManagedTargets(AbortSignal.timeout(7_000)) }); }
+    catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/managed-interfaces", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const query = request.query as Record<string, string | undefined>;
+    try {
+      return reply.code(200).send({ data: await options.inventory.listManagedInterfaces(
+        query.target_id, AbortSignal.timeout(7_000)) });
+    } catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/managed-observed-hosts", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const query = request.query as Record<string, string | undefined>;
+    try {
+      return reply.code(200).send({ data: await options.inventory.listManagedObservedHosts(
+        query.target_id, AbortSignal.timeout(7_000)) });
+    } catch (error) { return persistenceFailure(reply, error); }
+  });
+
   server.get<{ Params: { id: string } }>("/api/application/network-nodes/:id", async (request, reply) => {
     if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
     try {

@@ -3,7 +3,7 @@ import { DeviceProfileProvider } from "@/components/device-profile/device-profil
 import { DiagnosticsWorkspace } from "@/components/diagnostics/diagnostics-workspace";
 import { loadDiagnosticJobState } from "@/lib/diagnostic-jobs";
 import { loadDiagnostics } from "@/lib/diagnostics";
-import { loadNetworkNodes } from "@/lib/network-nodes";
+import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { requireApprovedProfile } from "@/lib/auth";
 import { getServerTranslation } from "@/i18n/server";
 
@@ -16,7 +16,7 @@ export default async function DiagnosticsPage({searchParams}:{searchParams:Promi
   const [jobState, diagnostics, networkNodes] = await Promise.all([
     loadDiagnosticJobState(supabase),
     loadDiagnostics(supabase),
-    loadNetworkNodes(supabase),
+    loadAuthoritativeNetworkNodes(supabase),
   ]);
   return (
     <main className="min-w-0 max-w-full p-4 md:p-6">

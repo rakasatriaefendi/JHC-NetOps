@@ -2,7 +2,7 @@ import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-pro
 import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { HistoryTabs } from "@/components/history/history-tabs";
 import { requireApprovedProfile } from "@/lib/auth";
-import { loadNetworkNodes } from "@/lib/network-nodes";
+import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import type { NetworkHealthEvent } from "@/lib/network-health";
 import { getServerTranslation } from "@/i18n/server";
 import { loadAssetChangeHistory } from "@/lib/assets";
@@ -13,7 +13,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   const { supabase, profile } = await requireApprovedProfile();
   const query = await searchParams;
   const [networkNodes, healthEvents, assetChanges] = await Promise.all([
-    loadNetworkNodes(supabase),
+    loadAuthoritativeNetworkNodes(supabase),
     supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "network_health").order("created_at", { ascending: false }).limit(100).returns<NetworkHealthEvent[]>(),
     loadAssetChangeHistory(query),
   ]);

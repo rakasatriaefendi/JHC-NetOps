@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { applicationAuthority } from "./application-persistence.ts";
+import { applicationAuthority, localRunners } from "./application-persistence.ts";
 
 import type { RunnerCapabilities } from "./diagnostic-jobs.ts";
 import { managedTelemetryFixture } from "./managed-telemetry-fixtures.ts";
@@ -7,14 +7,14 @@ import {
   loadManagedObservedHostsPage,
   loadManagedTelemetryWorkspace,
 } from "./managed-telemetry.ts";
-import { loadNetworkNodes } from "./network-nodes.ts";
+import { loadAuthoritativeNetworkNodes } from "./network-nodes-source.ts";
 import {
   portableDevConfig,
   type PortableEnvironment,
 } from "./portable-dev-mode.ts";
 
 type ProductionLoaders = {
-  loadNodes: typeof loadNetworkNodes;
+  loadNodes: typeof loadAuthoritativeNetworkNodes;
   loadTelemetry: typeof loadManagedTelemetryWorkspace;
   loadObservedHosts: typeof loadManagedObservedHostsPage;
   loadRunners: (supabase: SupabaseClient) => Promise<{
@@ -26,12 +26,12 @@ type ProductionLoaders = {
 type RunnerRow = NonNullable<Awaited<ReturnType<ProductionLoaders["loadRunners"]>>["data"]>[number];
 
 async function loadRunnersLocal(): Promise<{ data: RunnerRow[] | null; error: unknown }> {
-  // In local mode, we don't have a list-all-runners endpoint yet
-  return { data: null, error: null };
+  const rows = await localRunners();
+  return { data: rows as RunnerRow[] | null, error: rows ? null : new Error("LOCAL_APPLICATION_UNAVAILABLE") };
 }
 
 const PRODUCTION_LOADERS: ProductionLoaders = {
-  loadNodes: loadNetworkNodes,
+  loadNodes: loadAuthoritativeNetworkNodes,
   loadTelemetry: loadManagedTelemetryWorkspace,
   loadObservedHosts: loadManagedObservedHostsPage,
   loadRunners: async (supabase) => {

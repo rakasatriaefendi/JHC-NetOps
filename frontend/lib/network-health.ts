@@ -1,7 +1,7 @@
 "use server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { applicationAuthority, localNetworkNodes, localRunner, localEvents } from "./application-persistence.ts";
+import { applicationAuthority, localEvents, localHealthTargets, localRunners } from "./application-persistence.ts";
 import type {
   HealthStatus,
   NetworkHealthTarget,
@@ -49,40 +49,29 @@ export async function loadNetworkHealth(supabase: SupabaseClient) {
 }
 
 async function loadNetworkHealthLocal() {
-  const [nodes, runners, events] = await Promise.all([
-    localNetworkNodes(),
-    localRunner(""), // Not used for capabilities in local mode
+  const [rows, runners, events] = await Promise.all([
+    localHealthTargets(),
+    localRunners(),
     localEvents(20, "network_health"),
   ]);
-  if (!nodes || !runners) return { data: [], events: [], error: true };
-  const data = nodes.map((row): NetworkHealthTarget => {
-    const node = {
-      id: String(row.id),
-      ip_address: String(row.ip_address),
-      name: String(row.name),
-      device_type: row.device_type ? String(row.device_type) : null,
-      location: row.location ? String(row.location) : null,
-      detected_fingerprint: row.detected_fingerprint as NetworkHealthTarget["node"]["detected_fingerprint"],
-      last_inspected_at: row.last_inspected_at ? String(row.last_inspected_at) : null,
-    };
+  if (!rows || !runners || !events) return { data: [], events: [], error: true };
+  const capabilityByRunner = new Map(runners.map((runner) => [String(runner.id), relation(runner.capabilities)]));
+  const data = rows.filter((row) => row.enabled === true).map((row): NetworkHealthTarget => {
+    const node = relation(row.node) as NetworkHealthTarget["node"];
+    const latest = relation(row.latest) as NetworkHealthTarget["latest"];
+    const capabilities = capabilityByRunner.get(String(row.runner_id));
+    const targets = Array.isArray(capabilities?.targets) ? capabilities.targets : [];
+    const diagnosticTarget = targets.find((target) => relation(target)?.host === node.ip_address);
+    const operations = Array.isArray(capabilities?.operations) ? capabilities.operations : [];
     return {
-      id: String(row.id),
-      runner_id: "",
-      enabled: true,
-      critical: false,
-      probe_interval_seconds: 30,
-      timeout_ms: 1000,
-      failure_threshold: 3,
-      recovery_threshold: 2,
-      latency_warning_ms: 100,
-      loss_warning_percent: 40,
+      ...row,
       node,
-      latest: null,
-      diagnostic_target_id: null,
-      manual_ping_available: false,
+      latest,
+      diagnostic_target_id: relation(diagnosticTarget)?.id ? String(relation(diagnosticTarget)!.id) : null,
+      manual_ping_available: operations.includes("manual_ping"),
     } as NetworkHealthTarget;
   });
-  return { data, events: (events ?? []) as NetworkHealthEvent[], error: false };
+  return { data, events: events as NetworkHealthEvent[], error: false };
 }
 
 export async function loadHealthSamples(supabase: SupabaseClient, targetIds: string[], range: HealthTrendRange) {

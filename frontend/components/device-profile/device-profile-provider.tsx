@@ -25,7 +25,7 @@ import {
   type NetworkNodeType,
 } from "@/lib/network-nodes";
 import { createClient } from "@/lib/supabase/client";
-import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
+import { healthTargetMonitoringStateAction, promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
 import type { ProfileRole } from "@/lib/authorization";
 import { startDeviceInspectionAction } from "@/app/actions/legacy-network-control";
@@ -74,10 +74,8 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
   useEffect(() => {
     let cancelled = false;
     if (!opened || !node || !runner) return;
-    const supabase = createClient();
-    void supabase.from("network_targets").select("id").eq("runner_id", runner.id)
-      .eq("node_id", node.id).eq("enabled", true).limit(1).maybeSingle()
-      .then(({ data }) => { if (!cancelled) setMonitored(Boolean(data)); });
+    void healthTargetMonitoringStateAction(runner.id, node.id)
+      .then((value) => { if (!cancelled) setMonitored(value); });
     return () => { cancelled = true; };
   }, [opened, node, runner]);
 

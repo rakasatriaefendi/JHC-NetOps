@@ -12,6 +12,37 @@ test("frontend authority remains explicit and local API has no Supabase fallback
   assert.match(adapter, /if \(applicationAuthority\(\) !== "local_postgres"\)/);
   assert.match(adapter, /LOCAL_APPLICATION_UNAVAILABLE/);
   assert.doesNotMatch(adapter, /supabase\.from|functions\/v1/);
+  for (const path of ["runners", "network-targets", "managed-targets", "managed-interfaces", "managed-observed-hosts"]) {
+    assert.match(adapter, new RegExp(`/api/application/${path}`));
+  }
+});
+
+test("local Health and SNMP loaders use only loopback helpers and fail closed", () => {
+  const health = source("../lib/network-health.ts");
+  const telemetry = source("../lib/managed-telemetry.ts");
+  const telemetrySource = source("../lib/managed-telemetry-source.ts");
+  assert.match(health, /applicationAuthority\(\) === "local_postgres"[\s\S]*loadNetworkHealthLocal/);
+  assert.match(health, /localHealthTargets\(\)/);
+  assert.match(health, /localRunners\(\)/);
+  assert.match(health, /!rows \|\| !runners \|\| !events[\s\S]*error: true/);
+  for (const helper of ["localManagedTargets", "localManagedInterfaces", "localManagedObservedHosts"]) {
+    assert.match(telemetry, new RegExp(`${helper}\\(`));
+  }
+  assert.match(telemetry, /!targets \|\| !interfaces \|\| !observedHosts[\s\S]*error: true/);
+  assert.match(telemetrySource, /loadRunnersLocal[\s\S]*localRunners\(\)/);
+  assert.match(health, /supabase\.from\("network_targets"\)/);
+  assert.match(telemetry, /supabase\.from\("managed_telemetry_targets"\)/);
+});
+
+test("affected server pages choose authoritative local read helpers", () => {
+  const devices = source("../app/(protected)/devices/page.tsx");
+  const assets = source("../app/(protected)/assets/page.tsx");
+  const nodes = source("../lib/network-nodes-source.ts");
+  assert.match(devices, /applicationAuthority\(\) === "local_postgres"[\s\S]*localRunners\(\)[\s\S]*localHealthTargets\(\)/);
+  assert.match(assets, /applicationAuthority\(\) === "local_postgres"[\s\S]*localRunners\(\)[\s\S]*localManagedTargets\(\)[\s\S]*localHealthTargets\(\)/);
+  assert.match(nodes, /import "server-only"/);
+  assert.match(nodes, /applicationAuthority\(\) === "local_postgres"[\s\S]*localNetworkNodes\(\)/);
+  assert.match(nodes, /return loadNetworkNodes\(supabase\)/);
 });
 
 test("Supabase Auth stays external while local profiles supply application role and status", () => {
@@ -69,6 +100,22 @@ test("server actions preserve Supabase mode but switch writes to loopback in loc
     assert.match(action, /supabase\.from/);
   }
   assert.match(source("../app/actions/health-promotion.ts"), /nodeIds\.length > 254/);
+  assert.match(source("../app/actions/health-promotion.ts"), /\/api\/application\/network-targets\/promote/);
+  assert.match(source("../app/actions/snmp.ts"), /\/api\/application\/managed-targets/);
+  assert.match(source("../app/actions/devices.ts"), /\/api\/application\/network-targets/);
+});
+
+test("browser Device Profile uses server actions for authoritative reads and exposes no local token", () => {
+  const profile = source("../components/device-profile/device-profile-provider.tsx");
+  const telemetry = source("../components/device-profile/managed-telemetry-section.tsx");
+  assert.match(profile, /healthTargetMonitoringStateAction/);
+  assert.match(telemetry, /loadManagedTelemetryForNodeAction/);
+  assert.doesNotMatch(profile, /\.from\("network_targets"\)/);
+  assert.doesNotMatch(telemetry, /\.from\("(?:managed_telemetry_targets|managed_device_latest|managed_interface_latest|managed_observed_hosts_latest)"\)/);
+  for (const component of [profile, telemetry]) {
+    assert.doesNotMatch(component, /LOCAL_BACKEND_FRONTEND_TOKEN|localApplicationRequest/);
+  }
+  assert.match(telemetry, /postgres_changes/);
 });
 
 test("cutover canary stays server-only, verifies local commit, and cleans up in finally", () => {

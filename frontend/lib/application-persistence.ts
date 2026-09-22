@@ -93,6 +93,16 @@ export async function localRunner(runnerId: string): Promise<Record<string, unkn
   return response.ok && record(response.data) ? response.data : null;
 }
 
+export async function localRunners(): Promise<Record<string, unknown>[] | null> {
+  const response = await localApplicationRequest("GET", "/api/application/runners");
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localHealthTargets(): Promise<Record<string, unknown>[] | null> {
+  const response = await localApplicationRequest("GET", "/api/application/network-targets");
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
 export async function localHealthTarget(targetId: string): Promise<Record<string, unknown> | null> {
   if (!uuid(targetId)) return null;
   const response = await localApplicationRequest("GET", `/api/application/network-targets/${targetId}`);
@@ -103,6 +113,25 @@ export async function localManagedTarget(targetId: string): Promise<Record<strin
   if (!uuid(targetId)) return null;
   const response = await localApplicationRequest("GET", `/api/application/managed-targets/${targetId}`);
   return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function localManagedTargets(): Promise<Record<string, unknown>[] | null> {
+  const response = await localApplicationRequest("GET", "/api/application/managed-targets");
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localManagedInterfaces(targetId?: string): Promise<Record<string, unknown>[] | null> {
+  if (targetId !== undefined && !uuid(targetId)) return null;
+  const query = targetId ? `?target_id=${encodeURIComponent(targetId)}` : "";
+  const response = await localApplicationRequest("GET", `/api/application/managed-interfaces${query}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localManagedObservedHosts(targetId?: string): Promise<Record<string, unknown>[] | null> {
+  if (targetId !== undefined && !uuid(targetId)) return null;
+  const query = targetId ? `?target_id=${encodeURIComponent(targetId)}` : "";
+  const response = await localApplicationRequest("GET", `/api/application/managed-observed-hosts${query}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
 export async function localDiagnosticJobs(runnerId: string): Promise<Record<string, unknown>[] | null> {

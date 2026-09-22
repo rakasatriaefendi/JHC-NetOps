@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { ObservedLanHostsSummary } from "@/components/snmp/observed-lan-hosts";
+import { loadManagedTelemetryForNodeAction } from "@/app/actions/snmp";
 import {
   MANAGED_TELEMETRY_STATUS_LABELS,
   credentialProfileStatus,
@@ -53,26 +54,17 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
   useEffect(() => {
     if (!nodeId) return;
     let cancelled = false;
-    const supabase = createClient();
     void (async () => {
       try {
-        const { data, error: targetError } = await supabase.from("managed_telemetry_targets")
-          .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds")
-          .eq("node_id", nodeId).eq("enabled", true).limit(1).maybeSingle();
+        const result = await loadManagedTelemetryForNodeAction(nodeId);
         if (cancelled) return;
-        if (targetError || !data) { setLoading(false); return; }
-        setTarget(data as ManagedTelemetryTarget);
-        const [{ data: latest }, { data: interfaceRows }, { data: observedHostRows }, { data: eventRows }] = await Promise.all([
-          supabase.from("managed_device_latest").select("*").eq("target_id", data.id).maybeSingle(),
-          supabase.from("managed_interface_latest").select("*").eq("target_id", data.id),
-          supabase.from("managed_observed_hosts_latest").select("*,network_nodes(name)").eq("target_id", data.id),
-          supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "managed_telemetry").eq("source_ref", data.id).order("created_at", { ascending: false }).limit(20),
-        ]);
-        if (cancelled) return;
-        setDevice((latest as ManagedDeviceLatest) ?? null);
-        setRows((interfaceRows as ManagedInterfaceLatest[]) ?? []);
-        setObservedHosts((observedHostRows as ManagedObservedHostLatest[]) ?? []);
-        setEvents((eventRows as ManagedTelemetryEvent[]) ?? []);
+        if (result.error) { setError(true); setLoading(false); return; }
+        if (!result.target) { setLoading(false); return; }
+        setTarget(result.target);
+        setDevice(result.target.latest);
+        setRows(result.interfaces);
+        setObservedHosts(result.observedHosts);
+        setEvents(result.events);
         setLoading(false);
       } catch {
         if (!cancelled) { setError(true); setLoading(false); }

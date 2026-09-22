@@ -1,7 +1,8 @@
 "use server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { applicationAuthority, localManagedTarget } from "./application-persistence.ts";
+import { applicationAuthority, localEvents, localManagedInterfaces, localManagedObservedHosts,
+  localManagedTargets } from "./application-persistence.ts";
 import { relation } from "./server-utils.ts";
 import {
   validateManagedTelemetryForm,
@@ -95,8 +96,20 @@ export async function loadManagedTelemetry(supabase: SupabaseClient) {
 }
 
 async function loadManagedTelemetryLocal() {
-  // Local mode: full telemetry data not yet exposed via API; return empty with error=false for graceful degradation
-  return { data: [], interfaces: [], observedHosts: [], events: [], error: false };
+  const [targets, interfaces, observedHosts, events] = await Promise.all([
+    localManagedTargets(), localManagedInterfaces(), localManagedObservedHosts(),
+    localEvents(30, "managed_telemetry"),
+  ]);
+  if (!targets || !interfaces || !observedHosts || !events) {
+    return { data: [], interfaces: [], observedHosts: [], events: [], error: true };
+  }
+  return {
+    data: targets.filter((target) => target.enabled === true) as ManagedTelemetryTarget[],
+    interfaces: interfaces as ManagedInterfaceLatest[],
+    observedHosts: observedHosts as ManagedObservedHostLatest[],
+    events: events as ManagedTelemetryEvent[],
+    error: false,
+  };
 }
 
 export async function loadManagedTelemetryWorkspace(supabase: SupabaseClient) {
@@ -124,7 +137,18 @@ export async function loadManagedTelemetryWorkspace(supabase: SupabaseClient) {
 }
 
 async function loadManagedTelemetryWorkspaceLocal() {
-  return { data: [], interfaces: [], observedHosts: [], error: false };
+  const [targets, interfaces, observedHosts] = await Promise.all([
+    localManagedTargets(), localManagedInterfaces(), localManagedObservedHosts(),
+  ]);
+  if (!targets || !interfaces || !observedHosts) {
+    return { data: [], interfaces: [], observedHosts: [], error: true };
+  }
+  return {
+    data: targets as ManagedTelemetryTarget[],
+    interfaces: interfaces as ManagedInterfaceLatest[],
+    observedHosts: observedHosts as ManagedObservedHostLatest[],
+    error: false,
+  };
 }
 
 export async function loadManagedObservedHostsPage(supabase: SupabaseClient, targetId: string) {
@@ -156,15 +180,15 @@ export async function loadManagedObservedHostsPage(supabase: SupabaseClient, tar
 }
 
 async function loadManagedObservedHostsPageLocal(targetId: string) {
-  const target = await localManagedTarget(targetId);
+  const [targets, observedHosts] = await Promise.all([
+    localManagedTargets(), localManagedObservedHosts(targetId),
+  ]);
+  if (!targets || !observedHosts) return { target: null, observedHosts: [], error: true };
+  const target = targets.find((row) => row.id === targetId);
   if (!target) return { target: null, observedHosts: [], error: false };
   return {
-    target: {
-      ...target,
-      node: { id: "", ip_address: "", name: "", device_type: null, location: null, detected_fingerprint: null, last_inspected_at: null },
-      latest: null,
-    } as ManagedTelemetryTarget,
-    observedHosts: [],
+    target: target as ManagedTelemetryTarget,
+    observedHosts: observedHosts as ManagedObservedHostLatest[],
     error: false,
   };
 }
