@@ -123,6 +123,19 @@ test("local runner liveness ignores Supabase heartbeat while Supabase mode retai
   assert.match(source, /\[open, runner\?\.id, runnerAuthority\]/);
 });
 
+test("local Discovery sessions poll local authority without Supabase session Realtime", () => {
+  const drawer = readFileSync(new URL("../components/dashboard/network-discovery-drawer.tsx", import.meta.url), "utf8");
+  const action = readFileSync(new URL("../app/actions/network-discovery.ts", import.meta.url), "utf8");
+  assert.match(action, /getDiscoverySessionAction/);
+  assert.match(action, /authority === "local_postgres"[\s\S]*localNetworkDiscovery\(runnerId\)/);
+  assert.match(drawer, /runnerAuthority !== "local_postgres"/);
+  assert.match(drawer, /getDiscoverySessionAction\(selectedRunnerId\)/);
+  assert.match(drawer, /setInterval\(\(\) => void refreshSession\(\), 2_000\)/);
+  assert.match(drawer, /\["queued", "running"\]\.includes\(sessionStatus\)/);
+  assert.match(drawer, /if \(runnerAuthority === "supabase"\)[\s\S]*table: "network_discovery_sessions"/);
+  assert.doesNotMatch(action, /LOCAL_BACKEND_FRONTEND_TOKEN/);
+});
+
 test("discovery correlates Traffic by IP without copying flow payloads", () => {
   const ips = observedTrafficIps([{
     flows: [

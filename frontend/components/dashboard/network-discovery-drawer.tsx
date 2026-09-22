@@ -13,7 +13,7 @@ import { NETWORK_NODE_TYPES, findNetworkNode, networkNodeTypeLabel, type Network
 import type { NetworkHealthTarget } from "@/lib/network-health-client";
 import { createClient } from "@/lib/supabase/client";
 import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
-import { getDiscoveryRunnersAction } from "@/app/actions/network-discovery";
+import { getDiscoveryRunnersAction, getDiscoverySessionAction } from "@/app/actions/network-discovery";
 import type { TrafficSnapshot } from "@/lib/traffic";
 import { mutateDiscoverySessionAction } from "@/app/actions/legacy-network-control";
 
@@ -50,6 +50,7 @@ export function NetworkDiscoveryDrawer({
   const { nodes } = useNetworkNodes();
   const runner = eligibleRunners.find((item) => item.id === runnerId) ?? eligibleRunners[0];
   const session = sessions.find((item) => item.runner_id === runner?.id) ?? null;
+  const sessionStatus = session?.status ?? null;
   const runnerOnline = isDiscoveryRunnerAvailable(runner, freshnessNow);
 
   const runnerLastSeenAt = runner?.last_seen_at;
@@ -101,11 +102,6 @@ export function NetworkDiscoveryDrawer({
     if (!open || !runner?.id) return;
     const supabase = createClient();
     let channel = supabase.channel(`network-discovery:${runner.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "network_discovery_sessions", filter: `runner_id=eq.${runner.id}` }, (payload) => {
-        const next = payload.new as DiscoverySession;
-        if (!next.runner_id) return;
-        setSessions((current) => [next, ...current.filter((item) => item.runner_id !== next.runner_id)]);
-      })
       .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_snapshots", filter: `runner_id=eq.${runner.id}` }, (payload) => {
         const snapshot = payload.new as TrafficSnapshot;
         setRecentTrafficIps(new Set([
@@ -114,7 +110,13 @@ export function NetworkDiscoveryDrawer({
         ]));
       });
     if (runnerAuthority === "supabase") {
-      channel = channel.on("postgres_changes", { event: "UPDATE", schema: "public", table: "diagnostic_runners", filter: `id=eq.${runner.id}` }, (payload) => {
+      channel = channel
+        .on("postgres_changes", { event: "*", schema: "public", table: "network_discovery_sessions", filter: `runner_id=eq.${runner.id}` }, (payload) => {
+        const next = payload.new as DiscoverySession;
+        if (!next.runner_id) return;
+        setSessions((current) => [next, ...current.filter((item) => item.runner_id !== next.runner_id)]);
+      })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "diagnostic_runners", filter: `id=eq.${runner.id}` }, (payload) => {
         const heartbeat = payload.new as DiscoveryRunner;
         if (heartbeat.id !== runner.id) return;
         setLiveRunners((current) => current.map((item) => item.id === heartbeat.id
@@ -126,6 +128,34 @@ export function NetworkDiscoveryDrawer({
     channel.subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [open, runner?.id, runnerAuthority]);
+
+  useEffect(() => {
+    if (!open || runnerAuthority !== "local_postgres" || !runner?.id) return;
+    const selectedRunnerId = runner.id;
+    let active = true;
+    let refreshing = false;
+    async function refreshSession() {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const result = await getDiscoverySessionAction(selectedRunnerId);
+        if (!active || !result.ok || result.authority !== "local_postgres" || !result.data) return;
+        const next = result.data;
+        setSessions((current) => [next, ...current.filter((item) => item.runner_id !== next.runner_id)]);
+      } catch {
+        // Keep the last local-authority session snapshot on transient refresh failures.
+      } finally {
+        refreshing = false;
+      }
+    }
+    void refreshSession();
+    const activeSession = Boolean(sessionStatus && ["queued", "running"].includes(sessionStatus));
+    const interval = activeSession ? window.setInterval(() => void refreshSession(), 2_000) : null;
+    return () => {
+      active = false;
+      if (interval !== null) window.clearInterval(interval);
+    };
+  }, [open, runner?.id, runnerAuthority, sessionStatus]);
 
   useEffect(() => {
     if (!open || !runnerOnline || !runner || session || prepared.current.has(runner.id)) return;

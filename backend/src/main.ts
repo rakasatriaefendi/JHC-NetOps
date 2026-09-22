@@ -163,6 +163,10 @@ async function main(): Promise<void> {
     buildServerOptions.reportBranding = { token: config.assets.frontendApiToken, store: reportBranding };
   }
   if (localRepos) {
+    buildServerOptions.networkDiscovery = {
+      token: config.runnerApiToken,
+      repository: localRepos.networkDiscovery,
+    };
     buildServerOptions.application = {
       token: config.frontendApiToken,
       profiles: localRepos.profiles,

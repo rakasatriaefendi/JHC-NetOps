@@ -22,6 +22,9 @@ export class BackendClient {
     this.localHealthEndpoint = localBackend ? `${localBackend.url}/api/runner/network-health` : null;
     this.localTrafficEndpoint = localBackend ? `${localBackend.url}/api/runner/traffic` : null;
     this.localTelemetryEndpoint = localBackend ? `${localBackend.url}/api/runner/managed-telemetry` : null;
+    this.localDiscoveryEndpoint = localBackend && persistenceAuthority === "local_postgres"
+      ? `${localBackend.url}/api/runner/network-discovery`
+      : null;
     this.localBackendHeaders = localBackend ? {
       Authorization: `Bearer ${localBackend.token}`,
       "Content-Type": "application/json",
@@ -136,11 +139,7 @@ export class BackendClient {
     return payload.data;
   }
   async #postDiscovery(body) {
-    this.#assertEdgeMutationAllowed();
-    const response = await fetch(this.discoveryEndpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(backendFailureMessage("Network discovery backend", response.status, payload));
-    return payload.data;
+    return this.#postRecurring("Network discovery", this.localDiscoveryEndpoint, this.discoveryEndpoint, body);
   }
   async #postInspection(body) {
     this.#assertEdgeMutationAllowed();

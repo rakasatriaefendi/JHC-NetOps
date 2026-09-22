@@ -59,6 +59,27 @@ test("local Discovery prepare and start preserve the prepared session lifecycle"
   assert.deepEqual(start.values, [RUNNER, SESSION]);
 });
 
+test("local Discovery runner mutations enforce runner, session, status, and phase", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkDiscoveryRepository(database);
+  await repository.claim(RUNNER, new Date().toISOString(), signal());
+  await repository.contextReady(RUNNER, SESSION, {
+    connection_type: "wifi", interface_alias: "Wi-Fi", local_ipv4: "192.168.1.67",
+    subnet_cidr: "192.168.1.0/24", total_hosts: 254,
+  }, new Date().toISOString(), signal());
+  await repository.complete(RUNNER, SESSION, 254, new Date().toISOString(), signal());
+  const claim = database.calls.find(({ sql }) => sql.includes("FOR UPDATE SKIP LOCKED"));
+  const context = database.calls.find(({ sql }) => sql.includes("status='idle',completed_at"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed',scanned_hosts"));
+  assert.ok(claim);
+  assert.match(claim.sql, /runner_id=\$1[\s\S]*status='queued'/);
+  assert.ok(context);
+  assert.match(context.sql, /runner_id=\$1 AND session_id=\$2::uuid AND status='running' AND phase='prepare'/);
+  assert.deepEqual(context.values.slice(0, 2), [RUNNER, SESSION]);
+  assert.ok(complete);
+  assert.match(complete.sql, /runner_id=\$1 AND session_id=\$2::uuid AND status='running' AND phase='scan'/);
+});
+
 test("local Device Inspector derives inventory authorization and does not accept a caller source", async () => {
   const database = new ControlDatabase();
   const row = await new PostgresDeviceInspectionRepository(database).create(ACTOR, {

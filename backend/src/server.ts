@@ -6,6 +6,7 @@ import { registerScanNetworkRoutes, type ScanNetworkRouteOptions } from "./asset
 import { registerAssetReportRoute, type AssetReportRouteOptions } from "./assets/report-route.js";
 import { registerManagedTelemetryRoute, type ManagedTelemetryRouteOptions } from "./managed-telemetry/route.js";
 import { registerNetworkHealthRoute, type NetworkHealthRouteOptions } from "./network-health/route.js";
+import { registerNetworkDiscoveryRoute, type NetworkDiscoveryRouteOptions } from "./network-discovery/route.js";
 import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
 import { registerTrafficRoute, type TrafficRouteOptions } from "./traffic/route.js";
 import { registerReportBrandingRoutes, type ReportBrandingRouteOptions } from "./report-branding/route.js";
@@ -25,6 +26,7 @@ type BuildServerOptions = Readonly<{
   logger?: boolean;
   managedTelemetry?: ManagedTelemetryRouteOptions;
   networkHealth?: NetworkHealthRouteOptions;
+  networkDiscovery?: NetworkDiscoveryRouteOptions;
   runnerHeartbeat?: RunnerHeartbeatRouteOptions;
   traffic?: TrafficRouteOptions;
   reportBranding?: ReportBrandingRouteOptions;
@@ -86,6 +88,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     registerRunnerHeartbeatRoute(server, options.runnerHeartbeat);
   }
   if (options.networkHealth) registerNetworkHealthRoute(server, options.networkHealth);
+  if (options.networkDiscovery) registerNetworkDiscoveryRoute(server, options.networkDiscovery);
   if (options.traffic) registerTrafficRoute(server, options.traffic);
   if (options.managedTelemetry) registerManagedTelemetryRoute(server, options.managedTelemetry);
   if (options.assets) registerAssetRoutes(server, options.assets);
