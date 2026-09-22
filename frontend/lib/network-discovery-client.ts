@@ -40,6 +40,25 @@ export type DiscoveryRunner = {
   capabilities: { operations?: string[]; targets?: unknown[] };
 };
 
+export function normalizeDiscoveryRunners(rows: readonly Record<string, unknown>[]): DiscoveryRunner[] {
+  return rows.map((row): DiscoveryRunner | null => {
+    const capabilities = record(row.capabilities) ? row.capabilities : null;
+    const operations = capabilities && Array.isArray(capabilities.operations)
+      ? capabilities.operations.filter((operation): operation is string => typeof operation === "string")
+      : [];
+    if (typeof row.id !== "string" || typeof row.display_name !== "string"
+      || typeof row.last_seen_at !== "string"
+      || (row.health_status !== "online" && row.health_status !== "degraded")) return null;
+    return {
+      id: row.id,
+      display_name: row.display_name,
+      last_seen_at: row.last_seen_at,
+      health_status: row.health_status,
+      capabilities: { operations },
+    };
+  }).filter((runner): runner is DiscoveryRunner => runner !== null);
+}
+
 export function isDiscoveryRunnerOnline(
   runner: DiscoveryRunner | null | undefined,
   nowMs = Date.now(),
@@ -62,4 +81,8 @@ export function observedTrafficIps(snapshots: { flows: { src_ip: string; dst_ip:
     ...snapshot.flows.flatMap((flow) => [flow.src_ip, flow.dst_ip]),
     ...snapshot.top_talkers.map((talker) => talker.ip),
   ]))];
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
