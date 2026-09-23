@@ -196,6 +196,17 @@ export async function localTrafficMetricsByStatus(status: string): Promise<Recor
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
+export async function localHopMeasurements(limit = 512): Promise<Record<string, unknown>[] | null> {
+  const bounded = Math.max(1, Math.min(4096, Math.trunc(limit)));
+  const response = await localApplicationRequest("GET", `/api/application/hop-measurements?limit=${bounded}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localTrafficState(): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("GET", "/api/application/traffic-state");
+  return response.ok && record(response.data) ? response.data : null;
+}
+
 export async function localEvents(limit = 50, source?: string, sourceRef?: string): Promise<Record<string, unknown>[] | null> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (source) params.set("source", source);

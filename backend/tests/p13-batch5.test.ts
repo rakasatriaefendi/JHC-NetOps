@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { PostgresCutoverCanaryRepository } from "../src/persistence/cutover-canary.js";
-import { PostgresOutboxRepository, type OutboxEvent } from "../src/persistence/outbox.js";
+import { OutboxFetchError, PostgresOutboxRepository, type OutboxEvent } from "../src/persistence/outbox.js";
 import type { PostgresQuery, PostgresTransactionalQuery } from "../src/persistence/postgres-query.js";
 import {
   buildProjectionPlan,
@@ -35,14 +35,17 @@ test("migration 008 uses transactional triggers for the exact reviewed shadow su
   assert.doesNotMatch(migration, /GRANT (?:OWNERSHIP|CREATE|ALL)|GRANT [^;]*UPDATE ON SEQUENCE/i);
 });
 
-test("outbox event identity is per mutation and polling is monotonic per aggregate", async () => {
+test("outbox event identity is per mutation and bounded polling is monotonic per aggregate", async () => {
   assert.match(migration, /id bigserial PRIMARY KEY/);
   assert.match(migration, /realtime_outbox_aggregate_order_idx[\s\S]+aggregate_type, aggregate_key, id/);
   const database = new RecordingDatabase();
   const repository = new PostgresOutboxRepository(database);
   await repository.fetchPending(50, new AbortController().signal);
   const sql = database.calls[0]?.sql ?? "";
-  assert.match(sql, /NOT EXISTS[\s\S]+earlier\.id < o\.id[\s\S]+earlier\.status <> 'delivered'/);
+  assert.match(sql, /WITH aggregate_heads AS MATERIALIZED/);
+  assert.match(sql, /SELECT DISTINCT ON \(aggregate_type,aggregate_key\)/);
+  assert.match(sql, /WHERE status <> 'delivered'[\s\S]+ORDER BY aggregate_type,aggregate_key,id ASC/);
+  assert.doesNotMatch(sql, /NOT EXISTS/);
   assert.match(sql, /ORDER BY o\.id ASC/);
   assert.match(sql, /o\.id > COALESCE\(w\.last_delivered_outbox_id,0\)/);
 });
@@ -54,6 +57,44 @@ test("projection plans preserve upsert and actual delete semantics", () => {
   assert.deepEqual(update, { kind: "upsert", table: "network_targets", payload: { id: "target-1", enabled: true }, onConflict: "id" });
   const deletion = buildProjectionPlan(event({ operation: "DELETE" }), approved);
   assert.deepEqual(deletion, { kind: "delete", table: "network_targets", match: { id: "target-1" } });
+});
+
+test("outbox polling maps an eligible migration-008 row and accepts an empty queue", async () => {
+  const empty = new RecordingDatabase();
+  assert.deepEqual(await new PostgresOutboxRepository(empty).fetchPending(50, AbortSignal.timeout(1_000)), []);
+  const database = new RecordingDatabase([{
+    id: 7, event_id: "20000000-0000-4000-8000-000000000007", aggregate_type: "network_targets",
+    aggregate_key: { id: "target-7" }, operation: "UPDATE", payload: { id: "target-7", enabled: true },
+    status: "pending", attempt_count: 0, next_attempt_at: null, created_at: "2026-09-23T00:00:00Z",
+    delivered_at: null, last_error_category: null,
+  }]);
+  const rows = await new PostgresOutboxRepository(database).fetchPending(50, AbortSignal.timeout(1_000));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.id, 7);
+  assert.deepEqual(rows[0]?.aggregate_key, { id: "target-7" });
+});
+
+test("outbox query preserves watermark, poison blocking, and transient retry semantics", async () => {
+  const database = new RecordingDatabase();
+  await new PostgresOutboxRepository(database).fetchPending(50, AbortSignal.timeout(1_000));
+  const sql = database.calls[0]?.sql ?? "";
+  assert.match(sql, /LEFT JOIN public\.realtime_projection_watermarks/);
+  assert.match(sql, /o\.id > COALESCE\(w\.last_delivered_outbox_id,0\)/);
+  assert.match(sql, /o\.status='pending' OR o\.last_error_category IN \('transient_network','supabase_unavailable'\)/);
+  assert.match(sql, /next_attempt_at IS NULL OR o\.next_attempt_at <= now\(\)/);
+  assert.match(sql, /status <> 'delivered'/);
+});
+
+test("outbox fetch failures expose only bounded safe categories", async () => {
+  for (const [sqlState, expected] of [["42501", "OUTBOX_PERMISSION_DENIED"],
+    ["42P01", "OUTBOX_SCHEMA_MISMATCH"], ["57014", "OUTBOX_QUERY_TIMEOUT"],
+    ["XX000", "OUTBOX_QUERY_FAILED"]] as const) {
+    const database = new RecordingDatabase([], Object.assign(new Error("raw database detail"), { code: sqlState }));
+    await assert.rejects(
+      () => new PostgresOutboxRepository(database).fetchPending(10, AbortSignal.timeout(1_000)),
+      (error) => error instanceof OutboxFetchError && error.code === expected && !error.message.includes("raw database detail"),
+    );
+  }
 });
 
 test("projection plans preserve required Traffic and reviewed control-plane fields", () => {
@@ -150,6 +191,8 @@ test("outbox polling retries only transient failures and health aggregation is v
   assert.match(healthSql, /COUNT\(\*\) FILTER \(WHERE status='delivered'\) AS delivered_count/);
   assert.match(healthSql, /MIN\(created_at\) FILTER \(WHERE status IN \('pending','failed'\)\)/);
   assert.doesNotMatch(healthSql, /\)\*1000\s+FILTER/);
+  assert.match(healthSql, /FROM public\.realtime_outbox/);
+  assert.doesNotMatch(healthSql, /application_outbox/);
 });
 
 test("projector lifecycle aborts and awaits its in-process loop", async () => {
@@ -205,9 +248,14 @@ test("legacy Edge mutation surfaces share the local-authority guard while projec
 
 class RecordingDatabase implements PostgresTransactionalQuery {
   readonly calls: { sql: string; values: readonly unknown[] }[] = [];
+  constructor(
+    private readonly result: readonly Record<string, unknown>[] = [],
+    private readonly failure: Error | null = null,
+  ) {}
   async rows(sql: string, values: readonly unknown[]): Promise<readonly Record<string, unknown>[]> {
     this.calls.push({ sql, values });
-    return [];
+    if (this.failure) throw this.failure;
+    return this.result;
   }
   async transaction<T>(_signal: AbortSignal, action: (query: PostgresQuery) => Promise<T>): Promise<T> {
     return action(this);

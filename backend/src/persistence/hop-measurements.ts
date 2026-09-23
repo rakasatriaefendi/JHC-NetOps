@@ -4,6 +4,7 @@ type Row = Record<string, unknown>;
 
 export interface HopMeasurementsRepository {
   insertBatch(measurements: HopMeasurementInput[], signal: AbortSignal): Promise<number>;
+  listRecent(limit: number, signal: AbortSignal): Promise<readonly Row[]>;
   listBySession(sessionId: string, signal: AbortSignal): Promise<readonly Row[]>;
   listByJob(jobId: string, signal: AbortSignal): Promise<readonly Row[]>;
 }
@@ -57,6 +58,14 @@ export class PostgresHopMeasurementsRepository implements HopMeasurementsReposit
         target_label text,target_host text,connection_type text,job_id uuid,environment text)
     `, [JSON.stringify(rows)], signal);
     return measurements.length;
+  }
+
+  async listRecent(limit: number, signal: AbortSignal): Promise<readonly Row[]> {
+    const boundedLimit = Math.max(1, Math.min(4096, Math.trunc(limit)));
+    return this.database.rows(`
+      SELECT * FROM public.hop_measurements
+      ORDER BY measured_at DESC,hop_number ASC LIMIT $1
+    `, [boundedLimit], signal);
   }
 
   async listBySession(sessionId: string, signal: AbortSignal): Promise<readonly Row[]> {

@@ -1,5 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 export type ConnectionType = "wifi" | "ethernet";
 export type DiagnosticDirection = "upload" | "download";
 export type DiagnosticEnvironment = "lan" | "localhost_demo";
@@ -63,28 +61,6 @@ export type DiagnosticsFilters = {
 };
 
 export type BandwidthComparisonRow = BandwidthMeasurement;
-
-type DiagnosticsResponse = {
-  data: DiagnosticsData;
-};
-
-export async function loadDiagnostics(
-  supabase: SupabaseClient,
-): Promise<{ data: DiagnosticsData; error: boolean }> {
-  const { data, error } = await supabase.functions.invoke<DiagnosticsResponse>(
-    "diagnostics",
-    { method: "GET" },
-  );
-
-  if (error || !data?.data) {
-    return {
-      data: { bandwidth: [], hops: [] },
-      error: true,
-    };
-  }
-
-  return { data: data.data, error: false };
-}
 
 export function filterDiagnostics(
   data: DiagnosticsData,

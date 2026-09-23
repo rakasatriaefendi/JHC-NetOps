@@ -1,4 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DiagnosticRunner } from "@/lib/diagnostic-jobs";
 import type { ProfileRole } from "@/lib/authorization";
 
@@ -16,11 +15,6 @@ export type TrafficRunnerSnapshot = Pick<DiagnosticRunner, "id" | "display_name"
 };
 
 export const emptyTrafficState = (role:ProfileRole="viewer"):TrafficState => ({runners:[],sessions:[],snapshots:[],storage_status:{storage_mb:0,status:"healthy"},role,server_time:new Date().toISOString()});
-
-export async function loadTrafficState(supabase:SupabaseClient, role:ProfileRole) {
-  const {data,error}=await supabase.functions.invoke<{data:TrafficState}>("traffic-live",{method:"GET"});
-  return error||!data?.data ? {data:emptyTrafficState(role),error:true} : {data:data.data,error:false};
-}
 
 export function normalizeTrafficRunnerSnapshots(rows: readonly Record<string, unknown>[]): TrafficRunnerSnapshot[] {
   return rows.map((row): TrafficRunnerSnapshot | null => {

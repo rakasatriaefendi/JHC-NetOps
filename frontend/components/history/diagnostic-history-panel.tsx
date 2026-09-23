@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { getDiagnosticHistoryAction } from "@/app/actions/diagnostics";
 import { DiagnosticHistoryTable } from "@/components/history/diagnostic-history-table";
 import { DiagnosticTrendChart } from "@/components/history/diagnostic-trend-chart";
-import { createClient } from "@/lib/supabase/client";
 import {
   emptyHistoryData,
   filterDiagnosticTests,
   groupComparableDiagnosticTests,
   groupDiagnosticTests,
-  loadDiagnosticHistory,
   resolveHistoryRange,
   summarizeDiagnosticTests,
   type DiagnosticHistoryQuery,
@@ -23,7 +22,6 @@ import type { ConnectionType } from "@/lib/diagnostics";
 
 export function DiagnosticHistoryPanel() {
   const { t } = useTranslation("history");
-  const supabase = useMemo(() => createClient(), []);
   const today = useMemo(() => formatDateInput(new Date()), []);
   const [source, setSource] = useState("all");
   const [target, setTarget] = useState("all");
@@ -49,21 +47,21 @@ export function DiagnosticHistoryPanel() {
     } : null;
   }, [connectionType, customEnd, customStart, includeDevelopment, period, source, target]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!query) {
       return;
     }
     let cancelled = false;
-    void loadDiagnosticHistory(supabase, query).then((result) => {
+    void getDiagnosticHistoryAction(query).then((result) => {
       if (cancelled) return;
       setRawData(result.data);
-      setLoadError(result.error);
+      setLoadError(!result.ok);
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [query, supabase]);
+  }, [query]);
 
   const groupedTests = useMemo(
     () => groupDiagnosticTests(rawData, includeDevelopment),

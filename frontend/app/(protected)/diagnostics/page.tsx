@@ -1,8 +1,7 @@
 import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-provider";
 import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { DiagnosticsWorkspace } from "@/components/diagnostics/diagnostics-workspace";
-import { loadDiagnosticJobState } from "@/lib/diagnostic-jobs";
-import { loadDiagnostics } from "@/lib/diagnostics";
+import { getDiagnosticJobStateAction, getDiagnosticsAction } from "@/app/actions/diagnostics";
 import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { requireApprovedProfile } from "@/lib/auth";
 import { getServerTranslation } from "@/i18n/server";
@@ -14,8 +13,8 @@ export default async function DiagnosticsPage({searchParams}:{searchParams:Promi
   const {target}=await searchParams;
   const {supabase,profile} = await requireApprovedProfile();
   const [jobState, diagnostics, networkNodes] = await Promise.all([
-    loadDiagnosticJobState(supabase),
-    loadDiagnostics(supabase),
+    getDiagnosticJobStateAction(),
+    getDiagnosticsAction(),
     loadAuthoritativeNetworkNodes(supabase),
   ]);
   return (
@@ -26,7 +25,7 @@ export default async function DiagnosticsPage({searchParams}:{searchParams:Promi
       <div className="mt-6 min-w-0">
         <NetworkNodesProvider initialNodes={networkNodes.data} loadError={networkNodes.error} role={profile.role}>
           <DeviceProfileProvider role={profile.role} runners={jobState.data.runners}>
-          <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={jobState.error || diagnostics.error} diagnosticsLoadError={diagnostics.error} prefillTarget={target} role={profile.role} />
+          <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={!jobState.ok || !diagnostics.ok} diagnosticsLoadError={!diagnostics.ok} prefillTarget={target} role={profile.role} />
           </DeviceProfileProvider>
         </NetworkNodesProvider>
       </div>

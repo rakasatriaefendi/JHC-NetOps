@@ -24,6 +24,7 @@ import { createClient } from "@/lib/supabase/client";
 import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 import { localeForLanguage } from "@/i18n/config";
 import { createDiagnosticJobAction, requestDiagnosticPreflightAction } from "@/app/actions/legacy-network-control";
+import { getDiagnosticJobStateAction, getDiagnosticsAction } from "@/app/actions/diagnostics";
 
 type Props = {
   initialState: DiagnosticJobState;
@@ -47,6 +48,7 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   const [formError, setFormError] = useState<string | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const requestedPreflight = useRef("");
+  const authorityRef = useRef<"supabase" | "local_postgres" | null>(null);
 
   const runner = runners.find((item) => item.id === runnerId) ?? runners[0];
   const capabilities = runner?.capabilities;
@@ -71,27 +73,31 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
     let disposed = false;
     const supabase = createClient();
     async function refetchState() {
-      const { data, error } = await supabase.functions.invoke<{ data: DiagnosticJobState }>("diagnostic-jobs", { method: "GET" });
-      if (!disposed && !error && data?.data) {
-        setRunners(data.data.runners);
-        setJobs(data.data.jobs);
-        if (data.data.jobs[0]?.status === "completed") void reloadMeasurements(supabase, onDiagnosticsChange);
+      const result = await getDiagnosticJobStateAction().catch(() => null);
+      if (!disposed && result?.ok) {
+        authorityRef.current = result.authority;
+        setRunners(result.data.runners);
+        setJobs(result.data.jobs);
+        if (result.data.jobs[0]?.status === "completed") void reloadMeasurements(onDiagnosticsChange);
       }
     }
+    void refetchState();
     const clock = window.setInterval(() => setNow(Date.now()), 5000);
     const fallback = window.setInterval(() => void refetchState(), 4000);
     const onlineRefetch = () => void refetchState();
     window.addEventListener("online", onlineRefetch);
     const channel = supabase.channel("lan-diagnostics-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "diagnostic_runners" }, (payload) => {
+        if (authorityRef.current === "local_postgres") return;
         const next = payload.new as DiagnosticRunner;
         if (next.id) setRunners((current) => [next, ...current.filter((item) => item.id !== next.id)]);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "diagnostic_jobs" }, (payload) => {
+        if (authorityRef.current === "local_postgres") return;
         const next = payload.new as DiagnosticJob;
         if (!next.id) return;
         setJobs((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 25));
-        if (next.status === "completed") void reloadMeasurements(supabase, onDiagnosticsChange);
+        if (next.status === "completed") void reloadMeasurements(onDiagnosticsChange);
       })
       .subscribe((status) => {
         const connected = status === "SUBSCRIBED";
@@ -252,7 +258,7 @@ function Notice({ children, tone="normal" }: { children: React.ReactNode; tone?:
 function LiveValue({ label, value, suffix }: { label: string; value?: number; suffix: string }) { return <div><dt className="text-meta text-text-secondary">{label}</dt><dd className="mt-1 font-data text-section text-accent">{value===undefined?"-":`${value.toFixed(2)} ${suffix}`}</dd></div>; }
 function ResultValue({ label, value, suffix }: { label: string; value: number|null|undefined; suffix: string }) { return <div className="rounded-control border border-border bg-bg-base p-3"><dt className="text-meta text-text-secondary">{label}</dt><dd className="mt-2 font-data text-section text-accent">{value==null?"-":`${value.toFixed(2)}${suffix?` ${suffix}`:""}`}</dd></div>; }
 
-async function reloadMeasurements(supabase: ReturnType<typeof createClient>, setData: (data: DiagnosticsData) => void) { const {data}=await supabase.functions.invoke<{data:DiagnosticsData}>("diagnostics",{method:"GET"}); if(data?.data)setData(data.data); }
+async function reloadMeasurements(setData: (data: DiagnosticsData) => void) { const result=await getDiagnosticsAction(); if(result.ok)setData(result.data); }
 function measurementSummary(value?: BandwidthMeasurement): DirectionSummary|null { if(!value?.direction)return null; return {direction:value.direction,average_mbps:value.bitrate_mbps,peak_mbps:value.peak_mbps,minimum_mbps:value.minimum_mbps,transferred_mb:value.transferred_mb,retransmits:value.retransmits,duration_seconds:value.duration_seconds}; }
 function connectionLabel(value?: string, t?: TFunction) { return value==="wifi"?"WiFi":value==="ethernet"?"Ethernet":t ? t("workspace.otherConnection") : "Other / Unknown"; }
 function pingDetail(value: PreflightContext["target"]|null|undefined, t: TFunction) { if(!value)return t("workspace.unusedUnchecked"); return value.status==="responded"?`${t("workspace.responded")}${value.latency_ms==null?"":` · ${value.latency_ms.toFixed(1)} ms`}`:t("workspace.noIcmp"); }

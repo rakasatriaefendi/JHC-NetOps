@@ -39,22 +39,36 @@ export class BackendClient {
       ? this.#postLocalHeartbeat({ runner })
       : this.#post({ action: "runner_heartbeat", runner });
   }
-  claimPreflight(runnerId) { return this.#post({ action: "claim_preflight", runner_id: runnerId }); }
+  claimPreflight(runnerId) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
+    return this.#post({ action: "claim_preflight", runner_id: runnerId });
+  }
   completePreflight(runnerId, requestId, targetId, context) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
     return this.#post({ action: "complete_preflight", runner_id: runnerId, request_id: requestId, target_id: targetId, ...context });
   }
   failPreflight(runnerId, requestId, errorCode) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
     return this.#post({ action: "fail_preflight", runner_id: runnerId, request_id: requestId, error_code: errorCode });
   }
-  claim(runnerId) { return this.#post({ action: "claim_job", runner_id: runnerId }); }
+  claim(runnerId) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
+    return this.#post({ action: "claim_job", runner_id: runnerId });
+  }
   updateJobContext(runnerId, jobId, context) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
     return this.#post({ action: "update_job_context", runner_id: runnerId, job_id: jobId, ...context });
   }
   progress(runnerId, jobId, stage, progress) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
     return this.#post({ action: "update_progress", runner_id: runnerId, job_id: jobId, stage, progress });
   }
-  complete(runnerId, jobId) { return this.#post({ action: "complete_job", runner_id: runnerId, job_id: jobId }); }
+  complete(runnerId, jobId) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
+    return this.#post({ action: "complete_job", runner_id: runnerId, job_id: jobId });
+  }
   fail(runnerId, jobId, errorCode, errorMessage) {
+    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
     return this.#post({ action: "fail_job", runner_id: runnerId, job_id: jobId, error_code: errorCode, error_message: errorMessage });
   }
   claimTraffic(runnerId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "claim_session", runner_id: runnerId }); }
@@ -173,7 +187,9 @@ export function exposeLocalBackendToWsl(localBackend, environment = process.env,
   if (!localBackend || platform !== "win32") return;
   const entries = String(environment.WSLENV ?? "").split(":").filter(Boolean);
   const names = new Set(entries.map((entry) => entry.split("/")[0]));
-  for (const name of ["LOCAL_BACKEND_URL", "LOCAL_BACKEND_TOKEN"]) {
+  const exportedNames = ["LOCAL_BACKEND_URL", "LOCAL_BACKEND_TOKEN",
+    ...(environment.PERSISTENCE_AUTHORITY ? ["PERSISTENCE_AUTHORITY"] : [])];
+  for (const name of exportedNames) {
     if (!names.has(name)) entries.push(name);
   }
   environment.LOCAL_BACKEND_URL = localBackend.url;

@@ -11,6 +11,7 @@ import { PostgresTrafficRepository } from "../src/persistence/traffic.js";
 import { PostgresManagedTelemetryRepository } from "../src/persistence/managed-telemetry.js";
 import { PostgresProfilesRepository } from "../src/persistence/profiles.js";
 import { PostgresNetworkInventoryRepository } from "../src/persistence/inventory.js";
+import { PostgresHopMeasurementsRepository } from "../src/persistence/hop-measurements.js";
 import { buildServer } from "../src/server.js";
 import { SupabaseRestClient } from "../src/supabase-rest.js";
 
@@ -398,6 +399,40 @@ test("local Health and SNMP list routes require bearer auth and return UI read m
     assert.equal(responses[2]?.json().data[0].util_warning_percent, 80);
     assert.equal(responses[3]?.json().data[0].target_id, targetId);
     assert.equal(responses[4]?.json().data[0].network_nodes.name, "Workstation");
+  } finally {
+    await server.close();
+  }
+});
+
+test("local application exposes bounded authoritative Traffic and hop read models", async () => {
+  const database: PostgresTransactionalQuery = {
+    async rows(sql) {
+      if (sql.includes("FROM public.traffic_live_sessions")) return [{ id: "session-1", status: "running" }];
+      if (sql.includes("FROM public.traffic_live_snapshots")) return [{ runner_id: "runner-1", captured_at: "2026-09-23T00:00:00Z" }];
+      if (sql.includes("pg_total_relation_size")) return [{ storage_mb: "12.5", status: "healthy" }];
+      if (sql.includes("FROM public.hop_measurements")) return [{ id: "hop-1", hop_number: 1 }];
+      return [];
+    },
+    async transaction(_signal, action) { return action(this); },
+  };
+  const server = buildServer({ logger: false, application: {
+    token: "frontend-server-token-for-tests-only",
+    profiles: new PostgresProfilesRepository(database),
+    inventory: new PostgresNetworkInventoryRepository(database),
+    traffic: new PostgresTrafficRepository(database),
+    hopMeasurements: new PostgresHopMeasurementsRepository(database),
+  } });
+  const headers = { authorization: "Bearer frontend-server-token-for-tests-only" };
+  try {
+    assert.equal((await server.inject({ method: "GET", url: "/api/application/traffic-state" })).statusCode, 401);
+    const traffic = await server.inject({ method: "GET", url: "/api/application/traffic-state", headers });
+    assert.equal(traffic.statusCode, 200);
+    assert.equal(traffic.json().data.sessions[0].id, "session-1");
+    assert.equal(traffic.json().data.snapshots[0].runner_id, "runner-1");
+    assert.equal(traffic.json().data.storage_status.storage_mb, 12.5);
+    const hops = await server.inject({ method: "GET", url: "/api/application/hop-measurements?limit=512", headers });
+    assert.equal(hops.statusCode, 200);
+    assert.equal(hops.json().data[0].hop_number, 1);
   } finally {
     await server.close();
   }

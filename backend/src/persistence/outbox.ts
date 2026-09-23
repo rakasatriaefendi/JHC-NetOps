@@ -21,6 +21,19 @@ export type OutboxEvent = Readonly<{
   last_error_category: OutboxErrorCategory | null;
 }>;
 
+export type OutboxFetchFailureCode =
+  | "OUTBOX_PERMISSION_DENIED"
+  | "OUTBOX_SCHEMA_MISMATCH"
+  | "OUTBOX_QUERY_TIMEOUT"
+  | "OUTBOX_QUERY_FAILED";
+
+export class OutboxFetchError extends Error {
+  constructor(readonly code: OutboxFetchFailureCode) {
+    super(code);
+    this.name = "OutboxFetchError";
+  }
+}
+
 export class PostgresOutboxRepository {
   constructor(private readonly database: PostgresTransactionalQuery) {}
 
@@ -31,27 +44,33 @@ export class PostgresOutboxRepository {
    */
   async fetchPending(limit: number, signal: AbortSignal): Promise<OutboxEvent[]> {
     const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
-    const rows = await this.database.rows(`
+    try {
+      const rows = await this.database.rows(`
+      WITH aggregate_heads AS MATERIALIZED (
+        SELECT DISTINCT ON (aggregate_type,aggregate_key)
+          id,event_id,aggregate_type,aggregate_key,operation,payload,status,
+          attempt_count,next_attempt_at,created_at,delivered_at,last_error_category
+        FROM public.realtime_outbox
+        WHERE status <> 'delivered'
+        ORDER BY aggregate_type,aggregate_key,id ASC
+      )
       SELECT o.id,o.event_id,o.aggregate_type,o.aggregate_key,o.operation,o.payload,
         o.status,o.attempt_count,o.next_attempt_at,o.created_at,o.delivered_at,o.last_error_category
-      FROM public.realtime_outbox o
+      FROM aggregate_heads o
       LEFT JOIN public.realtime_projection_watermarks w
         ON w.aggregate_type=o.aggregate_type AND w.aggregate_key=o.aggregate_key
       WHERE o.status IN ('pending','failed')
         AND (o.status='pending' OR o.last_error_category IN ('transient_network','supabase_unavailable'))
         AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= now())
         AND o.id > COALESCE(w.last_delivered_outbox_id,0)
-        AND NOT EXISTS (
-          SELECT 1 FROM public.realtime_outbox earlier
-          WHERE earlier.aggregate_type=o.aggregate_type
-            AND earlier.aggregate_key=o.aggregate_key
-            AND earlier.id < o.id
-            AND earlier.status <> 'delivered'
-        )
       ORDER BY o.id ASC
       LIMIT $1
-    `, [boundedLimit], signal);
-    return rows.map(mapRow);
+      `, [boundedLimit], signal);
+      return rows.map(mapRow);
+    } catch (error) {
+      if (error instanceof OutboxFetchError) throw error;
+      throw new OutboxFetchError(classifyFetchFailure(error));
+    }
   }
 
   /** Marks delivery and advances the aggregate watermark atomically. */
@@ -112,6 +131,16 @@ export class PostgresOutboxRepository {
         ? null : Number(row.oldest_pending_age_ms),
     };
   }
+}
+
+function classifyFetchFailure(error: unknown): OutboxFetchFailureCode {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? (error as { code?: unknown }).code
+    : null;
+  if (code === "42501") return "OUTBOX_PERMISSION_DENIED";
+  if (code === "42P01" || code === "42703" || code === "42883") return "OUTBOX_SCHEMA_MISMATCH";
+  if (code === "57014") return "OUTBOX_QUERY_TIMEOUT";
+  return "OUTBOX_QUERY_FAILED";
 }
 
 function mapRow(row: Record<string, unknown>): OutboxEvent {

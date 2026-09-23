@@ -61,7 +61,7 @@ test("local heartbeat failure does not fall back to a duplicate Supabase write",
   assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/heartbeat"]);
 });
 
-test("local backend moves only recurring operations and retains low-frequency Edge paths", async (t) => {
+test("explicit Supabase authority retains its reviewed Edge rollback paths", async (t) => {
   const requests = [];
   t.mock.method(globalThis, "fetch", async (url, options) => {
     requests.push({ url: String(url), body: JSON.parse(options.body), headers: options.headers });
@@ -70,7 +70,7 @@ test("local backend moves only recurring operations and retains low-frequency Ed
   const client = new BackendClient("https://example.invalid", "test-service-key", {
     url: "http://127.0.0.1:3402",
     token: LOCAL_TOKEN,
-  });
+  }, "supabase");
   await client.claim("runner-test");
   await client.claimManualPing("runner-test");
   await client.claimTraffic("runner-test");
@@ -124,9 +124,11 @@ test("local authority blocks legacy Edge control-plane mutations before fetch", 
     url: "http://127.0.0.1:3402", token: LOCAL_TOKEN,
   }, "local_postgres");
   for (const action of [
+    () => client.claimPreflight("runner-test"),
     () => client.claim("runner-test"),
   ]) {
-    await assert.rejects(action(), /Legacy Supabase application mutation is blocked/);
+    const result = await action();
+    assert.equal(result, null);
   }
   assert.deepEqual(urls, []);
   await client.claimManualPing("runner-test");
@@ -247,14 +249,14 @@ test("local recurring failure never falls back to the Edge Function", async (t) 
 });
 
 test("Windows runner exposes local Traffic settings to WSL without replacing existing WSLENV", () => {
-  const environment = { WSLENV: "EXISTING/u" };
+  const environment = { WSLENV: "EXISTING/u", PERSISTENCE_AUTHORITY: "local_postgres" };
   const config = loadLocalBackendConfig({ LOCAL_BACKEND_URL: "http://localhost:3402", LOCAL_BACKEND_TOKEN: LOCAL_TOKEN });
   exposeLocalBackendToWsl(config, environment, "win32");
   assert.equal(environment.LOCAL_BACKEND_URL, "http://localhost:3402");
   assert.equal(environment.LOCAL_BACKEND_TOKEN, LOCAL_TOKEN);
-  assert.equal(environment.WSLENV, "EXISTING/u:LOCAL_BACKEND_URL:LOCAL_BACKEND_TOKEN");
+  assert.equal(environment.WSLENV, "EXISTING/u:LOCAL_BACKEND_URL:LOCAL_BACKEND_TOKEN:PERSISTENCE_AUTHORITY");
   exposeLocalBackendToWsl(config, environment, "win32");
-  assert.equal(environment.WSLENV, "EXISTING/u:LOCAL_BACKEND_URL:LOCAL_BACKEND_TOKEN");
+  assert.equal(environment.WSLENV, "EXISTING/u:LOCAL_BACKEND_URL:LOCAL_BACKEND_TOKEN:PERSISTENCE_AUTHORITY");
 });
 
 test("local heartbeat configuration rejects partial, unsafe, and public endpoints", () => {

@@ -35,11 +35,12 @@ test("Traffic treats stale, degraded, and incapable local runners as unavailable
   assert.equal(available(localRunner({ capabilities: { targets: [], operations: ["network_discovery"] } })), false);
 });
 
-test("Traffic client keeps local runner authority across shadow refresh and transient failures", () => {
+test("Traffic client refreshes authoritative local state and ignores shadow snapshots", () => {
   const component = readFileSync(new URL("../components/traffic/traffic-live-page.tsx", import.meta.url), "utf8");
   const action = readFileSync(new URL("../app/actions/traffic.ts", import.meta.url), "utf8");
   assert.match(component, /getTrafficRunnersAction/);
-  assert.match(component, /runnerAuthorityRef\.current === "local_postgres"[\s\S]*runners: current\.runners/);
+  assert.match(component, /runnerAuthorityRef\.current === "local_postgres"\) return/);
+  assert.match(component, /setState\(nextState\)/);
   assert.match(component, /transient refresh failure does not erase the last authoritative heartbeat/i);
   assert.match(component, /window\.setInterval[^]*10_000/);
   assert.match(action, /authority === "local_postgres"[\s\S]*localRunners\(\)/);

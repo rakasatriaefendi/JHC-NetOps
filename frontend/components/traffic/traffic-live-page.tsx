@@ -21,7 +21,7 @@ import {
   type TrafficState,
 } from "@/lib/traffic";
 import { mutateTrafficSessionAction } from "@/app/actions/legacy-network-control";
-import { getTrafficRunnersAction } from "@/app/actions/traffic";
+import { getTrafficRunnersAction, getTrafficStateAction } from "@/app/actions/traffic";
 
 type Tab = "flows" | "conversations" | "talkers";
 
@@ -30,11 +30,13 @@ export function TrafficLivePage({
   diagnostics,
   loadError,
   initialSearch,
+  initialAuthority,
 }: {
   initialState: TrafficState;
   diagnostics: DiagnosticsData;
   loadError: boolean;
   initialSearch?: string;
+  initialAuthority: "supabase" | "local_postgres";
 }) {
   const { t, i18n } = useTranslation("traffic");
   const [state, setState] = useState(initialState);
@@ -49,8 +51,8 @@ export function TrafficLivePage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
-  const [runnerAuthority, setRunnerAuthority] = useState<"supabase" | "local_postgres" | null>(null);
-  const runnerAuthorityRef = useRef<"supabase" | "local_postgres" | null>(null);
+  const [runnerAuthority, setRunnerAuthority] = useState<"supabase" | "local_postgres">(initialAuthority);
+  const runnerAuthorityRef = useRef<"supabase" | "local_postgres">(initialAuthority);
 
   const runner = state.runners.find((item) => item.id === runnerId) ?? state.runners[0];
   const active = state.sessions.find(
@@ -113,14 +115,12 @@ export function TrafficLivePage({
     const supabase = createClient();
 
     async function refresh() {
-      const { data, error } = await supabase.functions.invoke<{ data: TrafficState }>(
-        "traffic-live",
-        { method: "GET" },
-      );
-      if (!disposed && !error && data?.data) {
-        setState((current) => runnerAuthorityRef.current === "local_postgres"
-          ? { ...data.data, runners: current.runners }
-          : data.data);
+      const result = await getTrafficStateAction().catch(() => null);
+      if (!disposed && result?.ok && result.data) {
+        runnerAuthorityRef.current = result.authority;
+        setRunnerAuthority(result.authority);
+        const nextState = result.data;
+        setState(nextState);
       }
     }
 
@@ -131,7 +131,8 @@ export function TrafficLivePage({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "traffic_live_snapshots" },
-        (payload) => {
+          (payload) => {
+          if (runnerAuthorityRef.current === "local_postgres") return;
           const next = payload.new as TrafficSnapshot;
           if (!next.runner_id) return;
           setState((current) => ({
@@ -160,19 +161,16 @@ export function TrafficLivePage({
     if (!runner) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
     const result = await mutateTrafficSessionAction(actionName === "create_session"
       ? { action: actionName, runnerId: runner.id, durationSeconds: duration }
       : { action: actionName, sessionId: active?.id });
     if (!result.ok) setError(t("requestFailed"));
-    const latest = await supabase.functions.invoke<{ data: TrafficState }>("traffic-live", {
-      method: "GET",
-    });
-    const latestState = latest.data?.data;
+    const latest = await getTrafficStateAction().catch(() => null);
+    const latestState = latest?.ok ? latest.data : null;
     if (latestState) {
-      setState((current) => runnerAuthorityRef.current === "local_postgres"
-        ? { ...latestState, runners: current.runners }
-        : latestState);
+      runnerAuthorityRef.current = latest?.authority ?? runnerAuthorityRef.current;
+      setRunnerAuthority(latest?.authority ?? runnerAuthorityRef.current);
+      setState(latestState);
     }
     setBusy(false);
   }

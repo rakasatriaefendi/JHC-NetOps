@@ -106,6 +106,38 @@ test("server actions preserve Supabase mode but switch writes to loopback in loc
   assert.match(source("../app/actions/devices.ts"), /\/api\/application\/network-targets/);
 });
 
+test("local Traffic and Diagnostics reads use authority-aware server paths without Edge fallback", () => {
+  const trafficPage = source("../components/traffic/traffic-live-page.tsx");
+  const trafficSummary = source("../components/dashboard/local-traffic-summary.tsx");
+  const trafficAction = source("../app/actions/traffic.ts");
+  const trafficSource = source("../lib/traffic-source.ts");
+  const diagnosticsPanel = source("../components/diagnostics/one-click-diagnostics.tsx");
+  const historyPanel = source("../components/history/diagnostic-history-panel.tsx");
+  const diagnosticsAction = source("../app/actions/diagnostics.ts");
+
+  assert.match(trafficPage, /getTrafficStateAction/);
+  assert.match(trafficSummary, /getTrafficStateAction/);
+  assert.match(trafficPage, /runnerAuthorityRef\.current === "local_postgres"[\s\S]*return/);
+  assert.match(trafficSummary, /authorityRef\.current === "local_postgres"/);
+  assert.match(trafficAction, /loadAuthoritativeTrafficState/);
+  assert.match(trafficSource, /const authority = applicationAuthority\(\)[\s\S]*authority === "local_postgres"[\s\S]*localTrafficState\(\)/);
+  assert.match(trafficSource, /supabase\.functions\.invoke<TrafficResponse>\("traffic-live"/);
+  assert.doesNotMatch(trafficPage, /functions\.invoke|functions\/v1/);
+  assert.doesNotMatch(trafficSummary, /functions\.invoke|functions\/v1/);
+
+  assert.match(diagnosticsPanel, /getDiagnosticJobStateAction/);
+  assert.match(diagnosticsPanel, /getDiagnosticsAction/);
+  assert.match(historyPanel, /getDiagnosticHistoryAction/);
+  assert.match(diagnosticsAction, /authority === "local_postgres"[\s\S]*localDiagnosticJobs/);
+  assert.match(diagnosticsAction, /localBandwidthMeasurements/);
+  assert.match(diagnosticsAction, /localHopMeasurements/);
+  assert.doesNotMatch(diagnosticsPanel, /functions\.invoke|functions\/v1/);
+  assert.doesNotMatch(historyPanel, /functions\.invoke|functions\/v1/);
+  for (const client of [trafficPage, trafficSummary, diagnosticsPanel, historyPanel]) {
+    assert.doesNotMatch(client, /LOCAL_BACKEND_(?:URL|TOKEN)|localApplicationRequest/);
+  }
+});
+
 test("browser Device Profile uses server actions for authoritative reads and exposes no local token", () => {
   const profile = source("../components/device-profile/device-profile-provider.tsx");
   const inspectionAction = source("../app/actions/device-inspection.ts");

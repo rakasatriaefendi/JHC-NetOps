@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { OutboxErrorCategory, OutboxEvent, PostgresOutboxRepository } from "./outbox.js";
+import { OutboxFetchError, type OutboxErrorCategory, type OutboxEvent, type PostgresOutboxRepository } from "./outbox.js";
 
 export type ShadowAllowlistEntry = Readonly<{
   aggregate_type: string;
@@ -149,8 +149,8 @@ export class SupabaseShadowProjector {
     let events: OutboxEvent[];
     try {
       events = await this.outbox.fetchPending(this.options.batchSize, signal);
-    } catch {
-      throw new ProjectorBatchError("OUTBOX_FETCH_FAILED");
+    } catch (error) {
+      throw new ProjectorBatchError(error instanceof OutboxFetchError ? error.code : "OUTBOX_QUERY_FAILED");
     }
     let delivered = 0;
     let failed = 0;
@@ -250,7 +250,8 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
 
 class ProjectorBatchError extends Error {
   constructor(
-    readonly reason: "OUTBOX_FETCH_FAILED" | "OUTBOX_DELIVERY_BOOKKEEPING_FAILED" | "OUTBOX_FAILURE_BOOKKEEPING_FAILED",
+    readonly reason: "OUTBOX_PERMISSION_DENIED" | "OUTBOX_SCHEMA_MISMATCH" | "OUTBOX_QUERY_FAILED" |
+      "OUTBOX_QUERY_TIMEOUT" | "OUTBOX_DELIVERY_BOOKKEEPING_FAILED" | "OUTBOX_FAILURE_BOOKKEEPING_FAILED",
     readonly event?: Pick<OutboxEvent, "id" | "event_id" | "aggregate_type" | "operation">,
   ) {
     super(reason);

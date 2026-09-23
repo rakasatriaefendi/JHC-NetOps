@@ -26,6 +26,11 @@ class Settings:
     def from_env(cls) -> "Settings":
         load_dotenv()
 
+        if _persistence_authority() == "local_postgres":
+            raise ValueError(
+                "Continuous legacy metrics delivery is unavailable under local_postgres"
+            )
+
         supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
         service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
@@ -63,6 +68,10 @@ class DiagnosticsSettings:
     @classmethod
     def from_env(cls) -> "DiagnosticsSettings":
         load_dotenv()
+        if _persistence_authority() == "local_postgres":
+            raise ValueError(
+                "Legacy diagnostics delivery is unavailable under local_postgres"
+            )
         supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
         service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
@@ -92,6 +101,7 @@ class TrafficSettings:
     @classmethod
     def from_env(cls) -> "TrafficSettings":
         load_dotenv()
+        authority = _persistence_authority()
         local_url = os.getenv("LOCAL_BACKEND_URL", "").strip().rstrip("/")
         local_token = os.getenv("LOCAL_BACKEND_TOKEN", "")
         url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
@@ -106,6 +116,8 @@ class TrafficSettings:
             return cls(local_url, local_token, True,
                        _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
                        Path(os.getenv("TRAFFIC_BUFFER_PATH", "data/traffic-buffer.sqlite3")).expanduser())
+        if authority == "local_postgres":
+            raise ValueError("Local Traffic backend configuration is required")
         if not url.startswith(("http://", "https://")) or not key:
             raise ValueError("Traffic backend credentials are required")
         return cls(url, key, False, _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
@@ -115,6 +127,13 @@ class TrafficSettings:
 def _optional_env(name: str) -> str | None:
     value = os.getenv(name, "").strip()
     return value or None
+
+
+def _persistence_authority() -> str:
+    value = os.getenv("PERSISTENCE_AUTHORITY", "supabase").strip()
+    if value not in {"supabase", "local_postgres"}:
+        raise ValueError("PERSISTENCE_AUTHORITY must be supabase or local_postgres")
+    return value
 
 
 def _positive_int(name: str, default: int) -> int:

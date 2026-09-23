@@ -350,6 +350,13 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
   }
 
   if (options.traffic) {
+    server.get("/api/application/traffic-state", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      try {
+        return reply.code(200).send({ data: await options.traffic!.readState(AbortSignal.timeout(7_000)) });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
     server.post("/api/application/traffic-live-sessions", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
       const body = actorInput(request.body);
@@ -433,6 +440,14 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
   }
 
   if (options.hopMeasurements) {
+    server.get("/api/application/hop-measurements", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const query = request.query as Record<string, string>;
+      const limit = query.limit ? Math.max(1, Math.min(4096, parseInt(query.limit, 10))) : 512;
+      try { return reply.code(200).send({ data: await options.hopMeasurements!.listRecent(limit, AbortSignal.timeout(7_000)) }); }
+      catch (error) { return persistenceFailure(reply, error); }
+    });
+
     server.get<{ Params: { sessionId: string } }>("/api/application/hop-measurements/session/:sessionId", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
       try { return reply.code(200).send({ data: await options.hopMeasurements!.listBySession(request.params.sessionId, AbortSignal.timeout(7_000)) }); }

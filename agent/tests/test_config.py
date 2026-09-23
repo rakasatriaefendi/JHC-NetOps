@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-from network_monitoring_agent.config import Settings, TrafficSettings
+from network_monitoring_agent.config import DiagnosticsSettings, Settings, TrafficSettings
 
 
 class SettingsTest(TestCase):
@@ -49,3 +49,24 @@ class SettingsTest(TestCase):
             with self.subTest(environment=environment), patch.dict(os.environ, environment, clear=True):
                 with self.assertRaisesRegex(ValueError, "Local Traffic backend configuration is invalid"):
                     TrafficSettings.from_env()
+
+    @patch("network_monitoring_agent.config.load_dotenv")
+    def test_local_authority_never_falls_back_to_edge_delivery(self, _load_dotenv) -> None:
+        base = {
+            "PERSISTENCE_AUTHORITY": "local_postgres",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_SERVICE_ROLE_KEY": "service-key",
+        }
+        with patch.dict(os.environ, base, clear=True):
+            with self.assertRaisesRegex(ValueError, "Continuous legacy metrics delivery"):
+                Settings.from_env()
+            with self.assertRaisesRegex(ValueError, "Legacy diagnostics delivery"):
+                DiagnosticsSettings.from_env()
+            with self.assertRaisesRegex(ValueError, "Local Traffic backend configuration is required"):
+                TrafficSettings.from_env()
+
+    @patch("network_monitoring_agent.config.load_dotenv")
+    def test_invalid_persistence_authority_fails_closed(self, _load_dotenv) -> None:
+        with patch.dict(os.environ, {"PERSISTENCE_AUTHORITY": "automatic"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "PERSISTENCE_AUTHORITY"):
+                TrafficSettings.from_env()

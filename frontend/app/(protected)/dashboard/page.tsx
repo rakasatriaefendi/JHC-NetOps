@@ -4,12 +4,12 @@ import { LocalTrafficSummary } from "@/components/dashboard/local-traffic-summar
 import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-provider";
 import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { requireApprovedProfile } from "@/lib/auth";
-import { loadDiagnostics } from "@/lib/diagnostics";
+import { getDiagnosticsAction } from "@/app/actions/diagnostics";
 import { loadDiscoveryRunners, loadDiscoverySessions } from "@/lib/network-discovery";
 import { observedTrafficIps } from "@/lib/network-discovery-client";
 import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
 import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
-import { loadTrafficState } from "@/lib/traffic";
+import { loadAuthoritativeTrafficState } from "@/lib/traffic-source";
 import { canOperateNetwork } from "@/lib/authorization";
 import { getServerTranslation } from "@/i18n/server";
 
@@ -22,8 +22,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const canOperate = canOperateNetwork(profile.role);
   const health = await loadNetworkHealth(supabase);
   const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
-    loadDiagnostics(supabase),
-    loadTrafficState(supabase, profile.role),
+    getDiagnosticsAction(),
+    loadAuthoritativeTrafficState(supabase, profile.role),
     loadAuthoritativeNetworkNodes(supabase),
     loadDiscoverySessions(supabase, canOperate),
     loadHealthSamples(supabase, health.data.map((t) => t.id), "1h"),
@@ -42,7 +42,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       <NetworkNodesProvider initialNodes={nodes.data} loadError={nodes.error} role={profile.role}>
         <DeviceProfileProvider role={profile.role} runners={traffic.data.runners}>
-        <LocalTrafficSummary initialState={traffic.data} loadError={traffic.error} />
+        <LocalTrafficSummary initialState={traffic.data} initialAuthority={traffic.authority} loadError={traffic.error} />
         <NetworkHealthDashboard
           targets={health.data}
           events={health.events}
@@ -54,7 +54,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           trafficIps={observedTrafficIps(traffic.data.snapshots)}
           {...(params.target ? { initialTargetId: params.target } : {})}
         />
-        <DiagnosticsSummary data={diagnostics.data} loadError={diagnostics.error} />
+        <DiagnosticsSummary data={diagnostics.data} loadError={!diagnostics.ok} />
         </DeviceProfileProvider>
       </NetworkNodesProvider>
     </main>
