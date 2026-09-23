@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { PostgresCutoverCanaryRepository } from "../src/persistence/cutover-canary.js";
-import { OutboxFetchError, PostgresOutboxRepository, type OutboxEvent } from "../src/persistence/outbox.js";
+import {
+  COALESCIBLE_AGGREGATE_TYPES,
+  OutboxFetchError,
+  PostgresOutboxRepository,
+  type OutboxEvent,
+} from "../src/persistence/outbox.js";
 import type { PostgresQuery, PostgresTransactionalQuery } from "../src/persistence/postgres-query.js";
 import {
   buildProjectionPlan,
@@ -35,9 +40,16 @@ test("migration 008 uses transactional triggers for the exact reviewed shadow su
   assert.doesNotMatch(migration, /GRANT (?:OWNERSHIP|CREATE|ALL)|GRANT [^;]*UPDATE ON SEQUENCE/i);
 });
 
-test("outbox event identity is per mutation and bounded polling is monotonic per aggregate", async () => {
+test("outbox event identity is per mutation and polling coalesces only the exact latest-state allowlist", async () => {
   assert.match(migration, /id bigserial PRIMARY KEY/);
   assert.match(migration, /realtime_outbox_aggregate_order_idx[\s\S]+aggregate_type, aggregate_key, id/);
+  assert.deepEqual(COALESCIBLE_AGGREGATE_TYPES, [
+    "diagnostic_runners",
+    "network_health_latest",
+    "managed_device_latest",
+    "managed_interface_latest",
+    "managed_observed_hosts_latest",
+  ]);
   const database = new RecordingDatabase();
   const repository = new PostgresOutboxRepository(database);
   await repository.fetchPending(50, new AbortController().signal);
@@ -45,9 +57,58 @@ test("outbox event identity is per mutation and bounded polling is monotonic per
   assert.match(sql, /WITH aggregate_heads AS MATERIALIZED/);
   assert.match(sql, /SELECT DISTINCT ON \(aggregate_type,aggregate_key\)/);
   assert.match(sql, /WHERE status <> 'delivered'[\s\S]+ORDER BY aggregate_type,aggregate_key,id ASC/);
-  assert.doesNotMatch(sql, /NOT EXISTS/);
+  assert.match(sql, /newest_coalescible_pending AS MATERIALIZED/);
+  assert.match(sql, /aggregate_type=ANY\(\$2::text\[\]\)[\s\S]+ORDER BY aggregate_type,aggregate_key,id DESC/);
+  assert.match(sql, /failed_aggregates AS MATERIALIZED/);
+  assert.match(sql, /WHERE status='failed'/);
+  assert.match(sql, /NOT \(h\.aggregate_type=ANY\(\$2::text\[\]\)\)/);
+  assert.match(sql, /WHERE NOT EXISTS \([\s\S]+f\.aggregate_type=n\.aggregate_type AND f\.aggregate_key=n\.aggregate_key/);
   assert.match(sql, /ORDER BY o\.id ASC/);
   assert.match(sql, /o\.id > COALESCE\(w\.last_delivered_outbox_id,0\)/);
+  assert.equal(database.calls[0]?.values[0], 50);
+  assert.deepEqual(database.calls[0]?.values[1], COALESCIBLE_AGGREGATE_TYPES);
+});
+
+test("coalesced delivery advances only its aggregate and atomically delivers superseded pending rows", async () => {
+  const database = new CoalescingDeliveryDatabase(42);
+  const repository = new PostgresOutboxRepository(database);
+  await repository.markDelivered(event({
+    id: 42,
+    aggregate_type: "managed_interface_latest",
+    aggregate_key: { target_id: "target-1", if_index: 2 },
+    status: "pending",
+  }), AbortSignal.timeout(1_000));
+
+  assert.equal(database.transactions, 1);
+  assert.equal(database.calls.length, 2);
+  const cleanup = database.calls[0];
+  assert.match(cleanup?.sql ?? "", /o\.aggregate_type=\$1 AND o\.aggregate_key=\$2::jsonb AND o\.id <= \$3/);
+  assert.match(cleanup?.sql ?? "", /o\.status='pending'/);
+  assert.match(cleanup?.sql ?? "", /failed\.status='failed'/);
+  assert.deepEqual(cleanup?.values, [
+    "managed_interface_latest",
+    JSON.stringify({ target_id: "target-1", if_index: 2 }),
+    42,
+  ]);
+  const watermark = database.calls[1];
+  assert.match(watermark?.sql ?? "", /INSERT INTO public\.realtime_projection_watermarks/);
+  assert.deepEqual(watermark?.values, [
+    "managed_interface_latest",
+    JSON.stringify({ target_id: "target-1", if_index: 2 }),
+    42,
+  ]);
+});
+
+test("non-coalescible aggregate delivery remains one-row FIFO bookkeeping", async () => {
+  const database = new RecordingDatabase();
+  await new PostgresOutboxRepository(database).markDelivered(event({
+    id: 9,
+    aggregate_type: "events",
+    aggregate_key: { id: "event-9" },
+  }), AbortSignal.timeout(1_000));
+  assert.match(database.calls[0]?.sql ?? "", /WHERE id=\$1 AND status IN \('pending','failed'\)/);
+  assert.deepEqual(database.calls[0]?.values, [9]);
+  assert.doesNotMatch(database.calls[0]?.sql ?? "", /id <= \$3/);
 });
 
 test("projection plans preserve upsert and actual delete semantics", () => {
@@ -168,6 +229,20 @@ test("projector retries one stored event identity and marks it delivered once", 
   assert.deepEqual(store.failed, []);
 });
 
+test("shadow projection completes before coalesced delivery bookkeeping", async () => {
+  const order: string[] = [];
+  const store = new FakeOutbox([event({
+    aggregate_type: "diagnostic_runners",
+    aggregate_key: { id: "it-lt8" },
+    payload: { id: "it-lt8", health_status: "online" },
+  })], order);
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => { order.push("project"); return { error: false }; });
+  assert.deepEqual(await projector.processBatch(new AbortController().signal), { delivered: 1, failed: 0 });
+  assert.deepEqual(order, ["project", "deliver:1"]);
+});
+
 test("unknown projection events fail visibly and never become delivered", async () => {
   const store = new FakeOutbox([event({ aggregate_type: "caller_selected_table" })]);
   const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
@@ -262,16 +337,30 @@ class RecordingDatabase implements PostgresTransactionalQuery {
   }
 }
 
+class CoalescingDeliveryDatabase extends RecordingDatabase {
+  transactions = 0;
+  constructor(private readonly deliveredId: number) { super(); }
+  override async rows(sql: string, values: readonly unknown[]): Promise<readonly Record<string, unknown>[]> {
+    this.calls.push({ sql, values });
+    return /RETURNING o\.id/.test(sql) ? [{ id: this.deliveredId }] : [];
+  }
+  override async transaction<T>(_signal: AbortSignal, action: (query: PostgresQuery) => Promise<T>): Promise<T> {
+    this.transactions++;
+    return action(this);
+  }
+}
+
 class FakeOutbox implements OutboxProjectionStore {
   delivered: number[] = [];
   failed: { id: number; category: string }[] = [];
   fetches = 0;
   failDelivery = false;
-  constructor(private readonly events: OutboxEvent[]) {}
+  constructor(private readonly events: OutboxEvent[], private readonly order: string[] = []) {}
   async fetchPending(): Promise<OutboxEvent[]> { this.fetches++; return this.events; }
-  async markDelivered(value: Pick<OutboxEvent, "id">): Promise<void> {
+  async markDelivered(value: Pick<OutboxEvent, "id" | "aggregate_type" | "aggregate_key" | "status">): Promise<void> {
     if (this.failDelivery) throw new Error("fixture delivery failure");
     this.delivered.push(value.id);
+    this.order.push(`deliver:${value.id}`);
   }
   async markFailed(id: number, category: "transient_network" | "supabase_unavailable" | "payload_validation" | "projection_not_allowed"): Promise<void> {
     this.failed.push({ id, category });

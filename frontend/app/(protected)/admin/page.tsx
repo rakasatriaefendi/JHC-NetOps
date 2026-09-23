@@ -4,6 +4,7 @@ import { normalizedProfile, requireAdminProfile, type Profile } from "@/lib/auth
 import { applicationAuthority, localProfiles } from "@/lib/application-persistence";
 import { getServerTranslation } from "@/i18n/server";
 import { ReportBrandingSettings } from "@/components/admin/report-branding-settings";
+import { P13CutoverCanaryControl } from "@/components/admin/p13-cutover-canary-control";
 import { loadReportBranding } from "@/lib/report-branding";
 
 type AdminPageProps = {
@@ -68,6 +69,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       ) : null}
 
       <ReportBrandingSettings initial={branding.data} />
+
+      <P13CutoverCanaryControl />
 
       <section className="mt-6 grid gap-4">
         {profiles.length === 0 ? (

@@ -78,7 +78,7 @@ export type ShadowProjectorRuntimeHealth = Readonly<{
 
 export interface OutboxProjectionStore {
   fetchPending(limit: number, signal: AbortSignal): Promise<OutboxEvent[]>;
-  markDelivered(event: Pick<OutboxEvent, "id" | "aggregate_type" | "aggregate_key">, signal: AbortSignal): Promise<void>;
+  markDelivered(event: Pick<OutboxEvent, "id" | "aggregate_type" | "aggregate_key" | "status">, signal: AbortSignal): Promise<void>;
   markFailed(id: number, errorCategory: OutboxErrorCategory, signal: AbortSignal): Promise<void>;
 }
 
@@ -96,7 +96,7 @@ export class SupabaseShadowProjector {
     private readonly outbox: OutboxProjectionStore,
     private readonly supabaseUrl: string,
     private readonly supabaseServiceRoleKey: string,
-    private readonly options = { batchSize: 100, maxRetries: 5, retryBaseDelayMs: 1000, maxDelayMs: 30000 },
+    private readonly options = { batchSize: 500, maxRetries: 5, retryBaseDelayMs: 1000, maxDelayMs: 30000 },
     private readonly injectedExecutor?: ProjectionExecutor,
   ) {}
 
@@ -128,11 +128,15 @@ export class SupabaseShadowProjector {
 
   private async runLoop(signal: AbortSignal): Promise<void> {
     while (this.running && !signal.aborted) {
+      let hadWork = false;
+      let batchFailed = false;
       try {
-        await this.processBatch(signal);
+        const result = await this.processBatch(signal);
+        hadWork = result.delivered + result.failed > 0;
         this.consecutiveBatchFailures = 0;
         this.lastSuccessAt = new Date().toISOString();
       } catch (error) {
+        batchFailed = true;
         if (!signal.aborted) {
           this.consecutiveBatchFailures = Math.min(this.consecutiveBatchFailures + 1, Number.MAX_SAFE_INTEGER);
           this.lastFailureAt = new Date().toISOString();
@@ -141,7 +145,7 @@ export class SupabaseShadowProjector {
           writeSafeProjectorLog("SHADOW_PROJECTOR_BATCH_FAILED", failure);
         }
       }
-      await abortableDelay(5000, signal);
+      if (batchFailed || !hadWork) await abortableDelay(5000, signal);
     }
   }
 

@@ -160,6 +160,8 @@ test("browser Device Profile uses server actions for authoritative reads and exp
 
 test("cutover canary stays server-only, verifies local commit, and cleans up in finally", () => {
   const canary = source("../app/actions/cutover-canary.ts");
+  const control = source("../components/admin/p13-cutover-canary-control.tsx");
+  const adminPage = source("../app/(protected)/admin/page.tsx");
   const adapter = source("../lib/application-persistence.ts");
   assert.match(canary, /"use server"/);
   assert.match(canary, /await requireAdminProfile\(\)/);
@@ -169,4 +171,13 @@ test("cutover canary stays server-only, verifies local commit, and cleans up in 
   assert.match(adapter, /export function safeApplicationPath/);
   assert.match(adapter, /parsed\.origin !== base\.origin/);
   assert.match(adapter, /parsed\.searchParams\.entries\(\)/);
+  assert.match(adminPage, /<P13CutoverCanaryControl \/>/);
+  assert.match(control, /Run P13 Cutover Canary/);
+  assert.match(control, /onClick=\{\(\) => void runCanary\(\)\}/);
+  assert.match(control, /executeCutoverCanary\(\)/);
+  assert.doesNotMatch(control, /useEffect|LOCAL_BACKEND|DATABASE_URL|SUPABASE_SERVICE_ROLE/);
+  assert.match(control, /JSON\.stringify\(result, null, 2\)/);
+  for (const field of ["ok", "canaryId", "writeOk", "readOk", "cleanupOk", "error"]) {
+    assert.match(control, new RegExp(`\\b${field}\\b`));
+  }
 });
