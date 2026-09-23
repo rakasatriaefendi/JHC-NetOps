@@ -141,7 +141,8 @@ test("outbox query preserves watermark, poison blocking, and transient retry sem
   const sql = database.calls[0]?.sql ?? "";
   assert.match(sql, /LEFT JOIN public\.realtime_projection_watermarks/);
   assert.match(sql, /o\.id > COALESCE\(w\.last_delivered_outbox_id,0\)/);
-  assert.match(sql, /o\.status='pending' OR o\.last_error_category IN \('transient_network','supabase_unavailable'\)/);
+  assert.match(sql, /o\.status='pending'\s+OR o\.last_error_category IN \('transient_network','supabase_unavailable'\)/);
+  assert.match(sql, /o\.operation='INSERT' AND o\.last_error_category='payload_validation'/);
   assert.match(sql, /next_attempt_at IS NULL OR o\.next_attempt_at <= now\(\)/);
   assert.match(sql, /status <> 'delivered'/);
 });
@@ -204,6 +205,78 @@ test("transient shadow failure is retained for retry and never marked delivered"
   assert.deepEqual(store.delivered, []);
 });
 
+test("INSERT duplicate is idempotently delivered only when the exact primary-key row is equivalent", async () => {
+  const duplicate = pingJobInsert();
+  const store = new FakeOutbox([duplicate]);
+  let reads = 0;
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: true, errorCategory: "payload_validation", backendCode: "23505" }),
+    async (request) => {
+      reads++;
+      assert.equal(request.table, "network_health_ping_jobs");
+      assert.deepEqual(request.match, { id: duplicate.aggregate_key.id });
+      assert.deepEqual(request.columns, SHADOW_PROJECTION_ALLOWLIST
+        .find(({ aggregate_type }) => aggregate_type === "network_health_ping_jobs")?.columns);
+      return { error: false, row: { ...duplicate.payload } };
+    });
+  assert.deepEqual(await projector.processBatch(new AbortController().signal), { delivered: 1, failed: 0 });
+  assert.equal(reads, 1);
+  assert.deepEqual(store.delivered, [duplicate.id]);
+  assert.deepEqual(store.failed, []);
+});
+
+test("INSERT duplicate with divergent shadow values remains a payload failure", async () => {
+  const duplicate = pingJobInsert();
+  const store = new FakeOutbox([duplicate]);
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: true, errorCategory: "payload_validation", backendCode: "23505" }),
+    async () => ({ error: false, row: { ...duplicate.payload, status: "completed" } }));
+  assert.deepEqual(await projector.processBatch(new AbortController().signal), { delivered: 0, failed: 1 });
+  assert.deepEqual(store.delivered, []);
+  assert.deepEqual(store.failed, [{ id: duplicate.id, category: "payload_validation" }]);
+});
+
+test("INSERT duplicate with an unverifiable shadow row remains a payload failure", async () => {
+  const duplicate = pingJobInsert();
+  const store = new FakeOutbox([duplicate]);
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: true, errorCategory: "payload_validation", backendCode: "23505" }),
+    async () => { throw new Error("fixture shadow read failure"); });
+  assert.deepEqual(await projector.processBatch(new AbortController().signal), { delivered: 0, failed: 1 });
+  assert.deepEqual(store.delivered, []);
+  assert.deepEqual(store.failed, [{ id: duplicate.id, category: "payload_validation" }]);
+});
+
+test("normal INSERT success does not perform duplicate verification", async () => {
+  const inserted = pingJobInsert();
+  const store = new FakeOutbox([inserted]);
+  let reads = 0;
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: false }),
+    async () => { reads++; return { error: true, row: null }; });
+  assert.deepEqual(await projector.processBatch(new AbortController().signal), { delivered: 1, failed: 0 });
+  assert.equal(reads, 0);
+  assert.deepEqual(store.delivered, [inserted.id]);
+});
+
+test("non-23505 INSERT errors retain their existing failure category without verification", async () => {
+  const inserted = pingJobInsert();
+  const store = new FakeOutbox([inserted]);
+  let reads = 0;
+  const projector = new SupabaseShadowProjector(store, "https://example.invalid", "fixture-key",
+    { batchSize: 10, maxRetries: 1, retryBaseDelayMs: 0, maxDelayMs: 0 },
+    async () => ({ error: true, errorCategory: "supabase_unavailable", backendCode: "PGRST000" }),
+    async () => { reads++; return { error: false, row: { ...inserted.payload } }; });
+  assert.deepEqual(await projector.processBatch(new AbortController().signal), { delivered: 0, failed: 1 });
+  assert.equal(reads, 0);
+  assert.deepEqual(store.delivered, []);
+  assert.deepEqual(store.failed, [{ id: inserted.id, category: "supabase_unavailable" }]);
+});
+
 test("delivery bookkeeping failures retain the event and expose a bounded batch stage", async () => {
   const store = new FakeOutbox([event()]);
   store.failDelivery = true;
@@ -254,14 +327,15 @@ test("unknown projection events fail visibly and never become delivered", async 
   assert.deepEqual(store.delivered, []);
 });
 
-test("outbox polling retries only transient failures and health aggregation is valid and complete", async () => {
+test("outbox polling retains bounded retry eligibility and health aggregation is valid and complete", async () => {
   const database = new RecordingDatabase();
   const repository = new PostgresOutboxRepository(database);
   await repository.fetchPending(50, new AbortController().signal);
   await repository.getHealth(new AbortController().signal);
   const pollSql = database.calls[0]?.sql ?? "";
   const healthSql = database.calls[1]?.sql ?? "";
-  assert.match(pollSql, /o\.status='pending' OR o\.last_error_category IN \('transient_network','supabase_unavailable'\)/);
+  assert.match(pollSql, /o\.status='pending'\s+OR o\.last_error_category IN \('transient_network','supabase_unavailable'\)/);
+  assert.match(pollSql, /o\.operation='INSERT' AND o\.last_error_category='payload_validation'/);
   assert.match(healthSql, /COUNT\(\*\) AS total_count/);
   assert.match(healthSql, /COUNT\(\*\) FILTER \(WHERE status='delivered'\) AS delivered_count/);
   assert.match(healthSql, /MIN\(created_at\) FILTER \(WHERE status IN \('pending','failed'\)\)/);
@@ -395,6 +469,30 @@ function event(overrides: Partial<OutboxEvent> = {}): OutboxEvent {
     status: "pending", attempt_count: 0, next_attempt_at: null, created_at: "2026-09-16T00:00:00Z",
     delivered_at: null, last_error_category: null, ...overrides,
   };
+}
+
+function pingJobInsert(): OutboxEvent {
+  const id = "30000000-0000-4000-8000-000000000009";
+  return event({
+    id: 9,
+    event_id: "20000000-0000-4000-8000-000000000009",
+    aggregate_type: "network_health_ping_jobs",
+    aggregate_key: { id },
+    operation: "INSERT",
+    payload: {
+      id,
+      target_id: "30000000-0000-4000-8000-000000000010",
+      runner_id: "it-lt8",
+      status: "queued",
+      result: null,
+      error_code: null,
+      created_at: "2026-09-23T00:00:00Z",
+      started_at: null,
+      completed_at: null,
+      expires_at: "2026-09-23T00:01:00Z",
+      updated_at: "2026-09-23T00:00:00Z",
+    },
+  });
 }
 
 function projectionPlan(

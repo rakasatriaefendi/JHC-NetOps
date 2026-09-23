@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { isDeepStrictEqual } from "node:util";
 import { OutboxFetchError, type OutboxErrorCategory, type OutboxEvent, type PostgresOutboxRepository } from "./outbox.js";
 
 export type ShadowAllowlistEntry = Readonly<{
@@ -67,6 +68,17 @@ export type ProjectionExecutorResult = Readonly<{
 
 export type ProjectionExecutor = (plan: ProjectionPlan) => Promise<ProjectionExecutorResult>;
 
+export type ShadowRowReadResult = Readonly<{
+  error: boolean;
+  row: Record<string, unknown> | null;
+}>;
+
+export type ShadowRowReader = (request: Readonly<{
+  table: string;
+  match: Readonly<Record<string, unknown>>;
+  columns: readonly string[];
+}>) => Promise<ShadowRowReadResult>;
+
 export type ShadowProjectorRuntimeHealth = Readonly<{
   status: "healthy" | "degraded";
   consecutive_batch_failures: number;
@@ -98,6 +110,7 @@ export class SupabaseShadowProjector {
     private readonly supabaseServiceRoleKey: string,
     private readonly options = { batchSize: 500, maxRetries: 5, retryBaseDelayMs: 1000, maxDelayMs: 30000 },
     private readonly injectedExecutor?: ProjectionExecutor,
+    private readonly injectedRowReader?: ShadowRowReader,
   ) {}
 
   start(): void {
@@ -181,7 +194,11 @@ export class SupabaseShadowProjector {
       for (let attempt = 0; attempt < this.options.maxRetries && !signal.aborted; attempt++) {
         try {
           const result = await this.execute(plan);
-          if (!result.error) {
+          const backendResultCode = safeBackendCode(result.backendCode);
+          const idempotentDuplicate = result.error && event.operation === "INSERT" && backendResultCode === "23505"
+            ? await this.verifyEquivalentDuplicate(plan, approved)
+            : false;
+          if (!result.error || idempotentDuplicate) {
             try { await this.outbox.markDelivered(event, signal); }
             catch { throw new ProjectorBatchError("OUTBOX_DELIVERY_BOOKKEEPING_FAILED", event); }
             delivered++;
@@ -189,7 +206,7 @@ export class SupabaseShadowProjector {
             break;
           }
           failureCategory = result.errorCategory ?? "supabase_unavailable";
-          backendCode = safeBackendCode(result.backendCode);
+          backendCode = backendResultCode;
         } catch (error) {
           if (error instanceof ProjectorBatchError) throw error;
           failureCategory = "transient_network";
@@ -211,14 +228,13 @@ export class SupabaseShadowProjector {
 
   private async execute(plan: ProjectionPlan): Promise<ProjectionExecutorResult> {
     if (this.injectedExecutor) return this.injectedExecutor(plan);
-    if (!this.supabase) this.supabase = createClient(this.supabaseUrl, this.supabaseServiceRoleKey,
-      { auth: { persistSession: false } });
+    const supabase = this.supabaseClient();
     const result = plan.kind === "upsert"
-      ? await this.supabase.from(plan.table).upsert(plan.payload, {
+      ? await supabase.from(plan.table).upsert(plan.payload, {
         onConflict: plan.onConflict,
         defaultToNull: false,
       })
-      : await this.supabase.from(plan.table).delete().match(plan.match);
+      : await supabase.from(plan.table).delete().match(plan.match);
     if (result.error === null) return { error: false };
     const backendCode = safeBackendCode(result.error.code);
     return {
@@ -226,6 +242,39 @@ export class SupabaseShadowProjector {
       errorCategory: payloadSupabaseCode(backendCode) ? "payload_validation" : "supabase_unavailable",
       backendCode,
     };
+  }
+
+  private async verifyEquivalentDuplicate(plan: ProjectionPlan, approved: ShadowAllowlistEntry): Promise<boolean> {
+    if (plan.kind !== "upsert") return false;
+    const match = Object.fromEntries(approved.key_columns.map((column) => [column, plan.payload[column]]));
+    try {
+      const result = this.injectedRowReader
+        ? await this.injectedRowReader({ table: plan.table, match, columns: approved.columns })
+        : await this.readShadowRow(plan.table, match, approved.columns);
+      if (result.error || result.row === null) return false;
+      return Object.keys(plan.payload).every((column) =>
+        approved.columns.includes(column) && column in result.row! &&
+        isDeepStrictEqual(result.row![column], plan.payload[column]));
+    } catch {
+      return false;
+    }
+  }
+
+  private async readShadowRow(
+    table: string,
+    match: Record<string, unknown>,
+    columns: readonly string[],
+  ): Promise<ShadowRowReadResult> {
+    const result = await this.supabaseClient().from(table).select(columns.join(",")).match(match).maybeSingle();
+    return result.error === null && isRecord(result.data)
+      ? { error: false, row: result.data }
+      : { error: true, row: null };
+  }
+
+  private supabaseClient(): SupabaseClient {
+    if (!this.supabase) this.supabase = createClient(this.supabaseUrl, this.supabaseServiceRoleKey,
+      { auth: { persistSession: false } });
+    return this.supabase;
   }
 
   private async markFailed(event: OutboxEvent, category: OutboxErrorCategory, signal: AbortSignal): Promise<void> {
@@ -318,4 +367,8 @@ function safeIdentifier(value: string): string {
 
 function safeOperation(value: string): string {
   return ["INSERT", "UPDATE", "DELETE"].includes(value) ? value : "invalid";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

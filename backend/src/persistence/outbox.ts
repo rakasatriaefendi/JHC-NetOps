@@ -97,7 +97,9 @@ export class PostgresOutboxRepository {
       LEFT JOIN public.realtime_projection_watermarks w
         ON w.aggregate_type=o.aggregate_type AND w.aggregate_key=o.aggregate_key
       WHERE o.status IN ('pending','failed')
-        AND (o.status='pending' OR o.last_error_category IN ('transient_network','supabase_unavailable'))
+        AND (o.status='pending'
+          OR o.last_error_category IN ('transient_network','supabase_unavailable')
+          OR (o.operation='INSERT' AND o.last_error_category='payload_validation'))
         AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= now())
         AND o.id > COALESCE(w.last_delivered_outbox_id,0)
       ORDER BY o.id ASC
