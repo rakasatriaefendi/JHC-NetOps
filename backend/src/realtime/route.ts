@@ -23,11 +23,18 @@ export function registerLocalRealtimeRoute(server: FastifyInstance, options: Loc
     let disposed = false;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let unsubscribe = () => {};
+    const socket = reply.raw.socket;
+    const previousSocketTimeout = socket?.timeout ?? 0;
+    let streamSocketTimeoutDisabled = false;
     const cleanup = () => {
       if (disposed) return;
       disposed = true;
       if (heartbeat) clearInterval(heartbeat);
       unsubscribe();
+      if (streamSocketTimeoutDisabled && socket && !socket.destroyed) {
+        socket.setTimeout(previousSocketTimeout);
+        streamSocketTimeoutDisabled = false;
+      }
     };
     const close = () => {
       cleanup();
@@ -47,6 +54,13 @@ export function registerLocalRealtimeRoute(server: FastifyInstance, options: Loc
     unsubscribe = subscribed;
 
     reply.hijack();
+    // Fastify's finite connectionTimeout protects ordinary requests, but it is
+    // shorter than the intentional SSE heartbeat interval. Disable that idle
+    // timeout only for this authenticated stream and restore it on cleanup.
+    if (socket) {
+      socket.setTimeout(0);
+      streamSocketTimeoutDisabled = true;
+    }
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "private, no-cache, no-store, no-transform",

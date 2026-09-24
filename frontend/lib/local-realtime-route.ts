@@ -49,9 +49,11 @@ export function createLocalRealtimeProxy(dependencies: LocalRealtimeProxyDepende
           } else {
             controller.enqueue(result.value);
           }
-        } catch (error) {
+        } catch {
           request.signal.removeEventListener("abort", abortUpstream);
-          if (!cancelled) controller.error(error);
+          abortUpstream();
+          await reader.cancel().catch(() => undefined);
+          if (!cancelled) controller.error(new Error("Realtime upstream stream failed"));
         }
       },
       async cancel(reason) {

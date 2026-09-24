@@ -90,37 +90,71 @@ test("dedicated listener LISTENs, validates notifications, and reconnects safely
   assert.equal(second.closed, true);
 });
 
-test("backend SSE requires bearer auth, emits sync first, relays invalidation, and releases clients", async () => {
+test("backend SSE requires bearer auth", async () => {
+  const broker = new LocalRealtimeBroker();
+  const server = buildServer({ logger: false, realtime: {
+    token: TOKEN,
+    broker,
+  } });
+  const unauthorized = await server.inject({ method: "GET", url: "/api/realtime/events" });
+  assert.equal(unauthorized.statusCode, 401);
+  await server.close();
+});
+
+test("backend SSE survives the finite API timeout and a 15-second heartbeat on one connection", { timeout: 25_000 }, async () => {
   const broker = new LocalRealtimeBroker();
   const server = buildServer({ logger: false, realtime: {
     token: TOKEN,
     broker,
     now: () => new Date("2026-09-23T08:01:00.000Z"),
     eventId: () => "33333333-3333-4333-8333-333333333333",
-    heartbeatMs: 5,
   } });
-  const unauthorized = await server.inject({ method: "GET", url: "/api/realtime/events" });
-  assert.equal(unauthorized.statusCode, 401);
+  const abort = new AbortController();
+  await server.listen({ host: "127.0.0.1", port: 0 });
+  const address = server.server.address();
+  assert.ok(address && typeof address !== "string");
+  assert.equal(server.server.timeout, 5_000, "ordinary API connection timeout must remain unchanged");
 
-  const pending = server.inject({
-    method: "GET",
-    url: "/api/realtime/events",
-    headers: { authorization: `Bearer ${TOKEN}` },
-  });
-  await waitFor(() => broker.subscriberCount === 1);
-  broker.publish(EVENT);
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  broker.close();
-  const response = await pending;
-  assert.equal(response.statusCode, 200);
-  assert.match(String(response.headers["content-type"]), /^text\/event-stream/);
-  const syncPosition = response.body.indexOf('"topic":"sync"');
-  const eventPosition = response.body.indexOf('"topic":"network_health"');
-  assert.ok(syncPosition >= 0 && eventPosition > syncPosition);
-  assert.match(response.body, /: heartbeat \d+/);
-  assert.doesNotMatch(response.body, /127\.0\.0\.1|Bearer|service_role|password/i);
-  assert.equal(broker.subscriberCount, 0);
-  await server.close();
+  try {
+    const startedAt = Date.now();
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/realtime/events`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+      signal: abort.signal,
+    });
+    assert.equal(response.status, 200);
+    assert.ok(response.body);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let received = "";
+    received = await readUntil(reader, decoder, received, (value) => value.includes('"topic":"sync"'));
+
+    await new Promise((resolve) => setTimeout(resolve, 15_250));
+    const secondEvent = Object.freeze({
+      ...EVENT,
+      event_id: "44444444-4444-4444-8444-444444444444",
+      aggregate_key: "55555555-5555-4555-8555-555555555555",
+    });
+    broker.publish(EVENT);
+    broker.publish(secondEvent);
+    received = await readUntil(reader, decoder, received, (value) =>
+      value.includes(": heartbeat ") &&
+      value.includes(EVENT.event_id) &&
+      value.includes(secondEvent.event_id));
+
+    assert.ok(Date.now() - startedAt > 15_000, "stream must remain alive beyond the former cutoff and heartbeat interval");
+    assert.equal(received.match(/"topic":"sync"/g)?.length, 1, "one connection must not receive repeated sync events");
+    assert.equal(received.match(/"topic":"network_health"/g)?.length, 2);
+    assert.equal(broker.subscriberCount, 1);
+
+    abort.abort();
+    await reader.cancel().catch(() => undefined);
+    await waitFor(() => broker.subscriberCount === 0);
+    assert.equal(server.server.timeout, 5_000, "SSE override must not alter the server-wide API timeout");
+  } finally {
+    abort.abort();
+    broker.close();
+    await server.close();
+  }
 });
 
 test("migration 009 adds only bounded transactional Network Health notifications", () => {
@@ -158,4 +192,19 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     if (Date.now() >= deadline) throw new Error("Timed out waiting for test state");
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
+}
+
+async function readUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  initial: string,
+  predicate: (value: string) => boolean,
+): Promise<string> {
+  let value = initial;
+  while (!predicate(value)) {
+    const result = await reader.read();
+    if (result.done) throw new Error("Realtime stream ended before expected evidence arrived");
+    value += decoder.decode(result.value, { stream: true });
+  }
+  return value;
 }

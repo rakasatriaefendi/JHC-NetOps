@@ -42,6 +42,51 @@ test("proxy keeps loopback credentials server-side and returns only bounded SSE 
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
 });
 
+test("proxy cancellation aborts and releases the upstream SSE reader", async () => {
+  let upstreamAborted = false;
+  let upstreamCancelled = false;
+  const upstream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('event: invalidation\ndata: {"topic":"sync"}\n\n'));
+    },
+    cancel() { upstreamCancelled = true; },
+  });
+  const handler = createLocalRealtimeProxy({
+    authenticate: async () => true,
+    backend: () => ({ origin: "http://127.0.0.1:3402", token: "s".repeat(32) }),
+    fetchImpl: async (_input, init) => {
+      init?.signal?.addEventListener("abort", () => { upstreamAborted = true; }, { once: true });
+      return new Response(upstream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  const response = await handler(new Request("https://netops.example.test/api/realtime/events"));
+  assert.ok(response.body);
+  const reader = response.body.getReader();
+  assert.equal((await reader.read()).done, false);
+  await reader.cancel("browser disconnected");
+  assert.equal(upstreamAborted, true);
+  assert.equal(upstreamCancelled, true);
+});
+
+test("proxy terminates the downstream stream on a genuine upstream failure", async () => {
+  let upstreamAborted = false;
+  const upstream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.error(new Error("private upstream failure")); },
+  });
+  const handler = createLocalRealtimeProxy({
+    authenticate: async () => true,
+    backend: () => ({ origin: "http://127.0.0.1:3402", token: "s".repeat(32) }),
+    fetchImpl: async (_input, init) => {
+      init?.signal?.addEventListener("abort", () => { upstreamAborted = true; }, { once: true });
+      return new Response(upstream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  const response = await handler(new Request("https://netops.example.test/api/realtime/events"));
+  assert.ok(response.body);
+  await assert.rejects(() => response.body!.getReader().read(), /Realtime upstream stream failed/);
+  assert.equal(upstreamAborted, true);
+});
+
 test("Next realtime route uses existing approved profile auth and server-only backend configuration", () => {
   const route = readFileSync(new URL("../app/api/realtime/events/route.ts", import.meta.url), "utf8");
   assert.match(route, /supabase\.auth\.getClaims\(\)/);
