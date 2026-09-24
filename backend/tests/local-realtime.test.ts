@@ -1,0 +1,161 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+import { LocalRealtimeBroker } from "../src/realtime/broker.js";
+import {
+  LOCAL_REALTIME_CHANNEL,
+  LOCAL_REALTIME_MAX_NOTIFICATION_BYTES,
+  createSyncInvalidation,
+  parseLocalRealtimeNotification,
+  type LocalRealtimeInvalidation,
+} from "../src/realtime/contract.js";
+import {
+  PostgresRealtimeListener,
+  type RealtimeListenConnection,
+} from "../src/realtime/listener.js";
+import { buildServer } from "../src/server.js";
+
+const TOKEN = "f".repeat(32);
+const EVENT: LocalRealtimeInvalidation = Object.freeze({
+  version: 1,
+  event_id: "11111111-1111-4111-8111-111111111111",
+  topic: "network_health",
+  aggregate_key: "22222222-2222-4222-8222-222222222222",
+  occurred_at: "2026-09-23T08:00:00.000Z",
+});
+
+test("local realtime protocol accepts only bounded invalidation metadata", () => {
+  assert.deepEqual(parseLocalRealtimeNotification(JSON.stringify(EVENT)), EVENT);
+  assert.equal(parseLocalRealtimeNotification("not-json"), null);
+  assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, row: { status: "online" } })), null);
+  assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, topic: "arbitrary" })), null);
+  assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, aggregate_key: "x".repeat(129) })), null);
+  assert.equal(parseLocalRealtimeNotification("x".repeat(LOCAL_REALTIME_MAX_NOTIFICATION_BYTES + 1)), null);
+  assert.deepEqual(createSyncInvalidation(
+    () => new Date("2026-09-23T08:01:00.000Z"),
+    () => "33333333-3333-4333-8333-333333333333",
+  ), {
+    version: 1,
+    event_id: "33333333-3333-4333-8333-333333333333",
+    topic: "sync",
+    aggregate_key: null,
+    occurred_at: "2026-09-23T08:01:00.000Z",
+  });
+});
+
+test("broker bounds subscribers and cleans up disconnects without a queue", () => {
+  const broker = new LocalRealtimeBroker(1);
+  const received: LocalRealtimeInvalidation[] = [];
+  let closed = 0;
+  const unsubscribe = broker.subscribe({ send: (event) => { received.push(event); return true; }, close: () => { closed += 1; } });
+  assert.ok(unsubscribe);
+  assert.equal(broker.subscriberCount, 1);
+  assert.equal(broker.subscribe({ send: () => true, close: () => {} }), null);
+  broker.publish(EVENT);
+  assert.deepEqual(received, [EVENT]);
+  unsubscribe();
+  assert.equal(broker.subscriberCount, 0);
+
+  broker.subscribe({ send: () => false, close: () => { closed += 1; } });
+  broker.publish(EVENT);
+  assert.equal(broker.subscriberCount, 0);
+  assert.equal(closed, 1);
+});
+
+test("dedicated listener LISTENs, validates notifications, and reconnects safely", async () => {
+  const broker = new LocalRealtimeBroker();
+  const received: LocalRealtimeInvalidation[] = [];
+  broker.subscribe({ send: (event) => { received.push(event); return true; }, close: () => {} });
+  const first = new FakeListenConnection();
+  const second = new FakeListenConnection();
+  const connections = [first, second];
+  const listener = new PostgresRealtimeListener(async () => {
+    const connection = connections.shift();
+    if (!connection) throw new Error("unavailable");
+    return connection;
+  }, broker, 1, 2);
+
+  listener.start();
+  await waitFor(() => first.listenChannel === LOCAL_REALTIME_CHANNEL);
+  first.notify(LOCAL_REALTIME_CHANNEL, JSON.stringify(EVENT));
+  first.notify(LOCAL_REALTIME_CHANNEL, JSON.stringify({ ...EVENT, payload: { secret: true } }));
+  assert.deepEqual(received, [EVENT]);
+  first.disconnect();
+  await waitFor(() => second.listenChannel === LOCAL_REALTIME_CHANNEL);
+  assert.equal(listener.isListening(), true);
+  await listener.stop();
+  assert.equal(listener.isListening(), false);
+  assert.equal(first.closed, true);
+  assert.equal(second.closed, true);
+});
+
+test("backend SSE requires bearer auth, emits sync first, relays invalidation, and releases clients", async () => {
+  const broker = new LocalRealtimeBroker();
+  const server = buildServer({ logger: false, realtime: {
+    token: TOKEN,
+    broker,
+    now: () => new Date("2026-09-23T08:01:00.000Z"),
+    eventId: () => "33333333-3333-4333-8333-333333333333",
+    heartbeatMs: 5,
+  } });
+  const unauthorized = await server.inject({ method: "GET", url: "/api/realtime/events" });
+  assert.equal(unauthorized.statusCode, 401);
+
+  const pending = server.inject({
+    method: "GET",
+    url: "/api/realtime/events",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  await waitFor(() => broker.subscriberCount === 1);
+  broker.publish(EVENT);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  broker.close();
+  const response = await pending;
+  assert.equal(response.statusCode, 200);
+  assert.match(String(response.headers["content-type"]), /^text\/event-stream/);
+  const syncPosition = response.body.indexOf('"topic":"sync"');
+  const eventPosition = response.body.indexOf('"topic":"network_health"');
+  assert.ok(syncPosition >= 0 && eventPosition > syncPosition);
+  assert.match(response.body, /: heartbeat \d+/);
+  assert.doesNotMatch(response.body, /127\.0\.0\.1|Bearer|service_role|password/i);
+  assert.equal(broker.subscriberCount, 0);
+  await server.close();
+});
+
+test("migration 009 adds only bounded transactional Network Health notifications", () => {
+  const migration = readFileSync(new URL("../migrations/009_local_realtime_invalidation.sql", import.meta.url), "utf8");
+  assert.match(migration, /CREATE FUNCTION public\.publish_local_realtime_invalidation\(\) RETURNS trigger/);
+  assert.match(migration, /PERFORM pg_notify\('jhc_netops_realtime_v1', notification_value\)/);
+  assert.match(migration, /octet_length\(notification_value\) > 1024/);
+  assert.match(migration, /TG_TABLE_NAME = 'events'[\s\S]+row_value->>'source' <> 'network_health'/);
+  const tables = [...migration.matchAll(/CREATE TRIGGER local_realtime_[a-z_]+\s+AFTER INSERT OR UPDATE OR DELETE ON public\.([a-z_]+)/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(tables, ["network_targets", "network_health_latest", "events"]);
+  assert.match(migration, /INSERT INTO public\.application_schema_migrations\(version\) VALUES \(9\)/);
+  assert.doesNotMatch(migration, /DROP (?:TABLE|FUNCTION|TRIGGER)|ALTER TABLE public\.realtime_outbox|asset\.[a-z_]+\s*(?:INSERT|UPDATE|DELETE)/i);
+});
+
+class FakeListenConnection implements RealtimeListenConnection {
+  listenChannel: string | null = null;
+  closed = false;
+  private notificationHandlers: ((channel: string, payload: string | undefined) => void)[] = [];
+  private errorHandlers: (() => void)[] = [];
+  private endHandlers: (() => void)[] = [];
+
+  async listen(channel: string): Promise<void> { this.listenChannel = channel; }
+  onNotification(handler: (channel: string, payload: string | undefined) => void): void { this.notificationHandlers.push(handler); }
+  onError(handler: () => void): void { this.errorHandlers.push(handler); }
+  onEnd(handler: () => void): void { this.endHandlers.push(handler); }
+  async close(): Promise<void> { this.closed = true; }
+  notify(channel: string, payload: string): void { for (const handler of this.notificationHandlers) handler(channel, payload); }
+  disconnect(): void { for (const handler of this.endHandlers) handler(); }
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for test state");
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}

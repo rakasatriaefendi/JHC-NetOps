@@ -38,10 +38,14 @@ import { PostgresEventsRepository } from "./persistence/events.js";
 import { PostgresOutboxRepository } from "./persistence/outbox.js";
 import { PostgresCutoverCanaryRepository } from "./persistence/cutover-canary.js";
 import { SupabaseShadowProjector } from "./persistence/shadow-projector.js";
+import { LocalRealtimeBroker } from "./realtime/broker.js";
+import { PostgresRealtimeListener, postgresRealtimeConnectionFactory } from "./realtime/listener.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
   const shadowProjector: { current: SupabaseShadowProjector | null } = { current: null };
+  const realtimeBroker = new LocalRealtimeBroker();
+  const realtimeListener: { current: PostgresRealtimeListener | null } = { current: null };
   const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
     supabase: () => ({
       heartbeat: new SupabaseRunnerHeartbeatRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
@@ -82,6 +86,10 @@ async function main(): Promise<void> {
         _pool: appPool,
       };
       shadowProjector.current = new SupabaseShadowProjector(outbox, config.supabaseUrl, config.supabaseServiceRoleKey);
+      realtimeListener.current = new PostgresRealtimeListener(
+        postgresRealtimeConnectionFactory(config.applicationDatabaseUrl),
+        realtimeBroker,
+      );
       return repos;
     },
   });
@@ -188,6 +196,7 @@ async function main(): Promise<void> {
       ...(shadowProjector.current ? { shadowProjector: shadowProjector.current } : {}),
       cutoverCanary: localRepos.cutoverCanary,
     };
+    buildServerOptions.realtime = { token: config.frontendApiToken, broker: realtimeBroker };
   }
 
   const server = buildServer(buildServerOptions as Parameters<typeof buildServer>[0]);
@@ -195,8 +204,11 @@ async function main(): Promise<void> {
     try { if (assetScanController) await assetScanController.shutdown(); } finally { await assetPool.end(); }
   });
   if (appPool) server.addHook("onClose", async () => {
-    await shadowProjector.current?.stop();
-    await appPool.end();
+    try {
+      await realtimeListener.current?.stop();
+      realtimeBroker.close();
+      await shadowProjector.current?.stop();
+    } finally { await appPool.end(); }
   });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {
@@ -208,6 +220,7 @@ async function main(): Promise<void> {
   process.once("SIGINT", () => handleSignal("SIGINT"));
   process.once("SIGTERM", () => handleSignal("SIGTERM"));
   shadowProjector.current?.start();
+  realtimeListener.current?.start();
   try { await server.listen({ host: config.host, port: config.port }); }
   catch (error) { await server.close().catch(() => undefined); throw error; }
 }

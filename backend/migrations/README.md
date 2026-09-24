@@ -32,6 +32,12 @@ for the transactional Realtime shadow outbox, per-aggregate projection
 watermarks, and bounded internal cutover canary. It requires recorded version
 7, records version 8, leaves `asset.*` unchanged, and is likewise operator-run
 only during an approved P13 window.
+
+`009_local_realtime_invalidation.sql` adds the P14 invalidation-only
+`pg_notify` function and bounded Network Health trigger surface. It records
+version 9 without removing or changing the P13 outbox or shadow projector and
+is also applied only by an operator during an approved change window.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.
