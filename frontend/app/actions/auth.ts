@@ -13,10 +13,14 @@ export type AuthActionState = {
   message: string | null;
 };
 
+export type LoginActionState = AuthActionState & {
+  authenticated: boolean;
+};
+
 export async function loginAction(
-  _previousState: AuthActionState,
+  _previousState: LoginActionState,
   formData: FormData,
-): Promise<AuthActionState> {
+): Promise<LoginActionState> {
   const { t } = await getServerTranslation("auth");
   const email = String(formData.get("email") ?? "")
     .trim()
@@ -24,7 +28,7 @@ export async function loginAction(
   const password = String(formData.get("password") ?? "");
 
   if (!email || !password) {
-    return { error: t("errors.required"), message: null };
+    return { error: t("errors.required"), message: null, authenticated: false };
   }
 
   const supabase = await createClient();
@@ -32,10 +36,10 @@ export async function loginAction(
 
   if (error) {
     logAuthFailure("login", error);
-    return { error: t("errors.invalid"), message: null };
+    return { error: t("errors.invalid"), message: null, authenticated: false };
   }
 
-  redirect("/auth/resolve");
+  return { error: null, message: null, authenticated: true };
 }
 
 export async function registerAction(

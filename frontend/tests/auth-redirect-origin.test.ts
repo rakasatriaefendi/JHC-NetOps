@@ -58,6 +58,7 @@ test("auth routes retain destinations, cache policy, and Supabase session operat
   const resolveRoute = readFileSync(new URL("../app/auth/resolve/route.ts", import.meta.url), "utf8");
   const callbackRoute = readFileSync(new URL("../app/auth/callback/route.ts", import.meta.url), "utf8");
   const authActions = readFileSync(new URL("../app/actions/auth.ts", import.meta.url), "utf8");
+  const loginForm = readFileSync(new URL("../components/auth/login-form.tsx", import.meta.url), "utf8");
   const proxy = readFileSync(new URL("../lib/supabase/proxy.ts", import.meta.url), "utf8");
 
   assert.match(resolveRoute, /resolveAuthRedirectOrigin\(requestUrl, request\.headers\)/);
@@ -65,6 +66,7 @@ test("auth routes retain destinations, cache policy, and Supabase session operat
   assert.match(resolveRoute, /new URL\("\/login", redirectOrigin\)/);
   assert.match(resolveRoute, /supabase\.auth\.getClaims\(\)/);
   assert.match(resolveRoute, /Cache-Control", "private, no-store"/);
+  assert.doesNotMatch(resolveRoute, /export async function POST/);
 
   assert.match(callbackRoute, /resolveAuthRedirectOrigin\(requestUrl, request\.headers\)/);
   assert.match(callbackRoute, /supabase\.auth\.exchangeCodeForSession\(code\)/);
@@ -73,9 +75,20 @@ test("auth routes retain destinations, cache policy, and Supabase session operat
   assert.match(callbackRoute, /Cache-Control", "private, no-store"/);
 
   assert.match(authActions, /supabase\.auth\.signInWithPassword/);
+  assert.match(authActions, /formData\.get\("email"\)/);
+  assert.match(authActions, /formData\.get\("password"\)/);
+  assert.match(authActions, /return \{ error: null, message: null, authenticated: true \}/);
+  assert.doesNotMatch(authActions, /redirect\("\/auth\/resolve"\)/);
+  assert.doesNotMatch(authActions, /return\s+\{[^}]*password/);
+  assert.doesNotMatch(authActions, /redirect\([^)]*(?:email|password)/);
+  assert.match(authActions, /logAuthFailure\("login", error\)/);
   assert.match(authActions, /supabase\.auth\.signUp/);
   assert.match(authActions, /supabase\.auth\.signOut/);
   assert.match(authActions, /emailRedirectTo: `\$\{origin\}\/auth\/callback\?next=\/pending`/);
+  assert.match(loginForm, /<form action=\{formAction\}/);
+  assert.doesNotMatch(loginForm, /<form[^>]+action=["']\/auth\/resolve/);
+  assert.match(loginForm, /if \(state\.authenticated\) router\.replace\("\/auth\/resolve"\)/);
+  assert.doesNotMatch(loginForm, /router\.replace\([^)]*(?:email|password)/);
   assert.match(proxy, /resolveAuthRedirectOrigin\(request\.url, request\.headers\)/);
   assert.match(proxy, /sessionResponse\.cookies\.getAll\(\)/);
 });

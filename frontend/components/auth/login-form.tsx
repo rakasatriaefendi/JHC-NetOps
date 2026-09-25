@@ -1,21 +1,27 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { loginAction, type AuthActionState } from "@/app/actions/auth";
+import { loginAction, type LoginActionState } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 
 const inputClasses =
   "mt-2 w-full rounded-control border border-border bg-bg-base px-3 py-2 text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent focus:ring-1 focus:ring-accent";
-const initialAuthState: AuthActionState = { error: null, message: null };
+const initialAuthState: LoginActionState = { error: null, message: null, authenticated: false };
 
 export function LoginForm() {
   const { t } = useTranslation("auth");
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(
     loginAction,
     initialAuthState,
   );
+
+  useEffect(() => {
+    if (state.authenticated) router.replace("/auth/resolve");
+  }, [router, state.authenticated]);
 
   return (
     <form action={formAction} className="space-y-4">
