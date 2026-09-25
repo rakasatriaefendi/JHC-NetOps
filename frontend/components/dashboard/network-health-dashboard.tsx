@@ -12,8 +12,8 @@ import { ReachabilityMap } from "./reachability-map";
 import { NetworkHealthTrends } from "./network-health-trends";
 import { NetworkDiscoveryDrawer } from "@/components/dashboard/network-discovery-drawer";
 import type { DiscoverySession } from "@/lib/network-discovery";
-import { createClient } from "@/lib/supabase/client";
 import { healthTargetPagination, type HealthStatus, type NetworkHealthEvent, type NetworkHealthTarget, type NetworkHealthSample } from "@/lib/network-health-client";
+import { startNetworkHealthRealtime, type NetworkHealthRealtimeStatus } from "@/lib/network-health-realtime";
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
 
@@ -22,7 +22,7 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(() => targets.some((target) => target.id === initialTargetId) ? initialTargetId ?? null : null);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
-  const [realtime, setRealtime] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<NetworkHealthRealtimeStatus>("connecting");
   const selected = targets.find((target) => target.id === selectedId) ?? null;
   const summary = useMemo(() => {
     const status = (value: HealthStatus) => targets.filter((target) => target.latest?.status === value).length;
@@ -31,16 +31,17 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
   }, [targets]);
 
   useEffect(() => {
-    const supabase = createClient();
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => router.refresh(), 250); };
-    const channel = supabase.channel("dashboard-network-health")
-      .on("postgres_changes", { event: "*", schema: "public", table: "network_health_latest" }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "network_targets" }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: "source=eq.network_health" }, refresh)
-      .subscribe((status) => setRealtime(status === "SUBSCRIBED"));
-    return () => { clearTimeout(refreshTimer); void supabase.removeChannel(channel); };
+    return startNetworkHealthRealtime({
+      refresh: () => router.refresh(),
+      onStatus: setRealtimeStatus,
+    });
   }, [router]);
+
+  const realtimeStatusKey = realtimeStatus === "connected"
+    ? "localRealtime.connected"
+    : realtimeStatus === "fallback"
+      ? "localRealtime.fallback"
+      : "localRealtime.connecting";
 
   if (loadError) return <section className="mt-6 rounded-panel border border-severity-critical bg-bg-surface p-6"><p className="font-medium text-severity-critical">{t("health.loadError")}</p><p className="mt-2 text-text-secondary">{t("health.loadErrorHelp")}</p></section>;
 
@@ -50,7 +51,7 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("health.eyebrow")}</p><h2 className="mt-2 text-section font-semibold">{t("health.title")}</h2><p className="mt-2 max-w-3xl text-text-secondary">{t("health.description")}</p></div>
           <div className="flex flex-col items-start gap-3 md:items-end">
-            <p className={realtime ? "text-meta text-severity-low" : "text-meta text-severity-medium"}>● {t(realtime ? "health.realtimeConnected" : "health.realtimeConnecting")}</p>
+            <p className={realtimeStatus === "connected" ? "text-meta text-severity-low" : "text-meta text-severity-medium"}>● {t(realtimeStatusKey)}</p>
             {isAdmin ? <Button variant="secondary" onClick={() => setDiscoveryOpen(true)}>{t("health.discover")}</Button> : null}
           </div>
         </div>
