@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { logAuthFailure } from "@/lib/auth-logging";
+import { configuredAuthPublicOrigin, resolveAuthRedirectOrigin } from "@/lib/auth-redirect-origin";
 import { createClient } from "@/lib/supabase/server";
 import { getServerTranslation } from "@/i18n/server";
 
@@ -57,8 +58,11 @@ export async function registerAction(
 
   const supabase = await createClient();
   const requestHeaders = await headers();
-  const origin =
-    requestHeaders.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  const requestOrigin = requestHeaders.get("origin");
+  const configuredOrigin = configuredAuthPublicOrigin();
+  const origin = requestOrigin
+    ? resolveAuthRedirectOrigin(requestOrigin, requestHeaders)
+    : configuredOrigin;
 
   const { data, error } = await supabase.auth.signUp({
     email,

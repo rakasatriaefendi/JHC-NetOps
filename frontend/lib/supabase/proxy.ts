@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getSupabaseConfig } from "./config";
+import { resolveAuthRedirectOrigin } from "../auth-redirect-origin";
 
 const protectedPrefixes = [
   "/dashboard",
@@ -66,7 +67,7 @@ function redirectWithSession(
   pathname: string,
 ) {
   const redirectResponse = NextResponse.redirect(
-    new URL(pathname, request.url),
+    new URL(pathname, resolveAuthRedirectOrigin(request.url, request.headers)),
   );
 
   sessionResponse.cookies.getAll().forEach((cookie) => {
