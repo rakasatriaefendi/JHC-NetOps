@@ -31,6 +31,7 @@ import type { ProfileRole } from "@/lib/authorization";
 import { startDeviceInspectionAction } from "@/app/actions/legacy-network-control";
 import { getDeviceInspectionSessionAction } from "@/app/actions/device-inspection";
 import type { ApplicationAuthority } from "@/lib/application-persistence";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 
 type OpenOptions = {
   ipAddress: string;
@@ -78,12 +79,19 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
     if (!opened || !runner || inspectionAuthority !== "local_postgres" ||
         (session && !["queued", "running"].includes(session.status))) return;
     let cancelled = false;
-    const timer = window.setInterval(() => {
+    const refreshSession = () => {
       void getDeviceInspectionSessionAction(runner.id).then((result) => {
         if (!cancelled && result.ok && result.data?.target_ip === opened.ipAddress) setSession(result.data);
       });
-    }, 2_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    };
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["device_inspector"],
+      refresh: refreshSession,
+      onStatus: () => {},
+      debounceMs: 250,
+      fallbackIntervalMs: 2_000,
+    });
+    return () => { cancelled = true; stopRealtime(); };
   }, [inspectionAuthority, opened, runner, session]);
 
   useEffect(() => {

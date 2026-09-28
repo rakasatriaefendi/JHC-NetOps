@@ -145,7 +145,9 @@ test("browser Device Profile uses server actions for authoritative reads and exp
   assert.match(profile, /healthTargetMonitoringStateAction/);
   assert.match(profile, /getDeviceInspectionSessionAction/);
   assert.match(profile, /inspectionAuthority !== "local_postgres"/);
-  assert.match(profile, /window\.setInterval[^]*2_000/);
+  assert.match(profile, /startLocalRealtimeInvalidation/);
+  assert.match(profile, /topics: \["device_inspector"\]/);
+  assert.match(profile, /fallbackIntervalMs: 2_000/);
   assert.match(profile, /inspectionAuthority !== "supabase"/);
   assert.match(inspectionAction, /localDeviceInspection/);
   assert.match(inspectionAction, /\.from\("device_inspection_sessions"\)/);

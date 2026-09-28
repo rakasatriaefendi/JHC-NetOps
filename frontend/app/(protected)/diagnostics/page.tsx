@@ -25,7 +25,7 @@ export default async function DiagnosticsPage({searchParams}:{searchParams:Promi
       <div className="mt-6 min-w-0">
         <NetworkNodesProvider initialNodes={networkNodes.data} loadError={networkNodes.error} role={profile.role}>
           <DeviceProfileProvider role={profile.role} runners={jobState.data.runners}>
-          <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={!jobState.ok || !diagnostics.ok} diagnosticsLoadError={!diagnostics.ok} prefillTarget={target} role={profile.role} />
+          <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={!jobState.ok || !diagnostics.ok} diagnosticsLoadError={!diagnostics.ok} initialAuthority={jobState.authority} prefillTarget={target} role={profile.role} />
           </DeviceProfileProvider>
         </NetworkNodesProvider>
       </div>

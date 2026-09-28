@@ -25,17 +25,20 @@ import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 import { localeForLanguage } from "@/i18n/config";
 import { createDiagnosticJobAction, requestDiagnosticPreflightAction } from "@/app/actions/legacy-network-control";
 import { getDiagnosticJobStateAction, getDiagnosticsAction } from "@/app/actions/diagnostics";
+import type { ApplicationAuthority } from "@/lib/application-persistence";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 
 type Props = {
   initialState: DiagnosticJobState;
   diagnostics: DiagnosticsData;
   onDiagnosticsChange: (data: DiagnosticsData) => void;
   loadError: boolean;
+  initialAuthority: ApplicationAuthority;
   prefillTarget?: string;
   role: ProfileRole;
 };
 
-export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsChange, loadError, prefillTarget, role }: Props) {
+export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsChange, loadError, initialAuthority, prefillTarget, role }: Props) {
   const { t } = useTranslation("diagnostics");
   const [runners, setRunners] = useState(initialState.runners);
   const [jobs, setJobs] = useState(initialState.jobs);
@@ -47,8 +50,8 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [authority, setAuthority] = useState(initialAuthority);
   const requestedPreflight = useRef("");
-  const authorityRef = useRef<"supabase" | "local_postgres" | null>(null);
 
   const runner = runners.find((item) => item.id === runnerId) ?? runners[0];
   const capabilities = runner?.capabilities;
@@ -70,30 +73,48 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   ])).filter((label) => label !== "Local Development").slice(0, 12), [capabilities?.source_locations, jobs]);
 
   useEffect(() => {
+    const clock = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(clock);
+  }, []);
+
+  useEffect(() => {
     let disposed = false;
-    const supabase = createClient();
     async function refetchState() {
       const result = await getDiagnosticJobStateAction().catch(() => null);
       if (!disposed && result?.ok) {
-        authorityRef.current = result.authority;
+        setAuthority(result.authority);
         setRunners(result.data.runners);
         setJobs(result.data.jobs);
         if (result.data.jobs[0]?.status === "completed") void reloadMeasurements(onDiagnosticsChange);
       }
     }
     void refetchState();
-    const clock = window.setInterval(() => setNow(Date.now()), 5000);
-    const fallback = window.setInterval(() => void refetchState(), 4000);
     const onlineRefetch = () => void refetchState();
     window.addEventListener("online", onlineRefetch);
+
+    if (authority === "local_postgres") {
+      const stopRealtime = startLocalRealtimeInvalidation({
+        topics: ["diagnostics"],
+        refresh: () => void refetchState(),
+        onStatus: (status) => setRealtimeConnected(status === "connected"),
+        debounceMs: 250,
+        fallbackIntervalMs: 4_000,
+      });
+      return () => {
+        disposed = true;
+        window.removeEventListener("online", onlineRefetch);
+        stopRealtime();
+      };
+    }
+
+    const supabase = createClient();
+    const fallback = window.setInterval(() => void refetchState(), 4000);
     const channel = supabase.channel("lan-diagnostics-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "diagnostic_runners" }, (payload) => {
-        if (authorityRef.current === "local_postgres") return;
         const next = payload.new as DiagnosticRunner;
         if (next.id) setRunners((current) => [next, ...current.filter((item) => item.id !== next.id)]);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "diagnostic_jobs" }, (payload) => {
-        if (authorityRef.current === "local_postgres") return;
         const next = payload.new as DiagnosticJob;
         if (!next.id) return;
         setJobs((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 25));
@@ -106,12 +127,11 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
       });
     return () => {
       disposed = true;
-      window.clearInterval(clock);
       window.clearInterval(fallback);
       window.removeEventListener("online", onlineRefetch);
       void supabase.removeChannel(channel);
     };
-  }, [onDiagnosticsChange]);
+  }, [authority, onDiagnosticsChange]);
 
   useEffect(() => {
     if (!canOperateNetwork(role) || !runnerOnline || !runner || !target || jobActive) return;

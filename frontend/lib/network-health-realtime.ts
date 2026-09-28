@@ -23,6 +23,18 @@ export type NetworkHealthRealtimeOptions = Readonly<{
   timers?: NetworkHealthRealtimeTimers;
 }>;
 
+export type LocalRealtimeTopic = "network_health" | "diagnostics" | "device_inspector";
+
+export type LocalRealtimeInvalidationOptions = Readonly<{
+  topics: readonly LocalRealtimeTopic[];
+  refresh: () => void;
+  onStatus: (status: NetworkHealthRealtimeStatus) => void;
+  debounceMs: number;
+  fallbackIntervalMs: number;
+  createEventStream?: (url: string) => NetworkHealthEventStream;
+  timers?: NetworkHealthRealtimeTimers;
+}>;
+
 const SYSTEM_TIMERS: NetworkHealthRealtimeTimers = {
   setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -31,7 +43,17 @@ const SYSTEM_TIMERS: NetworkHealthRealtimeTimers = {
 };
 
 export function startNetworkHealthRealtime(options: NetworkHealthRealtimeOptions): () => void {
+  return startLocalRealtimeInvalidation({
+    ...options,
+    topics: ["network_health"],
+    debounceMs: NETWORK_HEALTH_REALTIME_DEBOUNCE_MS,
+    fallbackIntervalMs: NETWORK_HEALTH_FALLBACK_INTERVAL_MS,
+  });
+}
+
+export function startLocalRealtimeInvalidation(options: LocalRealtimeInvalidationOptions): () => void {
   const timers = options.timers ?? SYSTEM_TIMERS;
+  const topics = new Set(options.topics);
   let disposed = false;
   let refreshTimer: unknown | null = null;
   let fallbackTimer: unknown | null = null;
@@ -42,7 +64,7 @@ export function startNetworkHealthRealtime(options: NetworkHealthRealtimeOptions
     refreshTimer = timers.setTimeout(() => {
       refreshTimer = null;
       if (!disposed) options.refresh();
-    }, NETWORK_HEALTH_REALTIME_DEBOUNCE_MS);
+    }, options.debounceMs);
   };
   const stopFallback = () => {
     if (fallbackTimer === null) return;
@@ -53,7 +75,7 @@ export function startNetworkHealthRealtime(options: NetworkHealthRealtimeOptions
     if (disposed) return;
     options.onStatus("fallback");
     if (fallbackTimer !== null) return;
-    fallbackTimer = timers.setInterval(scheduleRefresh, NETWORK_HEALTH_FALLBACK_INTERVAL_MS);
+    fallbackTimer = timers.setInterval(scheduleRefresh, options.fallbackIntervalMs);
   };
   const onOpen = () => {
     if (disposed) return;
@@ -63,7 +85,7 @@ export function startNetworkHealthRealtime(options: NetworkHealthRealtimeOptions
   const onError = () => startFallback();
   const onInvalidation = (event: Event) => {
     const topic = invalidationTopic(event);
-    if (topic === "sync" || topic === "network_health") scheduleRefresh();
+    if (topic === "sync" || (topic !== null && topics.has(topic))) scheduleRefresh();
   };
 
   options.onStatus("connecting");
@@ -90,12 +112,13 @@ export function startNetworkHealthRealtime(options: NetworkHealthRealtimeOptions
   };
 }
 
-function invalidationTopic(event: Event): "sync" | "network_health" | null {
+function invalidationTopic(event: Event): "sync" | LocalRealtimeTopic | null {
   if (!("data" in event) || typeof event.data !== "string" || event.data.length > 1_024) return null;
   try {
     const value: unknown = JSON.parse(event.data);
     if (!record(value) || value.version !== 1) return null;
-    return value.topic === "sync" || value.topic === "network_health" ? value.topic : null;
+    return value.topic === "sync" || value.topic === "network_health" || value.topic === "diagnostics" ||
+      value.topic === "device_inspector" ? value.topic : null;
   } catch {
     return null;
   }
