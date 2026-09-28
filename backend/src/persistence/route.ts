@@ -484,7 +484,16 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
       const limit = query.limit ? Math.max(1, Math.min(500, parseInt(query.limit, 10))) : 50;
       const source = query.source;
       const sourceRef = query.source_ref;
+      if (query.unresolved !== undefined && query.unresolved !== "true") {
+        return reply.code(400).send(invalid);
+      }
+      if (query.unresolved === "true" && (!source || sourceRef !== undefined)) {
+        return reply.code(400).send(invalid);
+      }
       try {
+        if (source && query.unresolved === "true") {
+          return reply.code(200).send({ data: await options.events!.listOpenBySource(source, limit, AbortSignal.timeout(7_000)) });
+        }
         if (source) return reply.code(200).send({ data: await options.events!.listBySource(source, sourceRef ?? null, limit, AbortSignal.timeout(7_000)) });
         return reply.code(200).send({ data: await options.events!.listRecent(limit, AbortSignal.timeout(7_000)) });
       } catch (error) { return persistenceFailure(reply, error); }

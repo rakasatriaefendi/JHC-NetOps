@@ -215,6 +215,12 @@ export async function localEvents(limit = 50, source?: string, sourceRef?: strin
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
+export async function localOpenEvents(limit = 50, source: string): Promise<Record<string, unknown>[] | null> {
+  const params = new URLSearchParams({ limit: String(limit), source, unresolved: "true" });
+  const response = await localApplicationRequest("GET", `/api/application/events?${params.toString()}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
 export async function requestDiagnosticPreflightLocal(actorId: string, runnerId: string,
   targetId: string): Promise<Record<string, unknown> | null> {
   const response = await localApplicationRequest("POST", "/api/application/diagnostic-jobs/preflight",
