@@ -22,6 +22,7 @@
     "p12:compare": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts compare",
     "p13:cutover": "node --env-file-if-exists=.env --import tsx scripts/p13-cutover.ts",
     "p13:import-s1": "node --env-file-if-exists=.env --import tsx scripts/p13-import-s1.ts",
+    "auth:enroll-existing": "node --env-file-if-exists=.env --import tsx scripts/enroll-local-auth.ts",
     "preview:asset-report": "tsx scripts/generate-asset-report-preview.ts"
   },
   "dependencies": {

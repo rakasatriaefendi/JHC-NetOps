@@ -44,6 +44,11 @@ Device Inspector topics. It records version 10, leaves migration 009 and its
 Network Health triggers intact, and does not alter the P13 outbox or shadow
 projector.
 
+`011_local_auth.sql` adds local password credentials and opaque session-token
+digests bound one-to-one to existing `profiles` identities. It stores no role or
+approval state; `profiles` remains the sole authorization authority. The migration
+does not modify migration 010, realtime triggers, the outbox, Traffic, or `asset.*`.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

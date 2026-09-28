@@ -18,7 +18,7 @@ export function safeAuthFailure(operation: AuthOperation, error: unknown): SafeA
 }
 
 export function logAuthFailure(operation: AuthOperation, error: unknown) {
-  console.error("Supabase authentication failed", safeAuthFailure(operation, error));
+  console.error("Authentication failed", safeAuthFailure(operation, error));
 }
 
 function boundedCode(value: unknown) {

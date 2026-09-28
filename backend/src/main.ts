@@ -40,6 +40,7 @@ import { PostgresCutoverCanaryRepository } from "./persistence/cutover-canary.js
 import { SupabaseShadowProjector } from "./persistence/shadow-projector.js";
 import { LocalRealtimeBroker } from "./realtime/broker.js";
 import { PostgresRealtimeListener, postgresRealtimeConnectionFactory } from "./realtime/listener.js";
+import { PostgresLocalAuthRepository } from "./local-auth/repository.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
         inventory: new PostgresNetworkInventoryRepository(query),
         outbox,
         cutoverCanary,
+        localAuth: new PostgresLocalAuthRepository(query),
         _pool: appPool,
       };
       shadowProjector.current = new SupabaseShadowProjector(outbox, config.supabaseUrl, config.supabaseServiceRoleKey);
@@ -197,6 +199,7 @@ async function main(): Promise<void> {
       cutoverCanary: localRepos.cutoverCanary,
     };
     buildServerOptions.realtime = { token: config.frontendApiToken, broker: realtimeBroker };
+    buildServerOptions.localAuth = { token: config.frontendApiToken, repository: localRepos.localAuth };
   }
 
   const server = buildServer(buildServerOptions as Parameters<typeof buildServer>[0]);

@@ -1,48 +1,71 @@
-# Auth & approval setup
+# Local Auth & approval setup
 
-## 1. Environment frontend
+Runtime login, registration, logout, dan session resolution memakai backend
+loopback serta PostgreSQL lokal. Supabase client tetap ada untuk fitur transisi
+Realtime/shadow, tetapi bukan authority identity/session.
 
-Salin `frontend/.env.example` menjadi `frontend/.env.local`, lalu isi:
+## 1. Prasyarat
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `NEXT_PUBLIC_SITE_URL` (contoh lokal: `http://localhost:3000`)
+- `PERSISTENCE_AUTHORITY=local_postgres`.
+- `LOCAL_BACKEND_URL` dan `LOCAL_BACKEND_FRONTEND_TOKEN` tersedia hanya bagi
+  Next.js server; token tidak boleh memakai prefix `NEXT_PUBLIC_`.
+- Migration `010` sudah diterapkan, lalu operator menerapkan migration
+  `011_local_auth.sql` pada cluster khusus `16/jhcnetops:5433/jhc_netops`.
 
-Jangan menaruh service-role key di frontend atau variabel `NEXT_PUBLIC_*`.
+Migration 011 membuat credential dan session lokal tanpa menyalin role/status.
+Tabel `profiles` tetap menjadi satu-satunya authority role dan approval.
 
-## 2. Database dan Auth Supabase
+## 2. Registrasi dan approval
 
-1. Terapkan seluruh migration di `supabase/migrations`.
-2. Aktifkan provider Email di Supabase Auth.
-3. Tambahkan URL berikut ke daftar Auth Redirect URLs:
-   - `http://localhost:3000/auth/callback`
-   - URL production dengan path `/auth/callback`
+Registrasi baru membuat identity lokal dan profile `viewer/pending` dalam satu
+transaksi. User diarahkan ke `/pending`. Admin approved tetap mengubah role dan
+status melalui `/admin`; tidak ada auto-admin.
 
-## 3. Seed admin pertama secara manual
+Password Supabase tidak dapat diekspor atau dipindahkan. Profil existing tidak
+boleh di-claim hanya dengan mengetahui email. Sebelum rollout, operator wajib
+menyelesaikan enrollment credential lokal yang ditinjau untuk minimal satu admin
+existing. Jangan mengubah profile id, role, status, atau approval metadata untuk
+mengakali enrollment.
 
-Register akun admin dari UI terlebih dahulu. Setelah row `profiles` dibuat oleh trigger,
-jalankan SQL berikut secara manual melalui Supabase SQL Editor dengan email yang benar:
+### Enrollment profil existing oleh operator
 
-```sql
-update public.profiles
-set
-  role = 'admin',
-  status = 'approved',
-  approved_at = now(),
-  approved_by = null
-where email = 'admin@example.com';
+Jalankan CLI hanya dari immutable release setelah migration 011 diterapkan. CLI
+memerlukan UUID profile dan email yang diharapkan, lalu membaca password dua kali
+dari TTY tanpa echo. Password tidak boleh diberikan sebagai argumen atau pipe.
+
+```bash
+ROOT=/var/www/jhc/jhc_noc
+SHA=<DEPLOYED_SHA>
+REL="$ROOT/releases/$SHA"
+
+cd "$REL/backend"
+set -a
+. "$ROOT/shared/backend/.env"
+set +a
+
+npm run auth:enroll-existing -- \
+  --profile-id '<EXACT_PROFILE_UUID>' \
+  --email '<EXPECTED_PROFILE_EMAIL>'
+
+unset APPLICATION_DATABASE_URL
 ```
 
-Pastikan tepat satu row berubah. Tidak ada logic auto-admin di aplikasi.
+Credential existing ditolak secara default. Rotasi harus eksplisit dengan
+menambahkan `--rotate`; operasi tersebut tetap tidak mengubah row `profiles`.
+CLI fail closed tanpa TTY interaktif atau bila UUID/email tidak cocok.
 
-## 4. Verifikasi alur
+## 3. Session dan origin
 
-1. Register akun baru (default role Viewer, status Menunggu persetujuan).
-2. Konfirmasi email jika Email Confirmations aktif.
-3. Viewer harus diarahkan ke `/pending` dan tidak dapat membaca tabel operasional.
-4. Admin membuka `/admin`, memilih role **Admin / Operator / Viewer** dan status
-   akses **Menunggu persetujuan / Aktif / Ditangguhkan** secara terpisah.
-5. Label status tersebut dipetakan ke nilai kompatibel `pending`, `approved`, dan
-   `rejected`; rename schema tidak diperlukan.
-6. User Aktif dapat membuka dashboard sesuai role; user Menunggu/Ditangguhkan
-   tetap diarahkan ke `/pending`.
+Browser menerima cookie opaque, host-only, `HttpOnly`, dan `SameSite=Lax`.
+Cookie memakai `Secure` pada origin HTTPS publik dan tetap dapat digunakan pada
+origin HTTP LAN yang disetujui. Setelah login/register, navigasi ke
+`/auth/resolve` memakai GET; helper origin yang sama mempertahankan origin publik
+atau LAN dan menolak forwarded host yang tidak dipercaya.
+
+## 4. Verifikasi
+
+1. Login publik berakhir di origin publik; login LAN tetap di origin LAN.
+2. Approved menuju `/dashboard`; pending/rejected menuju `/pending`.
+3. Logout menghapus session database dan cookie browser.
+4. Session expired/tidak dikenal ditolak dan protected layout kembali ke login.
+5. Admin approval tetap mempertahankan perlindungan self-demotion dan last-admin.

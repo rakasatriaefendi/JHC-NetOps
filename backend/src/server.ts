@@ -14,6 +14,7 @@ import { registerReportBrandingRoutes, type ReportBrandingRouteOptions } from ".
 import { registerMedicalEquipmentRoutes, type MedicalEquipmentRouteOptions } from "./medical-equipment/route.js";
 import { registerApplicationRoutes, type ApplicationRouteOptions } from "./persistence/route.js";
 import { registerLocalRealtimeRoute, type LocalRealtimeRouteOptions } from "./realtime/route.js";
+import { registerLocalAuthRoutes, type LocalAuthRouteOptions } from "./local-auth/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -36,6 +37,7 @@ type BuildServerOptions = Readonly<{
   medicalEquipment?: MedicalEquipmentRouteOptions;
   application?: ApplicationRouteOptions;
   realtime?: LocalRealtimeRouteOptions;
+  localAuth?: LocalAuthRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -105,6 +107,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.medicalEquipment) registerMedicalEquipmentRoutes(server, options.medicalEquipment);
   if (options.application) registerApplicationRoutes(server, options.application);
   if (options.realtime) registerLocalRealtimeRoute(server, options.realtime);
+  if (options.localAuth) registerLocalAuthRoutes(server, options.localAuth);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {

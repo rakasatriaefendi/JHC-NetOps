@@ -46,12 +46,12 @@ test("affected server pages choose authoritative local read helpers", () => {
   assert.match(nodes, /return loadNetworkNodes\(supabase\)/);
 });
 
-test("Supabase Auth stays external while local profiles supply application role and status", () => {
+test("local auth sessions identify users while local profiles supply application role and status", () => {
   const auth = source("../lib/auth.ts");
   const admin = source("../app/actions/admin.ts");
-  assert.match(auth, /supabase\.auth\.getClaims\(\)/);
-  assert.match(auth, /supabase\.auth\.getUser\(\)/);
-  assert.match(auth, /applicationAuthority\(\) === "local_postgres"[\s\S]*loadLocalAuthenticatedProfile/);
+  assert.match(auth, /localAuthenticatedProfile\(\)/);
+  assert.doesNotMatch(auth, /supabase\.auth\./);
+  assert.match(auth, /const userId = profile\.id/);
   assert.match(admin, /applicationAuthority\(\) === "local_postgres"[\s\S]*localApplicationRequest/);
 });
 

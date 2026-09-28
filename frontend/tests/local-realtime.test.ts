@@ -89,7 +89,8 @@ test("proxy terminates the downstream stream on a genuine upstream failure", asy
 
 test("Next realtime route uses existing approved profile auth and server-only backend configuration", () => {
   const route = readFileSync(new URL("../app/api/realtime/events/route.ts", import.meta.url), "utf8");
-  assert.match(route, /supabase\.auth\.getClaims\(\)/);
+  assert.match(route, /normalizedProfile\(await localAuthenticatedProfile\(\)\)/);
+  assert.doesNotMatch(route, /supabase\.auth\.|getClaims\(\)/);
   assert.match(route, /profile\?\.status === "approved"/);
   assert.match(route, /applicationAuthority\(\) === "local_postgres"/);
   assert.match(route, /localBackendConfig\(\)/);
