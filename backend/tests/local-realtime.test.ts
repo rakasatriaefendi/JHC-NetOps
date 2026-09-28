@@ -6,6 +6,7 @@ import { LocalRealtimeBroker } from "../src/realtime/broker.js";
 import {
   LOCAL_REALTIME_CHANNEL,
   LOCAL_REALTIME_MAX_NOTIFICATION_BYTES,
+  LOCAL_REALTIME_TOPICS,
   createSyncInvalidation,
   parseLocalRealtimeNotification,
   type LocalRealtimeInvalidation,
@@ -26,7 +27,10 @@ const EVENT: LocalRealtimeInvalidation = Object.freeze({
 });
 
 test("local realtime protocol accepts only bounded invalidation metadata", () => {
+  assert.deepEqual(LOCAL_REALTIME_TOPICS, ["network_health", "diagnostics", "device_inspector"]);
   assert.deepEqual(parseLocalRealtimeNotification(JSON.stringify(EVENT)), EVENT);
+  assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, topic: "diagnostics" }))?.topic, "diagnostics");
+  assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, topic: "device_inspector" }))?.topic, "device_inspector");
   assert.equal(parseLocalRealtimeNotification("not-json"), null);
   assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, row: { status: "online" } })), null);
   assert.equal(parseLocalRealtimeNotification(JSON.stringify({ ...EVENT, topic: "arbitrary" })), null);
@@ -167,7 +171,37 @@ test("migration 009 adds only bounded transactional Network Health notifications
     .map((match) => match[1]);
   assert.deepEqual(tables, ["network_targets", "network_health_latest", "events"]);
   assert.match(migration, /INSERT INTO public\.application_schema_migrations\(version\) VALUES \(9\)/);
+  assert.doesNotMatch(migration, /diagnostics|device_inspector|diagnostic_jobs|device_inspection_sessions/);
   assert.doesNotMatch(migration, /DROP (?:TABLE|FUNCTION|TRIGGER)|ALTER TABLE public\.realtime_outbox|asset\.[a-z_]+\s*(?:INSERT|UPDATE|DELETE)/i);
+});
+
+test("migration 010 adds only bounded Diagnostics and Device Inspector invalidations", () => {
+  const migration = readFileSync(new URL("../migrations/010_diagnostics_device_inspector_realtime.sql", import.meta.url), "utf8");
+  assert.match(migration, /NOT EXISTS \(SELECT 1 FROM public\.application_schema_migrations WHERE version = 9\)/);
+  assert.match(migration, /CREATE FUNCTION public\.publish_local_realtime_control_invalidation\(\) RETURNS trigger/);
+  assert.match(migration, /PERFORM pg_notify\('jhc_netops_realtime_v1', notification_value\)/);
+  assert.match(migration, /octet_length\(notification_value\) > 1024/);
+  assert.match(migration, /topic_value = 'diagnostics'[\s\S]+TG_TABLE_NAME = 'diagnostic_runners'[\s\S]+TG_ARGV\[1\] = 'id'/);
+  assert.match(migration, /topic_value = 'diagnostics'[\s\S]+TG_TABLE_NAME = 'diagnostic_jobs'[\s\S]+TG_ARGV\[1\] = 'id'/);
+  assert.match(migration, /topic_value = 'device_inspector'[\s\S]+TG_TABLE_NAME = 'device_inspection_sessions'[\s\S]+TG_ARGV\[1\] = 'runner_id'/);
+  assert.match(migration, /TG_OP = 'DELETE'[\s\S]+OLD\.id::text[\s\S]+OLD\.runner_id::text/);
+  assert.match(migration, /ELSE[\s\S]+NEW\.id::text[\s\S]+NEW\.runner_id::text/);
+
+  const triggers = [...migration.matchAll(
+    /CREATE TRIGGER local_realtime_[a-z_]+\s+AFTER INSERT OR UPDATE OR DELETE ON public\.([a-z_]+)/g,
+  )].map((match) => match[1]);
+  assert.deepEqual(triggers, ["diagnostic_runners", "diagnostic_jobs", "device_inspection_sessions"]);
+
+  const notificationFields = migration.match(/notification_value := jsonb_build_object\(([\s\S]*?)\)::text;/)?.[1];
+  assert.ok(notificationFields);
+  for (const key of ["version", "event_id", "topic", "aggregate_key", "occurred_at"]) {
+    assert.match(notificationFields, new RegExp(`'${key}'`));
+  }
+  assert.doesNotMatch(notificationFields, /row_value|payload|result|requested_by|target_ip/);
+  assert.doesNotMatch(migration, /to_jsonb\((?:OLD|NEW)\)/);
+  assert.match(migration, /INSERT INTO public\.application_schema_migrations\(version\) VALUES \(10\)/);
+  assert.doesNotMatch(migration, /traffic_live|network_discovery|network_health_ping_jobs|managed_(?:device|interface|observed|telemetry)/);
+  assert.doesNotMatch(migration, /DROP (?:TABLE|FUNCTION|TRIGGER)|CREATE OR REPLACE|ALTER TABLE public\.realtime_outbox|asset\.[a-z_]+\s*(?:INSERT|UPDATE|DELETE)/i);
 });
 
 class FakeListenConnection implements RealtimeListenConnection {

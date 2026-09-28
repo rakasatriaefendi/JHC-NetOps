@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 
 export const LOCAL_REALTIME_CHANNEL = "jhc_netops_realtime_v1";
 export const LOCAL_REALTIME_MAX_NOTIFICATION_BYTES = 1_024;
-export const LOCAL_REALTIME_TOPICS = Object.freeze(["network_health"] as const);
+export const LOCAL_REALTIME_TOPICS = Object.freeze([
+  "network_health",
+  "diagnostics",
+  "device_inspector",
+] as const);
 
 export type LocalRealtimeTopic = typeof LOCAL_REALTIME_TOPICS[number] | "sync";
 

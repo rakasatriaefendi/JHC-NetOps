@@ -38,6 +38,12 @@ only during an approved P13 window.
 version 9 without removing or changing the P13 outbox or shadow projector and
 is also applied only by an operator during an approved change window.
 
+`010_diagnostics_device_inspector_realtime.sql` additively extends the same
+bounded local notification channel with invalidation-only Diagnostics and
+Device Inspector topics. It records version 10, leaves migration 009 and its
+Network Health triggers intact, and does not alter the P13 outbox or shadow
+projector.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.
