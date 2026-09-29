@@ -116,23 +116,36 @@ test("runner refresh action is authenticated, authority-aware, uncached, and sec
 
 test("local runner liveness ignores Supabase heartbeat while Supabase mode retains it", () => {
   const source = readFileSync(new URL("../components/dashboard/network-discovery-drawer.tsx", import.meta.url), "utf8");
-  assert.match(source, /table: "diagnostic_runners"/);
-  assert.match(source, /filter: `id=eq\.\$\{runner\.id\}`/);
-  assert.match(source, /if \(runnerAuthority === "supabase"\)[\s\S]*table: "diagnostic_runners"/);
-  assert.match(source, /removeChannel\(channel\)/);
+  const { localBranch, supabaseBranch } = discoveryAuthorityBranches(source);
+
+  assert.match(source, /getDiscoveryRunnersAction\(\)/);
+  assert.match(source, /setInterval\(\(\) => void refreshRunners\(\), 10_000\)/);
+  assert.match(source, /setFreshnessNow\(Date\.now\(\)\)/);
+  assert.match(localBranch, /return \(\) => \{ active = false; stopRealtime\(\); \};\s*\}\s*$/);
+  assert.doesNotMatch(localBranch, /createClient|\.channel\(|postgres_changes|diagnostic_runners/);
+  assert.match(supabaseBranch, /table: "diagnostic_runners"/);
+  assert.match(supabaseBranch, /filter: `id=eq\.\$\{runner\.id\}`/);
+  assert.match(supabaseBranch, /removeChannel\(channel\)/);
   assert.match(source, /\[open, runner\?\.id, runnerAuthority\]/);
 });
 
 test("local Discovery sessions poll local authority without Supabase session Realtime", () => {
   const drawer = readFileSync(new URL("../components/dashboard/network-discovery-drawer.tsx", import.meta.url), "utf8");
   const action = readFileSync(new URL("../app/actions/network-discovery.ts", import.meta.url), "utf8");
+  const { localBranch, supabaseBranch } = discoveryAuthorityBranches(drawer);
+
   assert.match(action, /getDiscoverySessionAction/);
   assert.match(action, /authority === "local_postgres"[\s\S]*localNetworkDiscovery\(runnerId\)/);
   assert.match(drawer, /runnerAuthority !== "local_postgres"/);
   assert.match(drawer, /getDiscoverySessionAction\(selectedRunnerId\)/);
   assert.match(drawer, /setInterval\(\(\) => void refreshSession\(\), 2_000\)/);
   assert.match(drawer, /\["queued", "running"\]\.includes\(sessionStatus\)/);
-  assert.match(drawer, /if \(runnerAuthority === "supabase"\)[\s\S]*table: "network_discovery_sessions"/);
+  assert.match(localBranch, /topics: \["traffic"\]/);
+  assert.match(localBranch, /getTrafficStateAction\(\)/);
+  assert.doesNotMatch(localBranch, /createClient|\.channel\(|postgres_changes|network_discovery_sessions|traffic_live_snapshots/);
+  assert.match(supabaseBranch, /table: "traffic_live_snapshots"/);
+  assert.match(supabaseBranch, /table: "network_discovery_sessions"/);
+  assert.match(supabaseBranch, /table: "diagnostic_runners"/);
   assert.doesNotMatch(action, /LOCAL_BACKEND_FRONTEND_TOKEN/);
 });
 
@@ -146,3 +159,22 @@ test("discovery correlates Traffic by IP without copying flow payloads", () => {
   }]);
   assert.deepEqual(ips.sort(), ["1.1.1.1", "192.168.188.219", "192.168.188.73", "192.168.188.91"].sort());
 });
+
+function discoveryAuthorityBranches(source: string): {
+  localBranch: string;
+  supabaseBranch: string;
+} {
+  const localStart = source.indexOf('if (runnerAuthority === "local_postgres")');
+  const supabaseStart = source.indexOf("const supabase = createClient();", localStart);
+  assert.ok(localStart >= 0, "local_postgres authority branch must exist");
+  assert.ok(supabaseStart > localStart, "Supabase channel creation must follow the local authority branch");
+  assert.equal(
+    [...source.matchAll(/const supabase = createClient\(\);/g)].length,
+    1,
+    "the authority-isolated effect must have one Supabase channel creation point",
+  );
+  return {
+    localBranch: source.slice(localStart, supabaseStart),
+    supabaseBranch: source.slice(supabaseStart),
+  };
+}

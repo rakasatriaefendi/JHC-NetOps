@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { createClient } from "@/lib/supabase/client";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 import type { TrafficSnapshot, TrafficState } from "@/lib/traffic";
 import { getTrafficStateAction } from "@/app/actions/traffic";
 
@@ -20,12 +21,27 @@ export function LocalTrafficSummary({ initialState, loadError, initialAuthority 
   const snapshot = useMemo(() => [...state.snapshots].sort((left, right) => Date.parse(right.captured_at) - Date.parse(left.captured_at))[0], [state.snapshots]);
 
   useEffect(() => {
-    void getTrafficStateAction().then((result) => {
+    let disposed = false;
+    const refresh = () => void getTrafficStateAction().then((result) => {
+      if (disposed) return;
       authorityRef.current = result.authority;
       if (result.ok && result.data) setState(result.data);
     }).catch(() => {
-      // Retain the initial authoritative snapshot on a transient refresh failure.
+      // Retain the last authoritative snapshot on a transient refresh failure.
     });
+    refresh();
+
+    if (initialAuthority === "local_postgres") {
+      const stopRealtime = startLocalRealtimeInvalidation({
+        topics: ["traffic"],
+        refresh,
+        onStatus: () => {},
+        debounceMs: 250,
+        fallbackIntervalMs: 60_000,
+      });
+      return () => { disposed = true; stopRealtime(); };
+    }
+
     const supabase = createClient();
     const channel = supabase.channel("dashboard-local-traffic")
       .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_snapshots" }, (payload) => {
@@ -35,13 +51,10 @@ export function LocalTrafficSummary({ initialState, loadError, initialAuthority 
         setState((current) => ({ ...current, snapshots: [next, ...current.snapshots.filter((item) => item.runner_id !== next.runner_id)] }));
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_sessions" }, () => {
-        void getTrafficStateAction().then((result) => {
-          authorityRef.current = result.authority;
-          if (result.ok && result.data) setState(result.data);
-        });
+        refresh();
       }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, []);
+    return () => { disposed = true; void supabase.removeChannel(channel); };
+  }, [initialAuthority]);
 
   return (
     <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">

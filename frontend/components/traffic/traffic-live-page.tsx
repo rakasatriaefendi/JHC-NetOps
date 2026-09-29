@@ -11,6 +11,7 @@ import { useDeviceProfile } from "@/components/device-profile/device-profile-pro
 import { findNetworkNode } from "@/lib/network-nodes";
 import type { DiagnosticsData } from "@/lib/diagnostics";
 import { createClient } from "@/lib/supabase/client";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 import { canOperateNetwork } from "@/lib/authorization";
 import {
   filterFlows,
@@ -112,7 +113,6 @@ export function TrafficLivePage({
 
   useEffect(() => {
     let disposed = false;
-    const supabase = createClient();
 
     async function refresh() {
       const result = await getTrafficStateAction().catch(() => null);
@@ -126,6 +126,24 @@ export function TrafficLivePage({
 
     const poll = window.setInterval(() => void refresh(), 5_000);
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
+
+    if (initialAuthority === "local_postgres") {
+      const stopRealtime = startLocalRealtimeInvalidation({
+        topics: ["traffic"],
+        refresh: () => void refresh(),
+        onStatus: (next) => setRealtime(next === "connected"),
+        debounceMs: 250,
+        fallbackIntervalMs: 60_000,
+      });
+      return () => {
+        disposed = true;
+        window.clearInterval(poll);
+        window.clearInterval(clock);
+        stopRealtime();
+      };
+    }
+
+    const supabase = createClient();
     const channel = supabase
       .channel("traffic-live-snapshot")
       .on(
@@ -155,7 +173,7 @@ export function TrafficLivePage({
       window.clearInterval(clock);
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [initialAuthority]);
 
   async function runAction(actionName: "create_session" | "stop_session") {
     if (!runner) return;

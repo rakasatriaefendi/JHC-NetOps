@@ -49,6 +49,14 @@ digests bound one-to-one to existing `profiles` identities. It stores no role or
 approval state; `profiles` remains the sole authorization authority. The migration
 does not modify migration 010, realtime triggers, the outbox, Traffic, or `asset.*`.
 
+`012_fix_local_realtime_control_trigger.sql` repairs the existing Diagnostics and
+Device Inspector trigger function without changing its topic or table scope.
+
+`013_traffic_realtime.sql` additively publishes invalidation-only Traffic events
+for `traffic_live_sessions` and `traffic_live_snapshots`, keyed by `runner_id`.
+It requires migration 12 and leaves capture, outbox, shadow projection, and all
+earlier local realtime triggers unchanged.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.
