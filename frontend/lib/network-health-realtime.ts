@@ -23,7 +23,7 @@ export type NetworkHealthRealtimeOptions = Readonly<{
   timers?: NetworkHealthRealtimeTimers;
 }>;
 
-export type LocalRealtimeTopic = "network_health" | "diagnostics" | "device_inspector" | "traffic";
+export type LocalRealtimeTopic = "network_health" | "diagnostics" | "device_inspector" | "traffic" | "managed_telemetry";
 
 export type LocalRealtimeInvalidationOptions = Readonly<{
   topics: readonly LocalRealtimeTopic[];
@@ -118,7 +118,8 @@ function invalidationTopic(event: Event): "sync" | LocalRealtimeTopic | null {
     const value: unknown = JSON.parse(event.data);
     if (!record(value) || value.version !== 1) return null;
     return value.topic === "sync" || value.topic === "network_health" || value.topic === "diagnostics" ||
-      value.topic === "device_inspector" || value.topic === "traffic" ? value.topic : null;
+      value.topic === "device_inspector" || value.topic === "traffic" || value.topic === "managed_telemetry"
+      ? value.topic : null;
   } catch {
     return null;
   }

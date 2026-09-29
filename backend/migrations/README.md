@@ -57,6 +57,11 @@ for `traffic_live_sessions` and `traffic_live_snapshots`, keyed by `runner_id`.
 It requires migration 12 and leaves capture, outbox, shadow projection, and all
 earlier local realtime triggers unchanged.
 
+`014_managed_telemetry_realtime.sql` additively publishes invalidation-only
+Managed Telemetry events for the three latest-state tables used live by Device
+Profile, keyed by their common `target_id`. It requires migration 13 and does
+not add realtime behavior to Managed Telemetry events or server-snapshot pages.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

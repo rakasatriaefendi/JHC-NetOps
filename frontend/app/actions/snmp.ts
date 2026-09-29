@@ -20,15 +20,17 @@ const DELETE_TELEMETRY_FIELDS = new Set(["target_id", "confirmation"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function loadManagedTelemetryForNodeAction(nodeId: string) {
+  const authority = applicationAuthority();
   if (!UUID_PATTERN.test(nodeId)) {
-    return { target: null, interfaces: [], observedHosts: [], events: [], error: true };
+    return { authority, target: null, interfaces: [], observedHosts: [], events: [], error: true };
   }
   const { supabase } = await requireApprovedProfile();
   const telemetry = await loadManagedTelemetry(supabase);
-  if (telemetry.error) return { target: null, interfaces: [], observedHosts: [], events: [], error: true };
+  if (telemetry.error) return { authority, target: null, interfaces: [], observedHosts: [], events: [], error: true };
   const target = telemetry.data.find((item) => item.node_id === nodeId) ?? null;
-  if (!target) return { target: null, interfaces: [], observedHosts: [], events: [], error: false };
+  if (!target) return { authority, target: null, interfaces: [], observedHosts: [], events: [], error: false };
   return {
+    authority,
     target,
     interfaces: telemetry.interfaces.filter((item) => item.target_id === target.id),
     observedHosts: telemetry.observedHosts.filter((item) => item.target_id === target.id),

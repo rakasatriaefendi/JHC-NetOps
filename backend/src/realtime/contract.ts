@@ -7,6 +7,7 @@ export const LOCAL_REALTIME_TOPICS = Object.freeze([
   "diagnostics",
   "device_inspector",
   "traffic",
+  "managed_telemetry",
 ] as const);
 
 export type LocalRealtimeTopic = typeof LOCAL_REALTIME_TOPICS[number] | "sync";
