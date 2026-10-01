@@ -9,10 +9,12 @@ test("P15 guard: shadow projection has an explicit non-blocking local lifecycle"
   const config = source("../src/config.ts");
   const server = source("../src/server.ts");
   const projector = source("../src/persistence/shadow-projector.ts");
+  const supabaseRest = source("../src/supabase-rest.ts");
 
-  assert.match(config, /const supabaseUrl = parseSupabaseUrl\(environment\.SUPABASE_URL\)/);
-  assert.match(config, /SUPABASE_SERVICE_ROLE_KEY/);
-  assert.match(main, /shadowProjector\.current = new SupabaseShadowProjector\(outbox, config\.supabaseUrl, config\.supabaseServiceRoleKey\)/);
+  assert.match(config, /needsSupabaseApplicationCompatibility = persistenceAuthority === "supabase"/);
+  assert.match(config, /requireSupabaseRuntimeConfig/);
+  assert.match(main, /shadowSupabase = requireSupabaseRuntimeConfig\(config\)/);
+  assert.match(main, /shadowProjector\.current = new SupabaseShadowProjector\(outbox, shadowSupabase\.url, shadowSupabase\.serviceRoleKey\)/);
   assert.match(main, /shadowProjector\.current\?\.start\(\);\s*realtimeListener\.current\?\.start\(\);\s*try \{ await server\.listen/);
   assert.doesNotMatch(main, /await shadowProjector\.current\?\.start\(\)/);
   assert.match(main, /await shadowProjector\.current\?\.stop\(\)/);
@@ -22,6 +24,8 @@ test("P15 guard: shadow projection has an explicit non-blocking local lifecycle"
   assert.ok(healthStart >= 0 && healthEnd > healthStart);
   assert.doesNotMatch(server.slice(healthStart, healthEnd), /shadowProjector|outbox|supabase/i);
   assert.match(projector, /catch \(error\) \{\s*batchFailed = true;\s*if \(!signal\.aborted\) \{\s*this\.consecutiveBatchFailures/);
+  assert.match(supabaseRest, /authority: PersistenceAuthority/);
+  assert.doesNotMatch(supabaseRest, /:\s*"supabase"\s*\)/);
 });
 
 test("P15 guard: every transactional shadow producer has one allowlisted consumer target", () => {
@@ -53,4 +57,16 @@ test("P15 guard: every transactional shadow producer has one allowlisted consume
   ]);
   assert.deepEqual(allowlistedTables, triggeredTables);
   assert.match(migration, /INSERT INTO public\.realtime_outbox/);
+});
+
+test("P15 guard: local asset evidence is PostgreSQL-authoritative while explicit compatibility remains", () => {
+  const main = source("../src/main.ts");
+  const evidence = source("../src/assets/evidence.ts");
+  assert.match(main, /localRepos\s*\? new PostgresAssetEvidenceSource\(localRepos\.inventory\)/);
+  assert.match(main, /new SupabaseAssetEvidenceSource\(supabase\.url, supabase\.serviceRoleKey\)/);
+  assert.match(evidence, /class PostgresAssetEvidenceSource/);
+  assert.match(evidence, /listNodes\(signal\)/);
+  assert.match(evidence, /listHealthTargets\(signal\)/);
+  assert.match(evidence, /listManagedTargets\(signal\)/);
+  assert.match(evidence, /listManagedObservedHosts\(undefined, signal\)/);
 });
