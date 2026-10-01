@@ -35,6 +35,26 @@ test("local Health and SNMP loaders use only loopback helpers and fail closed", 
   assert.match(telemetry, /supabase\.from\("managed_telemetry_targets"\)/);
 });
 
+test("History uses local PostgreSQL events and keeps Supabase only as an explicit compatibility branch", () => {
+  const page = source("../app/(protected)/history/page.tsx");
+  const health = source("../lib/network-health.ts");
+  assert.match(page, /loadNetworkHealthHistory\(supabase\)/);
+  assert.doesNotMatch(page, /\.from\("events"\)/);
+  assert.match(health, /loadNetworkHealthHistory[\s\S]*applicationAuthority\(\) === "local_postgres"[\s\S]*localEvents\(100, "network_health"\)/);
+  assert.match(health, /loadNetworkHealthHistory[\s\S]*supabase\.from\("events"\)/);
+});
+
+test("local frontend auth and Manual Ping avoid eager Supabase client construction", () => {
+  const auth = source("../lib/auth.ts");
+  const ping = source("../components/dashboard/manual-ping-provider.tsx");
+  assert.match(auth, /getApplicationAuthority\(\) === "supabase"\s*\? await createClient\(\)\s*:\s*unavailableSupabaseClient\(\)/);
+  assert.match(auth, /Supabase compatibility client is unavailable under local_postgres authority/);
+  assert.doesNotMatch(auth, /const supabase = await createClient\(\)/);
+  assert.match(ping, /function waitForManualPingSupabase\(pingId: string\) \{\s*const client = createClient\(\)/);
+  assert.match(ping, /authority === "local_postgres"\s*\? await waitForManualPingLocal\(pingId\)\s*:\s*await waitForManualPingSupabase\(pingId\)/);
+  assert.doesNotMatch(ping, /useMemo\(\(\) => createClient\(\)/);
+});
+
 test("affected server pages choose authoritative local read helpers", () => {
   const devices = source("../app/(protected)/devices/page.tsx");
   const assets = source("../app/(protected)/assets/page.tsx");

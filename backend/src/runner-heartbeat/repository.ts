@@ -25,7 +25,7 @@ export class SupabaseRunnerHeartbeatRepository implements RunnerHeartbeatReposit
   readonly #client: SupabaseRestClient;
 
   constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey);
+    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey, "supabase");
   }
 
   async upsertHeartbeat(row: RunnerHeartbeatRow, signal: AbortSignal): Promise<StoredRunnerHeartbeat> {

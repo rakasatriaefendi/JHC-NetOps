@@ -1,21 +1,27 @@
 export class BackendClient {
-  constructor(url, serviceRoleKey, localBackend = null, persistenceAuthority = process.env.PERSISTENCE_AUTHORITY ?? "supabase") {
-    if (!url || !serviceRoleKey) throw new Error("Backend credentials are unavailable");
+  constructor(url, serviceRoleKey, localBackend = null, persistenceAuthority = process.env.PERSISTENCE_AUTHORITY) {
     if (persistenceAuthority !== "supabase" && persistenceAuthority !== "local_postgres") {
-      throw new Error("Persistence authority is invalid");
+      throw new Error("Persistence authority is missing or invalid");
+    }
+    if (persistenceAuthority === "supabase" && (!url || !serviceRoleKey)) {
+      throw new Error("Supabase backend credentials are unavailable");
+    }
+    if (persistenceAuthority === "local_postgres" && !localBackend) {
+      throw new Error("Local backend configuration is required");
     }
     this.persistenceAuthority = persistenceAuthority;
-    this.endpoint = `${url.replace(/\/$/, "")}/functions/v1/diagnostic-jobs`;
-    this.trafficEndpoint = `${url.replace(/\/$/, "")}/functions/v1/traffic-live`;
-    this.healthEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-health`;
-    this.discoveryEndpoint = `${url.replace(/\/$/, "")}/functions/v1/network-discovery`;
-    this.inspectionEndpoint = `${url.replace(/\/$/, "")}/functions/v1/device-inspector`;
-    this.telemetryEndpoint = `${url.replace(/\/$/, "")}/functions/v1/managed-telemetry`;
-    this.headers = {
+    const edgeBaseUrl = persistenceAuthority === "supabase" ? url.replace(/\/$/, "") : null;
+    this.endpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/diagnostic-jobs` : null;
+    this.trafficEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/traffic-live` : null;
+    this.healthEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/network-health` : null;
+    this.discoveryEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/network-discovery` : null;
+    this.inspectionEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/device-inspector` : null;
+    this.telemetryEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/managed-telemetry` : null;
+    this.headers = edgeBaseUrl ? {
       Authorization: `Bearer ${serviceRoleKey}`,
       apikey: serviceRoleKey,
       "Content-Type": "application/json",
-    };
+    } : null;
     this.localHeartbeatEndpoint = localBackend
       ? `${localBackend.url}/api/runner/heartbeat`
       : null;

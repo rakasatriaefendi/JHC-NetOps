@@ -34,7 +34,7 @@ export class SupabaseManagedTelemetryRepository implements ManagedTelemetryRepos
   readonly #client: SupabaseRestClient;
 
   constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey);
+    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey, "supabase");
   }
 
   async listTargets(runnerId: string, signal: AbortSignal): Promise<{ targets: Record<string, unknown>[] }> {

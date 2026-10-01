@@ -24,7 +24,7 @@ test("local heartbeat config sends heartbeat only to the authenticated loopback 
     LOCAL_BACKEND_URL: "http://127.0.0.1:3402/",
     LOCAL_BACKEND_TOKEN: LOCAL_TOKEN,
   });
-  const client = new BackendClient("https://example.invalid", "test-service-key", local);
+  const client = new BackendClient("https://example.invalid", "test-service-key", local, "supabase");
   assert.deepEqual(await client.heartbeat(HEARTBEAT), { id: "runner-test" });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, "http://127.0.0.1:3402/api/runner/heartbeat");
@@ -40,7 +40,7 @@ test("missing local config preserves the existing Supabase Edge heartbeat", asyn
     return new Response(JSON.stringify({ data: { id: "runner-test" } }), { status: 200 });
   });
   assert.equal(loadLocalHeartbeatConfig({}), null);
-  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "supabase");
   await client.heartbeat(HEARTBEAT);
   assert.equal(requests[0].url, "https://example.invalid/functions/v1/diagnostic-jobs");
   assert.equal(requests[0].options.headers.apikey, "test-service-key");
@@ -56,7 +56,7 @@ test("local heartbeat failure does not fall back to a duplicate Supabase write",
   const client = new BackendClient("https://example.invalid", "test-service-key", {
     url: "http://127.0.0.1:3402",
     token: LOCAL_TOKEN,
-  });
+  }, "supabase");
   await assert.rejects(client.heartbeat(HEARTBEAT), /Local heartbeat request failed with HTTP 500/);
   assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/heartbeat"]);
 });
@@ -103,7 +103,7 @@ test("empty local config is a controlled recurring-data-plane Edge rollback mode
     urls.push(String(url));
     return new Response(JSON.stringify({ data: null }), { status: 200 });
   });
-  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "supabase");
   await client.healthTargets("runner-test");
   await client.claimTraffic("runner-test");
   await client.managedTelemetryTargets("runner-test");
@@ -225,16 +225,33 @@ test("Supabase authority keeps the existing Discovery Edge transport", async (t)
   assert.deepEqual(urls, ["https://example.invalid/functions/v1/network-discovery"]);
 });
 
-test("local authority cannot fall back to recurring Edge endpoint", async (t) => {
+test("local authority requires local configuration and cannot fall back to Edge", async (t) => {
   const urls = [];
   t.mock.method(globalThis, "fetch", async (url) => { urls.push(String(url)); return new Response("{}", { status: 200 }); });
-  const client = new BackendClient("https://example.invalid", "test-service-key", null, "local_postgres");
-  await assert.rejects(client.healthTargets("runner-test"), /Legacy Supabase application mutation is blocked/);
-  await assert.rejects(client.claimDiscovery("runner-test"), /Legacy Supabase application mutation is blocked/);
-  await assert.rejects(client.claimInspection("runner-test"), /Legacy Supabase application mutation is blocked/);
+  assert.throws(() => new BackendClient(undefined, undefined, null, "local_postgres"),
+    /Local backend configuration is required/);
   assert.deepEqual(urls, []);
   assert.throws(() => new BackendClient("https://example.invalid", "test-service-key", null, "unknown"),
-    /Persistence authority is invalid/);
+    /Persistence authority is missing or invalid/);
+  assert.throws(() => new BackendClient("https://example.invalid", "test-service-key", null, undefined),
+    /Persistence authority is missing or invalid/);
+});
+
+test("local authority uses loopback routes without Supabase credentials", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  });
+  const client = new BackendClient(undefined, undefined, {
+    url: "http://127.0.0.1:3402", token: LOCAL_TOKEN,
+  }, "local_postgres");
+  await client.heartbeat(HEARTBEAT);
+  await client.healthTargets("runner-test");
+  assert.deepEqual(urls, [
+    "http://127.0.0.1:3402/api/runner/heartbeat",
+    "http://127.0.0.1:3402/api/runner/network-health",
+  ]);
 });
 
 test("local recurring failure never falls back to the Edge Function", async (t) => {
@@ -243,7 +260,8 @@ test("local recurring failure never falls back to the Edge Function", async (t) 
     urls.push(String(url));
     return new Response(JSON.stringify({ error: { code: "TRAFFIC_PERSISTENCE_FAILED", message: "Traffic request failed" } }), { status: 500 });
   });
-  const client = new BackendClient("https://example.invalid", "test-service-key", { url: "http://127.0.0.1:3402", token: LOCAL_TOKEN });
+  const client = new BackendClient(undefined, undefined,
+    { url: "http://127.0.0.1:3402", token: LOCAL_TOKEN }, "local_postgres");
   await assert.rejects(client.claimTraffic("runner-test"), /Local Traffic backend request failed with HTTP 500/);
   assert.deepEqual(urls, ["http://127.0.0.1:3402/api/runner/traffic"]);
 });
@@ -277,7 +295,7 @@ test("managed telemetry publish success remains unchanged", async (t) => {
     request = JSON.parse(options.body);
     return new Response(JSON.stringify({ data: { devices: 1, interfaces: 0, events: 0 } }), { status: 200 });
   });
-  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "supabase");
   const result = await client.publishManagedTelemetry("runner-test", DEVICE, [], []);
   assert.deepEqual(result, { devices: 1, interfaces: 0, events: 0 });
   assert.deepEqual(request, { action: "publish", runner_id: "runner-test", device: DEVICE, interfaces: [], transitions: [], observed_hosts: [] });
@@ -289,7 +307,7 @@ test("manual ping backend methods use the existing network-health transport with
     requests.push(JSON.parse(options.body));
     return new Response(JSON.stringify({ data: null }), { status: 200 });
   });
-  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "supabase");
   const pingId = "11111111-1111-4111-8111-111111111111";
   await client.claimManualPing("runner-test");
   await client.completeManualPing("runner-test", pingId, { ok: true, latency_ms: 4 });
@@ -306,7 +324,7 @@ test("managed telemetry 4xx preserves bounded safe status and backend code", asy
     code: "INTERFACE_PAYLOAD_INVALID",
     error: "Managed telemetry interface payload is invalid",
   }), { status: 400 }));
-  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "supabase");
   await assert.rejects(
     client.publishManagedTelemetry("runner-test", DEVICE, [], []),
     (error) => {
@@ -324,7 +342,7 @@ test("managed telemetry 5xx preserves bounded safe status and category", async (
     category: "device_upsert_failed",
     error: "Latest managed device state could not be stored",
   }), { status: 500 }));
-  const client = new BackendClient("https://example.invalid", "test-service-key");
+  const client = new BackendClient("https://example.invalid", "test-service-key", null, "supabase");
   await assert.rejects(
     client.publishManagedTelemetry("runner-test", DEVICE, [], []),
     (error) => error.status === 500 && error.backendCode === "device_upsert_failed",

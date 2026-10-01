@@ -48,6 +48,20 @@ export async function loadNetworkHealth(supabase: SupabaseClient) {
   return { data, events: (events ?? []) as NetworkHealthEvent[], error: false };
 }
 
+export async function loadNetworkHealthHistory(supabase: SupabaseClient) {
+  if (applicationAuthority() === "local_postgres") {
+    const events = await localEvents(100, "network_health");
+    return { data: events ? events as NetworkHealthEvent[] : [], error: !events };
+  }
+  const { data, error } = await supabase.from("events")
+    .select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context")
+    .eq("source", "network_health")
+    .order("created_at", { ascending: false })
+    .limit(100)
+    .returns<NetworkHealthEvent[]>();
+  return { data: data ?? [], error: Boolean(error) };
+}
+
 async function loadNetworkHealthLocal() {
   const [rows, runners, events] = await Promise.all([
     localHealthTargets(),

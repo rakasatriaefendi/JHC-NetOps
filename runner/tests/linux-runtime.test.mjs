@@ -271,49 +271,40 @@ test("Linux ping accepts real GNU inetutils output without an unsupported IPv4 f
 });
 
 test("native preflight keeps optional diagnostics unavailable without taking down the runner", () => {
-  const oldUrl = process.env.SUPABASE_URL;
-  const oldKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  process.env.SUPABASE_URL = "https://fixture.invalid";
-  process.env.SUPABASE_SERVICE_ROLE_KEY = "fixture-value-not-logged";
   const inspector = { schema_version: 1, available: true, probe_engine: "python_socket", python_version: "3.12",
     required: { python_socket: true }, optional: { openssl: true }, available_but_unused: {}, optional_not_required: {} };
   const calls = [];
   const config = { runtime_platform: "linux", python_path: "/opt/app/agent/.venv/bin/python",
     agent_path: "/opt/app/agent/.venv/bin/network-monitor", traffic_interface: "enp1s0", enable_manual_ping: true };
-  try {
-    const result = runPreflight(config, (executable, args, options) => {
-      calls.push({ executable, args, options });
-      if (executable === config.python_path && args[0] === "--version") return { status: 0, stdout: "Python 3.12.3\n", stderr: "" };
-      if (executable === config.agent_path && args[0] === "capabilities") return { status: 0, stdout: JSON.stringify(inspector), stderr: "" };
-      if (executable === "iperf3") return { status: null, stdout: "", stderr: "", error: { code: "ENOENT" } };
-      return { status: 0, stdout: "tool version\n", stderr: "" };
-    });
-    assert.equal(result.platform, "linux");
-    assert.equal(result.linux_network_context, true);
-    assert.equal(result.ping, true);
-    assert.equal(result.iperf3, null);
-    assert.equal(result.diagnostics, false);
-    assert.equal(result.traffic, true);
-    assert.ok(result.operations.includes("network_discovery"));
-    assert.ok(!result.operations.includes("bandwidth_and_path"));
-    assert.ok(calls.every((call) => call.options.shell === false));
-    assert.ok(calls.some((call) => call.executable === "ip" && call.args[0] === "-V"));
+  const result = runPreflight(config, (executable, args, options) => {
+    calls.push({ executable, args, options });
+    if (executable === config.python_path && args[0] === "--version") return { status: 0, stdout: "Python 3.12.3\n", stderr: "" };
+    if (executable === config.agent_path && args[0] === "capabilities") return { status: 0, stdout: JSON.stringify(inspector), stderr: "" };
+    if (executable === "iperf3") return { status: null, stdout: "", stderr: "", error: { code: "ENOENT" } };
+    return { status: 0, stdout: "tool version\n", stderr: "" };
+  });
+  assert.equal(result.platform, "linux");
+  assert.equal(result.linux_network_context, true);
+  assert.equal(result.ping, true);
+  assert.equal(result.iperf3, null);
+  assert.equal(result.diagnostics, false);
+  assert.equal(result.traffic, true);
+  assert.ok(result.operations.includes("network_discovery"));
+  assert.ok(!result.operations.includes("bandwidth_and_path"));
+  assert.ok(calls.every((call) => call.options.shell === false));
+  assert.ok(calls.some((call) => call.executable === "ip" && call.args[0] === "-V"));
 
-    const withoutPing = runPreflight(config, (executable, args) => {
-      if (executable === config.python_path && args[0] === "--version") return { status: 0, stdout: "Python 3.12.3\n", stderr: "" };
-      if (executable === config.agent_path && args[0] === "capabilities") return { status: 0, stdout: JSON.stringify(inspector), stderr: "" };
-      if (executable === "ping") return { status: null, stdout: "", stderr: "", error: { code: "ENOENT" } };
-      if (executable === "iperf3") return { status: 0, stdout: "iperf 3.21\n", stderr: "" };
-      return { status: 0, stdout: "tool version\n", stderr: "" };
-    });
-    assert.equal(withoutPing.ping, false);
-    assert.ok(!withoutPing.operations.includes("network_discovery"));
-    assert.ok(!withoutPing.operations.includes("manual_ping"));
-    assert.equal(withoutPing.diagnostics, true);
-  } finally {
-    if (oldUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = oldUrl;
-    if (oldKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = oldKey;
-  }
+  const withoutPing = runPreflight(config, (executable, args) => {
+    if (executable === config.python_path && args[0] === "--version") return { status: 0, stdout: "Python 3.12.3\n", stderr: "" };
+    if (executable === config.agent_path && args[0] === "capabilities") return { status: 0, stdout: JSON.stringify(inspector), stderr: "" };
+    if (executable === "ping") return { status: null, stdout: "", stderr: "", error: { code: "ENOENT" } };
+    if (executable === "iperf3") return { status: 0, stdout: "iperf 3.21\n", stderr: "" };
+    return { status: 0, stdout: "tool version\n", stderr: "" };
+  });
+  assert.equal(withoutPing.ping, false);
+  assert.ok(!withoutPing.operations.includes("network_discovery"));
+  assert.ok(!withoutPing.operations.includes("manual_ping"));
+  assert.equal(withoutPing.diagnostics, true);
 });
 
 test("TCP readiness handles a missing or synchronously failing optional socket safely", async () => {

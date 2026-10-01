@@ -1,4 +1,5 @@
 import { SupabaseRestClient } from "../supabase-rest.js";
+import type { PostgresNetworkInventoryRepository } from "../persistence/inventory.js";
 
 export const ASSET_EVIDENCE_ROW_LIMIT = 1_000;
 export const ASSET_EVIDENCE_LIMIT = 32;
@@ -64,7 +65,7 @@ export class SupabaseAssetEvidenceSource implements AssetEvidenceSource {
   readonly #client: SupabaseRestClient;
 
   constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey);
+    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey, "supabase");
   }
 
   async load(signal: AbortSignal): Promise<AssetEvidenceSnapshot> {
@@ -103,6 +104,32 @@ export class SupabaseAssetEvidenceSource implements AssetEvidenceSource {
       }),
     ]);
     return { nodes, healthTargets, managedTargets, observedHosts };
+  }
+}
+
+export class PostgresAssetEvidenceSource implements AssetEvidenceSource {
+  constructor(private readonly inventory: Pick<PostgresNetworkInventoryRepository,
+    "listNodes" | "listHealthTargets" | "listManagedTargets" | "listManagedObservedHosts">) {}
+
+  async load(signal: AbortSignal): Promise<AssetEvidenceSnapshot> {
+    const [nodes, healthTargets, managedTargets, observedHosts] = await Promise.all([
+      this.inventory.listNodes(signal),
+      this.inventory.listHealthTargets(signal),
+      this.inventory.listManagedTargets(signal),
+      this.inventory.listManagedObservedHosts(undefined, signal),
+    ]);
+    return {
+      nodes: nodes.slice(0, ASSET_EVIDENCE_ROW_LIMIT),
+      healthTargets: healthTargets.slice(0, ASSET_EVIDENCE_ROW_LIMIT).map((row) => ({
+        ...row,
+        network_health_latest: row.latest,
+      })),
+      managedTargets: managedTargets.slice(0, ASSET_EVIDENCE_ROW_LIMIT).map((row) => ({
+        ...row,
+        managed_device_latest: row.latest,
+      })),
+      observedHosts: observedHosts.slice(0, ASSET_EVIDENCE_ROW_LIMIT),
+    };
   }
 }
 

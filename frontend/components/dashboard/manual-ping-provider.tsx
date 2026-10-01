@@ -31,7 +31,8 @@ const ManualPingContext = createContext<ManualPingContextValue>({
   run: () => {},
 });
 
-function waitForManualPingSupabase(client: ReturnType<typeof createClient>, pingId: string) {
+function waitForManualPingSupabase(pingId: string) {
+  const client = createClient();
   return new Promise<ManualPingJob>((resolve, reject) => {
     let settled = false;
     const channel = client.channel(`manual-ping-${pingId}`);
@@ -103,7 +104,6 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
 }) {
   const [states, setStates] = useState<Record<string, ManualPingState | undefined>>({});
   const [activityTokens, setActivityTokens] = useState<Record<string, number | undefined>>({});
-  const client = useMemo(() => createClient(), []);
   const clearTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const inFlight = useRef(new Set<string>());
   const authority = useApplicationAuthority();
@@ -124,7 +124,7 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
       if (!queued.ok || typeof pingId !== "string") throw new Error("Manual ping could not be queued");
       const job = authority === "local_postgres"
         ? await waitForManualPingLocal(pingId)
-        : await waitForManualPingSupabase(client, pingId);
+        : await waitForManualPingSupabase(pingId);
       outcome = manualPingOutcome(job);
     } catch {
       outcome = { phase: "error", message: "Ping gagal" };
@@ -137,7 +137,7 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
       setStates((current) => ({ ...current, [targetId]: undefined }));
       delete clearTimers.current[targetId];
     }, 2500);
-  }, [client, isAdmin, targets, authority]);
+  }, [isAdmin, targets, authority]);
 
   useEffect(() => () => {
     Object.values(clearTimers.current).forEach(clearTimeout);

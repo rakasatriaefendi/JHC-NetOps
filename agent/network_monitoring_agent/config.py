@@ -104,8 +104,6 @@ class TrafficSettings:
         authority = _persistence_authority()
         local_url = os.getenv("LOCAL_BACKEND_URL", "").strip().rstrip("/")
         local_token = os.getenv("LOCAL_BACKEND_TOKEN", "")
-        url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
         if local_url or local_token:
             parsed = urlparse(local_url)
             if (parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
@@ -118,6 +116,8 @@ class TrafficSettings:
                        Path(os.getenv("TRAFFIC_BUFFER_PATH", "data/traffic-buffer.sqlite3")).expanduser())
         if authority == "local_postgres":
             raise ValueError("Local Traffic backend configuration is required")
+        url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
         if not url.startswith(("http://", "https://")) or not key:
             raise ValueError("Traffic backend credentials are required")
         return cls(url, key, False, _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
@@ -130,7 +130,7 @@ def _optional_env(name: str) -> str | None:
 
 
 def _persistence_authority() -> str:
-    value = os.getenv("PERSISTENCE_AUTHORITY", "supabase").strip()
+    value = os.getenv("PERSISTENCE_AUTHORITY", "").strip()
     if value not in {"supabase", "local_postgres"}:
         raise ValueError("PERSISTENCE_AUTHORITY must be supabase or local_postgres")
     return value

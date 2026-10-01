@@ -1,4 +1,4 @@
-import { assertPersistenceAuthority, parsePersistenceAuthority, type PersistenceAuthority } from "./persistence/authority.js";
+import { assertPersistenceAuthority, type PersistenceAuthority } from "./persistence/authority.js";
 
 const SAFE_DATABASE_ERROR_CODE = /^[a-z0-9_]{1,32}$/i;
 
@@ -17,10 +17,8 @@ export class SupabaseRestClient {
   readonly #headers: Readonly<Record<string, string>>;
   readonly #authority: PersistenceAuthority;
 
-  constructor(supabaseUrl: string, serviceRoleKey: string, authority?: PersistenceAuthority) {
-    this.#authority = authority ?? (process.env.PERSISTENCE_AUTHORITY
-      ? parsePersistenceAuthority(process.env.PERSISTENCE_AUTHORITY)
-      : "supabase");
+  constructor(supabaseUrl: string, serviceRoleKey: string, authority: PersistenceAuthority) {
+    this.#authority = authority;
     this.#baseUrl = supabaseUrl.replace(/\/$/, "");
     this.#headers = Object.freeze({
       Authorization: `Bearer ${serviceRoleKey}`,

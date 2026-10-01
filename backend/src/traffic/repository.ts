@@ -16,7 +16,7 @@ export class SupabaseTrafficRepository implements TrafficRepository {
   readonly #client: SupabaseRestClient;
 
   constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey);
+    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey, "supabase");
   }
 
   async claim(runnerId: string, now: Date, signal: AbortSignal): Promise<Row | null> {

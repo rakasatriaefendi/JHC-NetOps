@@ -30,6 +30,7 @@ try {
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
     localBackend,
+    process.env.PERSISTENCE_AUTHORITY,
   );
 } catch {
   log("Runner configuration is invalid");

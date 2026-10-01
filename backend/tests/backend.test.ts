@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { resolve } from "node:path";
 
-import { BackendConfigurationError, loadBackendConfig } from "../src/config.js";
+import { BackendConfigurationError, loadBackendConfig, requireSupabaseRuntimeConfig } from "../src/config.js";
 import {
   BACKEND_SERVICE_NAME,
   REQUEST_BODY_LIMIT_BYTES,
@@ -77,6 +77,19 @@ test("application persistence authority is explicit and rejects missing or unkno
     () => loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "fallback" }),
     (error: unknown) => error instanceof Error && /PERSISTENCE_AUTHORITY/.test(error.message),
   );
+});
+
+test("local application configuration does not require Supabase credentials while projector config stays explicit", () => {
+  const localEnvironment = Object.fromEntries(Object.entries({
+    ...VALID_ENVIRONMENT,
+    PERSISTENCE_AUTHORITY: "local_postgres",
+  }).filter(([name]) => !["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"].includes(name)));
+  const config = loadBackendConfig(localEnvironment);
+  assert.equal(config.supabaseUrl, null);
+  assert.equal(config.supabaseServiceRoleKey, null);
+  assert.throws(() => requireSupabaseRuntimeConfig(config), /compatibility\/projector configuration/);
+  assert.throws(() => loadBackendConfig({ ...localEnvironment, SUPABASE_URL: VALID_ENVIRONMENT.SUPABASE_URL }),
+    /SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test("P13 candidate read-only mode is explicit and cannot use local authority", () => {

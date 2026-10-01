@@ -14,8 +14,8 @@ export type BackendConfig = Readonly<{
   frontendApiToken: string;
   persistenceAuthority: PersistenceAuthority;
   candidateReadOnly: boolean;
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
+  supabaseUrl: string | null;
+  supabaseServiceRoleKey: string | null;
   applicationDatabaseUrl: string;
   assets: Readonly<{
     databaseUrl: string;
@@ -60,13 +60,14 @@ export function loadBackendConfig(
       "P13_CANDIDATE_READ_ONLY cannot be enabled with local_postgres authority",
     );
   }
-  const supabaseUrl = parseSupabaseUrl(environment.SUPABASE_URL);
-  const supabaseServiceRoleKey = requiredSecret(
-    environment.SUPABASE_SERVICE_ROLE_KEY,
-    "SUPABASE_SERVICE_ROLE_KEY",
-    32,
-    4096,
-  );
+  const hasSupabaseConfiguration = Boolean(environment.SUPABASE_URL?.trim() || environment.SUPABASE_SERVICE_ROLE_KEY);
+  const needsSupabaseApplicationCompatibility = persistenceAuthority === "supabase";
+  const supabaseUrl = hasSupabaseConfiguration || needsSupabaseApplicationCompatibility
+    ? parseSupabaseUrl(environment.SUPABASE_URL)
+    : null;
+  const supabaseServiceRoleKey = hasSupabaseConfiguration || needsSupabaseApplicationCompatibility
+    ? requiredSecret(environment.SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY", 32, 4096)
+    : null;
   const applicationDatabaseUrl = parseDedicatedPostgresUrl(environment.APPLICATION_DATABASE_URL?.trim() ?? "");
   const databaseUrl = environment.DATABASE_URL?.trim();
   const assetsFrontendApiToken = environment.FRONTEND_API_TOKEN?.trim();
@@ -84,6 +85,18 @@ export function loadBackendConfig(
     : null;
   return Object.freeze({ host, port, runnerApiToken, frontendApiToken, persistenceAuthority, candidateReadOnly,
     supabaseUrl, supabaseServiceRoleKey, applicationDatabaseUrl, assets });
+}
+
+export function requireSupabaseRuntimeConfig(config: BackendConfig): Readonly<{
+  url: string;
+  serviceRoleKey: string;
+}> {
+  if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
+    throw new BackendConfigurationError(
+      "Supabase compatibility/projector configuration is missing or invalid",
+    );
+  }
+  return Object.freeze({ url: config.supabaseUrl, serviceRoleKey: config.supabaseServiceRoleKey });
 }
 
 function parseCandidateReadOnly(value: string | undefined): boolean {

@@ -1,8 +1,8 @@
-import { BackendConfigurationError, loadBackendConfig } from "./config.js";
+import { BackendConfigurationError, loadBackendConfig, requireSupabaseRuntimeConfig } from "./config.js";
 import { Pool } from "pg";
 import { PostgresAssetRepository, ASSET_QUERY_TIMEOUT_MS } from "./assets/repository.js";
 import { PostgresAssetChangeRepository } from "./assets/change-repository.js";
-import { SupabaseAssetEvidenceSource } from "./assets/evidence.js";
+import { PostgresAssetEvidenceSource, SupabaseAssetEvidenceSource } from "./assets/evidence.js";
 import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
 import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
@@ -48,12 +48,15 @@ async function main(): Promise<void> {
   const realtimeBroker = new LocalRealtimeBroker();
   const realtimeListener: { current: PostgresRealtimeListener | null } = { current: null };
   const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
-    supabase: () => ({
-      heartbeat: new SupabaseRunnerHeartbeatRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-      health: new SupabaseNetworkHealthRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-      traffic: new SupabaseTrafficRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-      telemetry: new SupabaseManagedTelemetryRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-    }),
+    supabase: () => {
+      const supabase = requireSupabaseRuntimeConfig(config);
+      return {
+        heartbeat: new SupabaseRunnerHeartbeatRepository(supabase.url, supabase.serviceRoleKey),
+        health: new SupabaseNetworkHealthRepository(supabase.url, supabase.serviceRoleKey),
+        traffic: new SupabaseTrafficRepository(supabase.url, supabase.serviceRoleKey),
+        telemetry: new SupabaseManagedTelemetryRepository(supabase.url, supabase.serviceRoleKey),
+      };
+    },
     localPostgres: () => {
       const appPool = new Pool({
         connectionString: config.applicationDatabaseUrl,
@@ -87,7 +90,8 @@ async function main(): Promise<void> {
         localAuth: new PostgresLocalAuthRepository(query),
         _pool: appPool,
       };
-      shadowProjector.current = new SupabaseShadowProjector(outbox, config.supabaseUrl, config.supabaseServiceRoleKey);
+      const shadowSupabase = requireSupabaseRuntimeConfig(config);
+      shadowProjector.current = new SupabaseShadowProjector(outbox, shadowSupabase.url, shadowSupabase.serviceRoleKey);
       realtimeListener.current = new PostgresRealtimeListener(
         postgresRealtimeConnectionFactory(config.applicationDatabaseUrl),
         realtimeBroker,
@@ -95,6 +99,7 @@ async function main(): Promise<void> {
       return repos;
     },
   });
+  const localRepos = config.persistenceAuthority === "local_postgres" ? applicationRepositories as ApplicationRepositories : null;
   const assetPool = config.assets ? new Pool({
     connectionString: config.assets.databaseUrl,
     max: 5,
@@ -107,10 +112,12 @@ async function main(): Promise<void> {
   const assetRepository = assetPool ? new PostgresAssetRepository(assetPool) : null;
   const reportBranding = config.assets ? new FileReportBrandingStore(config.assets.reportBrandingDir) : null;
   const assetSynchronizer = assetRepository && !config.candidateReadOnly
-    ? new BoundedAssetSynchronizer(
-      new SupabaseAssetEvidenceSource(config.supabaseUrl, config.supabaseServiceRoleKey),
-      assetRepository,
-    )
+    ? new BoundedAssetSynchronizer(localRepos
+      ? new PostgresAssetEvidenceSource(localRepos.inventory)
+      : (() => {
+        const supabase = requireSupabaseRuntimeConfig(config);
+        return new SupabaseAssetEvidenceSource(supabase.url, supabase.serviceRoleKey);
+      })(), assetRepository)
     : null;
   const scanNetworkManager = assetPool && config.assets
     ? new ScanNetworkManager(new PostgresScanNetworkRepository(assetPool), new LinuxIpRouteAdapter())
@@ -132,8 +139,6 @@ async function main(): Promise<void> {
   const appPool = config.persistenceAuthority === "local_postgres" && "_pool" in applicationRepositories
     ? (applicationRepositories as Record<string, unknown>)._pool as Pool
     : null;
-  const localRepos = config.persistenceAuthority === "local_postgres" ? applicationRepositories as ApplicationRepositories : null;
-
   const buildServerOptions: Record<string, unknown> = {
     candidateReadOnly: config.candidateReadOnly,
     runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },
