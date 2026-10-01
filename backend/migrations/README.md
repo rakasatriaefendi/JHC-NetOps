@@ -62,6 +62,14 @@ Managed Telemetry events for the three latest-state tables used live by Device
 Profile, keyed by their common `target_id`. It requires migration 13 and does
 not add realtime behavior to Managed Telemetry events or server-snapshot pages.
 
+`015_retire_shadow_projection.sql` is the P15.3 final shadow-projection
+retirement. It requires migration 14, validates the exact 16 migration-008
+producer triggers, and drops only those triggers. Historical
+`realtime_outbox`/`realtime_projection_watermarks` rows, the enqueue function,
+domain tables, and all migration 009-014 local `pg_notify` triggers remain
+unchanged. The local backend no longer runs a Supabase shadow projector after
+this migration; no backlog drain or cosmetic delivery update is performed.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

@@ -93,7 +93,7 @@ export function requireSupabaseRuntimeConfig(config: BackendConfig): Readonly<{
 }> {
   if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
     throw new BackendConfigurationError(
-      "Supabase compatibility/projector configuration is missing or invalid",
+      "Supabase compatibility configuration is missing or invalid",
     );
   }
   return Object.freeze({ url: config.supabaseUrl, serviceRoleKey: config.supabaseServiceRoleKey });

@@ -13,7 +13,6 @@ import { type PostgresHopMeasurementsRepository } from "./hop-measurements.js";
 import { type PostgresTrafficMetricsRepository } from "./traffic-metrics.js";
 import { type PostgresEventsRepository } from "./events.js";
 import { type PostgresOutboxRepository } from "./outbox.js";
-import { type SupabaseShadowProjector } from "./shadow-projector.js";
 import { type PostgresCutoverCanaryRepository } from "./cutover-canary.js";
 import { type PostgresTrafficRepository } from "./traffic.js";
 import { ControlPlanePersistenceError, RUNNER_ID, UUID, privateIpv4 } from "./control-plane.js";
@@ -32,7 +31,6 @@ export type ApplicationRouteOptions = Readonly<{
   events?: PostgresEventsRepository;
   traffic?: PostgresTrafficRepository;
   outbox?: PostgresOutboxRepository;
-  shadowProjector?: Pick<SupabaseShadowProjector, "getRuntimeHealth">;
   cutoverCanary?: PostgresCutoverCanaryRepository;
 }>;
 
@@ -514,7 +512,7 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
       try {
         return reply.code(200).send({ data: {
           ...await options.outbox!.getHealth(AbortSignal.timeout(7_000)),
-          projector: options.shadowProjector?.getRuntimeHealth() ?? null,
+          projector: { status: "retired", active: false },
         } });
       }
       catch (error) { return persistenceFailure(reply, error); }

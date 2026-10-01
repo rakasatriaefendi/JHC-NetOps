@@ -8,6 +8,14 @@ is installed; there is no fallback to Supabase application writes. Supabase
 Auth and Realtime remain separate through P13. See
 [`deploy/postgresql/p13/README.md`](../deploy/postgresql/p13/README.md).
 
+After P15 migration 015, `local_postgres` does not construct or run the
+historical Supabase shadow projector. Local application persistence and
+PostgreSQL NOTIFY/SSE remain authoritative, while the historical outbox and
+watermarks are retained read-only for evidence. Supabase server credentials are
+not required to start local authority, although operators keep them temporarily
+outside the release for rollback. Explicit `supabase` compatibility authority
+continues to require both server-side Supabase values.
+
 `backend/` adalah fondasi service lokal P9 yang nantinya menjadi trusted boundary
 antara frontend, Local Runner, dan PostgreSQL lokal. Implementasi saat ini memakai
 Fastify, ESM, TypeScript strict, dan Node.js 22.

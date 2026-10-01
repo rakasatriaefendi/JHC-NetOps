@@ -37,14 +37,12 @@ import { PostgresTrafficMetricsRepository } from "./persistence/traffic-metrics.
 import { PostgresEventsRepository } from "./persistence/events.js";
 import { PostgresOutboxRepository } from "./persistence/outbox.js";
 import { PostgresCutoverCanaryRepository } from "./persistence/cutover-canary.js";
-import { SupabaseShadowProjector } from "./persistence/shadow-projector.js";
 import { LocalRealtimeBroker } from "./realtime/broker.js";
 import { PostgresRealtimeListener, postgresRealtimeConnectionFactory } from "./realtime/listener.js";
 import { PostgresLocalAuthRepository } from "./local-auth/repository.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
-  const shadowProjector: { current: SupabaseShadowProjector | null } = { current: null };
   const realtimeBroker = new LocalRealtimeBroker();
   const realtimeListener: { current: PostgresRealtimeListener | null } = { current: null };
   const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
@@ -90,8 +88,6 @@ async function main(): Promise<void> {
         localAuth: new PostgresLocalAuthRepository(query),
         _pool: appPool,
       };
-      const shadowSupabase = requireSupabaseRuntimeConfig(config);
-      shadowProjector.current = new SupabaseShadowProjector(outbox, shadowSupabase.url, shadowSupabase.serviceRoleKey);
       realtimeListener.current = new PostgresRealtimeListener(
         postgresRealtimeConnectionFactory(config.applicationDatabaseUrl),
         realtimeBroker,
@@ -200,7 +196,6 @@ async function main(): Promise<void> {
       events: localRepos.events,
       traffic: localRepos.traffic,
       outbox: localRepos.outbox,
-      ...(shadowProjector.current ? { shadowProjector: shadowProjector.current } : {}),
       cutoverCanary: localRepos.cutoverCanary,
     };
     buildServerOptions.realtime = { token: config.frontendApiToken, broker: realtimeBroker };
@@ -215,7 +210,6 @@ async function main(): Promise<void> {
     try {
       await realtimeListener.current?.stop();
       realtimeBroker.close();
-      await shadowProjector.current?.stop();
     } finally { await appPool.end(); }
   });
   const shutdown = createGracefulShutdown(server);
@@ -227,7 +221,6 @@ async function main(): Promise<void> {
   };
   process.once("SIGINT", () => handleSignal("SIGINT"));
   process.once("SIGTERM", () => handleSignal("SIGTERM"));
-  shadowProjector.current?.start();
   realtimeListener.current?.start();
   try { await server.listen({ host: config.host, port: config.port }); }
   catch (error) { await server.close().catch(() => undefined); throw error; }

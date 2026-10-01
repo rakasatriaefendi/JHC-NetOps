@@ -161,3 +161,122 @@ script for P10F. It is additive and targets only the dedicated `jhc_netops`
 database on port 5433. Never apply it to PostgreSQL `16/main`; the reviewed
 future rollout/recovery procedure remains in
 `../../docs/P10F_MEDICAL_EQUIPMENT.md`.
+
+## P15.3 shadow-projection retirement
+
+Migration `015_retire_shadow_projection.sql` stops new Supabase shadow-outbox
+production after local PostgreSQL persistence and local NOTIFY/SSE have become
+authoritative. It validates and drops exactly the 16 `shadow_*` triggers created
+by migration 008. It does not drain or rewrite the existing backlog, drop the
+enqueue function, alter domain tables, or touch any `local_realtime_*` trigger.
+
+Keep the existing protected Supabase server credentials during the rollback
+window, but they are no longer required by a `local_postgres` backend release.
+Do not remove the Supabase project, packages, historical outbox, or watermarks.
+Apply the immutable candidate migration only during the approved NetOps change
+window, with the NetOps backend stopped and the exact dedicated cluster named:
+
+```bash
+ROOT=/var/www/jhc/jhc_noc
+SHA=<FULL_40_CHARACTER_CANDIDATE_SHA>
+REL="$ROOT/releases/$SHA"
+
+sudo -u postgres psql --cluster 16/jhcnetops --dbname jhc_netops \
+  --file "$REL/backend/migrations/015_retire_shadow_projection.sql"
+```
+
+Run these read-only checks before migration and retain their output as PRE
+evidence. The trigger query must return exactly the reviewed 16 rows; record the
+outbox counts and `max_id` for the POST comparison.
+
+```sql
+SELECT version, applied_at
+FROM public.application_schema_migrations
+ORDER BY version;
+
+SELECT c.relname AS table_name, t.tgname AS trigger_name,
+       pn.nspname || '.' || p.proname AS trigger_function, t.tgenabled
+FROM pg_trigger AS t
+JOIN pg_class AS c ON c.oid = t.tgrelid
+JOIN pg_namespace AS cn ON cn.oid = c.relnamespace
+JOIN pg_proc AS p ON p.oid = t.tgfoid
+JOIN pg_namespace AS pn ON pn.oid = p.pronamespace
+WHERE NOT t.tgisinternal
+  AND cn.nspname = 'public'
+  AND (left(t.tgname, 7) = 'shadow_'
+       OR (pn.nspname = 'public' AND p.proname = 'enqueue_realtime_shadow'))
+ORDER BY c.relname, t.tgname;
+
+SELECT count(*) AS total_rows,
+       count(*) FILTER (WHERE status = 'pending') AS pending_rows,
+       count(*) FILTER (WHERE status = 'failed') AS failed_rows,
+       count(*) FILTER (WHERE status = 'delivered') AS delivered_rows,
+       max(id) AS max_id
+FROM public.realtime_outbox;
+```
+
+Immediately after migration, use the following read-only checks. Version 15
+must exist, the shadow query must return zero rows, the local trigger inventory
+must remain populated, and the outbox counts/`max_id` must exactly equal PRE
+evidence.
+
+```sql
+SELECT version, applied_at
+FROM public.application_schema_migrations
+WHERE version IN (14, 15)
+ORDER BY version;
+
+SELECT c.relname AS table_name, t.tgname AS trigger_name
+FROM pg_trigger AS t
+JOIN pg_class AS c ON c.oid = t.tgrelid
+JOIN pg_namespace AS n ON n.oid = c.relnamespace
+WHERE NOT t.tgisinternal AND n.nspname = 'public'
+  AND left(t.tgname, 7) = 'shadow_'
+ORDER BY c.relname, t.tgname;
+
+SELECT c.relname AS table_name, t.tgname AS trigger_name, t.tgenabled
+FROM pg_trigger AS t
+JOIN pg_class AS c ON c.oid = t.tgrelid
+JOIN pg_namespace AS n ON n.oid = c.relnamespace
+WHERE NOT t.tgisinternal AND n.nspname = 'public'
+  AND left(t.tgname, 15) = 'local_realtime_'
+ORDER BY c.relname, t.tgname;
+
+SELECT count(*) AS total_rows,
+       count(*) FILTER (WHERE status = 'pending') AS pending_rows,
+       count(*) FILTER (WHERE status = 'failed') AS failed_rows,
+       count(*) FILTER (WHERE status = 'delivered') AS delivered_rows,
+       max(id) AS max_id
+FROM public.realtime_outbox;
+```
+
+After deploying the P15.3 application and allowing normal runner/telemetry
+activity for at least 30-60 seconds, run the no-growth proof below. `max_id`
+must still equal PRE/POST migration evidence, runner timestamps must be fresh,
+and local realtime triggers must remain enabled.
+
+```sql
+SELECT count(*) AS total_rows, max(id) AS max_id
+FROM public.realtime_outbox;
+
+SELECT id, health_status, last_seen_at, clock_timestamp() - last_seen_at AS heartbeat_age
+FROM public.diagnostic_runners
+ORDER BY id;
+
+SELECT c.relname AS table_name, t.tgname AS trigger_name, t.tgenabled
+FROM pg_trigger AS t
+JOIN pg_class AS c ON c.oid = t.tgrelid
+JOIN pg_namespace AS n ON n.oid = c.relnamespace
+WHERE NOT t.tgisinternal AND n.nspname = 'public'
+  AND left(t.tgname, 15) = 'local_realtime_'
+ORDER BY c.relname, t.tgname;
+```
+
+Rolling application code back to P15.2 can restore application correctness,
+but it cannot by itself restore shadow projection: migration 015 has retired
+the producer triggers. Restoring shadow projection is a separate reviewed
+database change that must recreate the exact migration-008 trigger inventory,
+validate preserved outbox/watermark evidence, retain the protected Supabase
+credentials, and only then run the P15.2 projector. Never claim that a symlink
+rollback alone re-enables shadow production, and never purge historical rows as
+part of either rollback.

@@ -79,7 +79,7 @@ test("application persistence authority is explicit and rejects missing or unkno
   );
 });
 
-test("local application configuration does not require Supabase credentials while projector config stays explicit", () => {
+test("local application configuration does not require Supabase credentials while compatibility config stays explicit", () => {
   const localEnvironment = Object.fromEntries(Object.entries({
     ...VALID_ENVIRONMENT,
     PERSISTENCE_AUTHORITY: "local_postgres",
@@ -87,7 +87,7 @@ test("local application configuration does not require Supabase credentials whil
   const config = loadBackendConfig(localEnvironment);
   assert.equal(config.supabaseUrl, null);
   assert.equal(config.supabaseServiceRoleKey, null);
-  assert.throws(() => requireSupabaseRuntimeConfig(config), /compatibility\/projector configuration/);
+  assert.throws(() => requireSupabaseRuntimeConfig(config), /compatibility configuration/);
   assert.throws(() => loadBackendConfig({ ...localEnvironment, SUPABASE_URL: VALID_ENVIRONMENT.SUPABASE_URL }),
     /SUPABASE_SERVICE_ROLE_KEY/);
 });
