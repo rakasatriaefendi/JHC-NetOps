@@ -1,22 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { createClient } from "@/lib/supabase/client";
 import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
-import type { TrafficSnapshot, TrafficState } from "@/lib/traffic";
+import type { TrafficState } from "@/lib/traffic";
 import { getTrafficStateAction } from "@/app/actions/traffic";
 
-export function LocalTrafficSummary({ initialState, loadError, initialAuthority }: {
+export function LocalTrafficSummary({ initialState, loadError }: {
   initialState: TrafficState;
   loadError: boolean;
-  initialAuthority: "supabase" | "local_postgres";
+  initialAuthority: "local_postgres";
 }) {
   const { t, i18n } = useTranslation("dashboard");
   const [state, setState] = useState(initialState);
-  const authorityRef = useRef<"supabase" | "local_postgres">(initialAuthority);
   const active = state.sessions.some((session) => ["queued", "running", "stopping"].includes(session.status));
   const snapshot = useMemo(() => [...state.snapshots].sort((left, right) => Date.parse(right.captured_at) - Date.parse(left.captured_at))[0], [state.snapshots]);
 
@@ -24,37 +22,21 @@ export function LocalTrafficSummary({ initialState, loadError, initialAuthority 
     let disposed = false;
     const refresh = () => void getTrafficStateAction().then((result) => {
       if (disposed) return;
-      authorityRef.current = result.authority;
       if (result.ok && result.data) setState(result.data);
     }).catch(() => {
       // Retain the last authoritative snapshot on a transient refresh failure.
     });
     refresh();
 
-    if (initialAuthority === "local_postgres") {
-      const stopRealtime = startLocalRealtimeInvalidation({
-        topics: ["traffic"],
-        refresh,
-        onStatus: () => {},
-        debounceMs: 250,
-        fallbackIntervalMs: 60_000,
-      });
-      return () => { disposed = true; stopRealtime(); };
-    }
-
-    const supabase = createClient();
-    const channel = supabase.channel("dashboard-local-traffic")
-      .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_snapshots" }, (payload) => {
-        if (authorityRef.current === "local_postgres") return;
-        const next = payload.new as TrafficSnapshot;
-        if (!next.runner_id) return;
-        setState((current) => ({ ...current, snapshots: [next, ...current.snapshots.filter((item) => item.runner_id !== next.runner_id)] }));
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_sessions" }, () => {
-        refresh();
-      }).subscribe();
-    return () => { disposed = true; void supabase.removeChannel(channel); };
-  }, [initialAuthority]);
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["traffic"],
+      refresh,
+      onStatus: () => {},
+      debounceMs: 250,
+      fallbackIntervalMs: 60_000,
+    });
+    return () => { disposed = true; stopRealtime(); };
+  }, []);
 
   return (
     <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">

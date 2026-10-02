@@ -20,7 +20,6 @@ import {
   type RouteContext,
 } from "@/lib/diagnostic-jobs";
 import type { BandwidthMeasurement, DiagnosticsData } from "@/lib/diagnostics";
-import { createClient } from "@/lib/supabase/client";
 import { canOperateNetwork, type ProfileRole } from "@/lib/authorization";
 import { localeForLanguage } from "@/i18n/config";
 import { createDiagnosticJobAction, requestDiagnosticPreflightAction } from "@/app/actions/legacy-network-control";
@@ -92,44 +91,17 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
     const onlineRefetch = () => void refetchState();
     window.addEventListener("online", onlineRefetch);
 
-    if (authority === "local_postgres") {
-      const stopRealtime = startLocalRealtimeInvalidation({
-        topics: ["diagnostics"],
-        refresh: () => void refetchState(),
-        onStatus: (status) => setRealtimeConnected(status === "connected"),
-        debounceMs: 250,
-        fallbackIntervalMs: 4_000,
-      });
-      return () => {
-        disposed = true;
-        window.removeEventListener("online", onlineRefetch);
-        stopRealtime();
-      };
-    }
-
-    const supabase = createClient();
-    const fallback = window.setInterval(() => void refetchState(), 4000);
-    const channel = supabase.channel("lan-diagnostics-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "diagnostic_runners" }, (payload) => {
-        const next = payload.new as DiagnosticRunner;
-        if (next.id) setRunners((current) => [next, ...current.filter((item) => item.id !== next.id)]);
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "diagnostic_jobs" }, (payload) => {
-        const next = payload.new as DiagnosticJob;
-        if (!next.id) return;
-        setJobs((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 25));
-        if (next.status === "completed") void reloadMeasurements(onDiagnosticsChange);
-      })
-      .subscribe((status) => {
-        const connected = status === "SUBSCRIBED";
-        setRealtimeConnected(connected);
-        if (!connected) void refetchState();
-      });
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["diagnostics"],
+      refresh: () => void refetchState(),
+      onStatus: (status) => setRealtimeConnected(status === "connected"),
+      debounceMs: 250,
+      fallbackIntervalMs: 4_000,
+    });
     return () => {
       disposed = true;
-      window.clearInterval(fallback);
       window.removeEventListener("online", onlineRefetch);
-      void supabase.removeChannel(channel);
+      stopRealtime();
     };
   }, [authority, onDiagnosticsChange]);
 

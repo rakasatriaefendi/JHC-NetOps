@@ -6,7 +6,6 @@ import type { P12AuthReferenceReport } from "../src/data-migration/reporting.js"
 import { P12_TABLES } from "../src/data-migration/contract.js";
 import type { P12VerificationReport } from "../src/data-migration/verification.js";
 import {
-  assertPersistenceAuthority,
   parsePersistenceAuthority,
   selectApplicationPersistence,
 } from "../src/persistence/authority.js";
@@ -56,13 +55,10 @@ test("authority is explicit, invalid values fail, and selected implementations n
   assert.throws(() => parsePersistenceAuthority("auto"), /PERSISTENCE_AUTHORITY/);
 
   const calls: string[] = [];
-  const local = selectApplicationPersistence("local_postgres", {
-    supabase: () => { calls.push("supabase"); return "wrong"; },
-    localPostgres: () => { calls.push("local"); return "local"; },
-  });
+  const local = selectApplicationPersistence("local_postgres", () => { calls.push("local"); return "local"; });
   assert.equal(local, "local");
   assert.deepEqual(calls, ["local"]);
-  assert.throws(() => assertPersistenceAuthority("local_postgres", "supabase"));
+  assert.throws(() => parsePersistenceAuthority("remote"), /PERSISTENCE_AUTHORITY/);
 });
 
 test("workflow policy is exhaustive for actual persisted job/session statuses", () => {

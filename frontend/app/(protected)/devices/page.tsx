@@ -2,8 +2,7 @@ import { DeviceInventory, type DeviceHealthTarget } from "@/components/devices/d
 import { requireApprovedProfile } from "@/lib/auth";
 import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { canOperateNetwork } from "@/lib/authorization";
-import { applicationAuthority, localHealthTargets, localRunners } from "@/lib/application-persistence";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { localHealthTargets, localRunners } from "@/lib/application-persistence";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +16,11 @@ type DevicesPageProps = {
 };
 
 export default async function DevicesPage({ searchParams }: DevicesPageProps) {
-  const { supabase, profile } = await requireApprovedProfile();
+  const { profile } = await requireApprovedProfile();
   const params = await searchParams;
   const [inventory, context] = await Promise.all([
-    loadAuthoritativeNetworkNodes(supabase),
-    loadDeviceContext(supabase),
+    loadAuthoritativeNetworkNodes(),
+    loadDeviceContext(),
   ]);
 
   return <main className="p-4 md:p-6">
@@ -38,21 +37,16 @@ export default async function DevicesPage({ searchParams }: DevicesPageProps) {
   </main>;
 }
 
-async function loadDeviceContext(supabase: SupabaseClient) {
-  if (applicationAuthority() === "local_postgres") {
-    const [runners, targets] = await Promise.all([localRunners(), localHealthTargets()]);
-    return {
-      runners: (runners ?? []).map((runner) => ({ id: String(runner.id), display_name: String(runner.display_name) })),
-      targets: (targets ?? []).map((target) => ({
-        ...target,
-        network_health_latest: target.latest ?? null,
-      })) as DeviceHealthTarget[],
-      error: !runners || !targets,
-    };
-  }
+async function loadDeviceContext() {
   const [runners, targets] = await Promise.all([
-    supabase.from("diagnostic_runners").select("id,display_name").order("display_name"),
-    supabase.from("network_targets").select("id,node_id,runner_id,enabled,critical,probe_interval_seconds,timeout_ms,failure_threshold,recovery_threshold,latency_warning_ms,loss_warning_percent,network_health_latest(status,last_checked_at)").order("created_at"),
+    localRunners(), localHealthTargets(),
   ]);
-  return { runners: runners.data ?? [], targets: targets.data ?? [], error: Boolean(runners.error || targets.error) };
+  return {
+    runners: (runners ?? []).map((runner) => ({ id: String(runner.id), display_name: String(runner.display_name) })),
+    targets: (targets ?? []).map((target) => ({
+      ...target,
+      network_health_latest: target.latest ?? null,
+    })) as DeviceHealthTarget[],
+    error: !runners || !targets,
+  };
 }

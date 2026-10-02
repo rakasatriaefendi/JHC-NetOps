@@ -9,10 +9,10 @@ test("Asset Inventory data stays on the loopback backend while existing domain p
   const loader = source("../lib/assets.ts");
   assert.match(page, /requireApprovedProfile\(\)/);
   assert.match(page, /loadAssetInventory\(query\)/);
-  assert.match(page, /loadAuthoritativeNetworkNodes\(supabase\)/);
-  assert.match(page, /from\("diagnostic_runners"\)\.select\("id,display_name,last_seen_at,health_status,capabilities"\)/);
-  assert.match(page, /from\("managed_telemetry_targets"\)\.select\("id,network_nodes!inner\(name,ip_address\)"\)/);
-  assert.match(page, /from\("network_targets"\)\.select\("id"\)\.eq\("enabled", true\)/);
+  assert.match(page, /loadAuthoritativeNetworkNodes\(\)/);
+  assert.match(page, /localRunners\(\)/);
+  assert.match(page, /localManagedTargets\(\)/);
+  assert.match(page, /localHealthTargets\(\)/);
   assert.match(page, /<NetworkNodesProvider/);
   assert.match(page, /<DeviceProfileProvider/);
   assert.match(loader, /LOCAL_BACKEND_URL/);

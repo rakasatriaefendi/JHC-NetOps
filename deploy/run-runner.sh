@@ -23,17 +23,9 @@ set -a
 . "$RUNNER_ENV"
 set +a
 
-case "${PERSISTENCE_AUTHORITY:-}" in
-  local_postgres)
-    [[ -n "${LOCAL_BACKEND_URL:-}" ]] || fail "runner environment is missing LOCAL_BACKEND_URL"
-    [[ -n "${LOCAL_BACKEND_TOKEN:-}" ]] || fail "runner environment is missing LOCAL_BACKEND_TOKEN"
-    ;;
-  supabase)
-    [[ -n "${SUPABASE_URL:-}" ]] || fail "runner environment is missing SUPABASE_URL"
-    [[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]] || fail "runner environment is missing SUPABASE_SERVICE_ROLE_KEY"
-    ;;
-  *) fail "runner environment has missing or invalid PERSISTENCE_AUTHORITY" ;;
-esac
+[[ "${PERSISTENCE_AUTHORITY:-}" = "local_postgres" ]] || fail "runner PERSISTENCE_AUTHORITY must be local_postgres"
+[[ -n "${LOCAL_BACKEND_URL:-}" ]] || fail "runner environment is missing LOCAL_BACKEND_URL"
+[[ -n "${LOCAL_BACKEND_TOKEN:-}" ]] || fail "runner environment is missing LOCAL_BACKEND_TOKEN"
 
 cd "$PROJECT_ROOT"
 exec "$NODE_BIN" "$RUNNER_MAIN" --config "$RUNNER_CONFIG"

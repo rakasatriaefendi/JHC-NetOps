@@ -1,8 +1,8 @@
 # Local Auth & approval setup
 
 Runtime login, registration, logout, dan session resolution memakai backend
-loopback serta PostgreSQL lokal. Supabase client tetap ada untuk fitur transisi
-Realtime/shadow, tetapi bukan authority identity/session.
+loopback serta PostgreSQL lokal. Tidak ada identity/session provider remote atau
+client auth compatibility pada runtime aktif.
 
 ## 1. Prasyarat
 
@@ -21,7 +21,7 @@ Registrasi baru membuat identity lokal dan profile `viewer/pending` dalam satu
 transaksi. User diarahkan ke `/pending`. Admin approved tetap mengubah role dan
 status melalui `/admin`; tidak ada auto-admin.
 
-Password Supabase tidak dapat diekspor atau dipindahkan. Profil existing tidak
+Password dari identity provider lama tidak dapat diekspor atau dipindahkan. Profil existing tidak
 boleh di-claim hanya dengan mengetahui email. Sebelum rollout, operator wajib
 menyelesaikan enrollment credential lokal yang ditinjau untuk minimal satu admin
 existing. Jangan mengubah profile id, role, status, atau approval metadata untuk

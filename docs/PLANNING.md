@@ -1,15 +1,21 @@
-# PLANNING.md — Task tracker
+# PLANNING.md Ã¢â‚¬â€ Task tracker
 
-Dokumen ini pelacak progres, terpisah dari `PRD.md` (requirement) dan `AGENTS.md` (konvensi). AI assistant (Codex/ChatGPT/Claude) wajib update checklist ini — centang `[x]` setelah task benar-benar selesai & diverifikasi, jangan centang di depan. Jangan mulai task di fase berikutnya sebelum fase sebelumnya selesai, kecuali diminta lain oleh Raka.
+> **P16 status note:** current application runtime is local-only. Older checklist
+> entries mentioning the retired remote platform document completed historical
+> phases and do not authorize restoring SDKs, Edge Functions, fallback, or
+> dual-write. Immutable migration/evidence files remain preserved.
+
+
+Dokumen ini pelacak progres, terpisah dari `PRD.md` (requirement) dan `AGENTS.md` (konvensi). AI assistant (Codex/ChatGPT/Claude) wajib update checklist ini Ã¢â‚¬â€ centang `[x]` setelah task benar-benar selesai & diverifikasi, jangan centang di depan. Jangan mulai task di fase berikutnya sebelum fase sebelumnya selesai, kecuali diminta lain oleh Raka.
 
 Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
-## Prioritas MVP — Reusable Quick Device Inspector
+## Prioritas MVP Ã¢â‚¬â€ Reusable Quick Device Inspector
 
 - [x] Architecture/docs: single-target bounded inspection, evidence/confidence model, detected vs operator identity, privacy, safety, dan reusable drawer
 - [x] Migration `device_inspection_sessions` + bounded fingerprint pada `network_nodes`, RLS, Realtime, expiry, dan device type vocabulary
 - [x] Edge Function structured inspection lifecycle, admin/service authorization, current Discovery/inventory target validation, busy guard, dan payload bounds
-- [x] Agent collector: fixed probes, offline OUI, same-subnet/routed MAC safety, normalized evidence, classifier/confidence, partial failures, fixtures A–E
+- [x] Agent collector: fixed probes, offline OUI, same-subnet/routed MAC safety, normalized evidence, classifier/confidence, partial failures, fixtures AÃ¢â‚¬â€œE
 - [x] Existing runner operation `device_inspect`: fixed Windows context, WSL invocation, target revalidation, normalized capability preflight, stage/result transport, no raw output; unit test, live WSL inspection, heartbeat, dan live runner session terverifikasi
 - [x] Reusable Device Profile drawer + explicit save/reinspect/Health Watch actions
 - [x] Fingerprint Enrichment V1: bounded HTTP/HTTPS, TLS CN/SAN/issuer/validity, same-target UPnP, conditional NetBIOS hostname, service-state evidence, conservative classifier, partial-result UX, fixtures, controlled live inspection, dan regression
@@ -20,7 +26,7 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
 ---
 
-## Fase 0 — Scaffolding
+## Fase 0 Ã¢â‚¬â€ Scaffolding
 
 - [ ] Struktur folder `/agent`, `/frontend`, `/hermes-agent`, `/supabase` dibuat
 - [ ] Next.js project init (App Router, TypeScript, Tailwind) dengan token warna & font dari `DESIGN.md`
@@ -31,20 +37,20 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 - [ ] Skeleton Flask `/hermes-agent` dengan endpoint stub `/analyze`
 - [ ] `.env.example` di tiap folder yang butuh
 
-## Fase 1 — Fondasi (auth, status up/down)
+## Fase 1 Ã¢â‚¬â€ Fondasi (auth, status up/down)
 
 - [ ] Halaman register/login pakai Supabase Auth
 - [ ] Halaman "menunggu persetujuan" untuk user status `pending`
 - [ ] Halaman Admin: list pending, tombol approve/reject (fungsional, bukan placeholder)
-- [ ] Admin pertama (Raka) diseed manual lewat SQL — dicatat di sini setelah dilakukan
+- [ ] Admin pertama (Raka) diseed manual lewat SQL Ã¢â‚¬â€ dicatat di sini setelah dilakukan
 - [ ] Agent: implementasi ping ke gateway + resolve DNS, kirim hasil ke Supabase tiap interval
-- [ ] Edge function `ingest`: terima data agent, simpan ke `traffic_metrics`, hitung status dasar (`normal`/`down`/`not_internet`) — belum perlu baseline rolling average, threshold sederhana dulu
+- [ ] Edge function `ingest`: terima data agent, simpan ke `traffic_metrics`, hitung status dasar (`normal`/`down`/`not_internet`) Ã¢â‚¬â€ belum perlu baseline rolling average, threshold sederhana dulu
 - [ ] Dashboard: tampilkan status realtime + card metrik dasar (belum grafik traffic penuh)
 - [ ] Realtime subscription frontend ke `traffic_metrics` berjalan
 
-**Definition of done Fase 1:** Raka bisa buka dashboard dari laptop, lihat status jaringan naik/turun secara realtime, dan alur register→approval berfungsi end-to-end.
+**Definition of done Fase 1:** Raka bisa buka dashboard dari laptop, lihat status jaringan naik/turun secara realtime, dan alur registerÃ¢â€ â€™approval berfungsi end-to-end.
 
-## Fase 2 — Traffic detail
+## Fase 2 Ã¢â‚¬â€ Traffic detail
 
 - [x] Agent: capture Scapy directional 5-tuple header-only + local aggregation/rate
 - [x] Agent: buffer SQLite coalescing, bounded retry/backoff
@@ -59,7 +65,7 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
 **Definition of done Fase 2:** Raka bisa cari & filter flow traffic real dari laptopnya sendiri di halaman Traffic.
 
-## Fase 3 — Klasifikasi & alert
+## Fase 3 Ã¢â‚¬â€ Klasifikasi & alert
 
 - [ ] Implementasi baseline rolling average (median per jam, 24-48 jam terakhir) di edge function
 - [ ] Rule engine severity: low/medium/high/critical sesuai tabel di `PRD.md` bagian 9
@@ -70,7 +76,7 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
 **Definition of done Fase 3:** Event penting otomatis tercatat dengan severity yang masuk akal, dan Raka bisa lihat riwayat serta alert aktif tanpa cek manual.
 
-## Fase 4 — AI layer (Hermes Agent)
+## Fase 4 Ã¢â‚¬â€ AI layer (Hermes Agent)
 
 - [ ] Deploy Flask app ke Hugging Face Spaces
 - [ ] Endpoint `/analyze` benar-benar ambil context history dari Supabase (bukan dummy lagi)
@@ -81,13 +87,13 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
 **Definition of done Fase 4:** Event penting otomatis dapat ringkasan/analisis dari Hermes Agent tanpa Raka perlu trigger manual.
 
-## Fase 5 — Bandwidth & path diagnostics (opsional, on-demand)
+## Fase 5 Ã¢â‚¬â€ Bandwidth & path diagnostics (opsional, on-demand)
 
 - [x] Migration SQL: tabel `bandwidth_measurements`, `hop_measurements`
 - [x] Agent: command terpisah (bukan bagian loop 10 detik) buat jalanin `iperf3 -c <target> -J` dan `mtr --json -c 5 <target>`
 - [x] Agent: parsing hasil JSON, kirim ke endpoint baru (bukan `ingest` yang sama dengan traffic_metrics)
 - [x] Endpoint/edge function baru: terima & simpan hasil, **tidak** ikut hitungan baseline rolling average
-- [ ] Setup `iperf3 -s` di titik target (mis. server pusat) — dicatat di `AGENT_SETUP.md`
+- [ ] Setup `iperf3 -s` di titik target (mis. server pusat) Ã¢â‚¬â€ dicatat di `AGENT_SETUP.md`
 - [x] Halaman/komponen dashboard: chart bandwidth over time per titik uji + tabel hop latency per titik
 - [x] Verifikasi: jalanin bandwidth test manual, pastikan **tidak** memicu event severity palsu di halaman Alerts
 - [x] Context LAN diagnostics: simpan target asli + tipe koneksi eksplisit (`wifi`/`ethernet`) untuk bandwidth dan path; source/target context konsisten per sesi MTR
@@ -118,12 +124,12 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
   actual detected connection, conservative result interpretation; automated
   test lulus, authenticated desktop/mobile browser E2E masih pending
 - [x] Manual network hop labeling: reusable `network_nodes`, approved read/admin
-  CRUD RLS, ordered SOURCE→hop→TARGET display, Unknown node behavior, dan dynamic
+  CRUD RLS, ordered SOURCEÃ¢â€ â€™hopÃ¢â€ â€™TARGET display, Unknown node behavior, dan dynamic
   lookup untuk current/history tanpa denormalisasi `hop_measurements`
 
 **Definition of done Fase 5:** Raka bisa jalanin test bandwidth & path on-demand dari agent, lihat hasilnya di dashboard, tanpa itu mengganggu status/severity jaringan normal.
 
-## Prioritas MVP — Lightweight Network Health Watch
+## Prioritas MVP Ã¢â‚¬â€ Lightweight Network Health Watch
 
 - [x] Migration `network_targets`, `network_health_latest`, typed event source, RLS, index, dan Realtime
 - [x] Edge Function service-role `network-health`: list allow-listed targets, latest batch upsert, transition event dedupe/resolution
@@ -139,7 +145,7 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 
 **Definition of done:** target inventory yang disetujui terlihat secara realtime di Dashboard tanpa per-ping row/event, status pulih stabil, runner tetap responsif untuk Traffic/Diagnostics, dan tidak ada coupling ke baseline severity traffic.
 
-## Prioritas MVP — On-demand Network Discovery
+## Prioritas MVP Ã¢â‚¬â€ On-demand Network Discovery
 
 - [x] Migration temporary single-slot `network_discovery_sessions`, admin-read RLS,
   Realtime, expiry cleanup, dan tambahan node type workstation/printer
@@ -161,11 +167,11 @@ Legenda: `[ ]` belum, `[~]` sedang dikerjakan, `[x]` selesai.
 tervalidasi, hasil muncul progresif dan hilang setelah expiry, serta tidak ada host menjadi
 inventory/monitoring tanpa pilihan eksplisit.
 
-## Prioritas MVP — Managed Infrastructure Telemetry (SNMP read-only)
+## Prioritas MVP Ã¢â‚¬â€ Managed Infrastructure Telemetry (SNMP read-only)
 
 - [x] Migration `202608160001_managed_infrastructure_telemetry.sql`
   (`managed_telemetry_targets`, `managed_device_latest`, `managed_interface_latest`,
-  RLS, index, Realtime): diterapkan manual oleh Raka dan terverifikasi remote —
+  RLS, index, Realtime): diterapkan manual oleh Raka dan terverifikasi remote Ã¢â‚¬â€
   tabel ada, RLS approved-read untuk admin/viewer fixture (HTTP 200), dan Realtime
   latest-state terverifikasi lewat browser E2E tanpa refresh
 - [x] Agent SNMP collector read-only: OID tetap dan terbatas, normalisasi interface
@@ -208,7 +214,7 @@ perangkat SNMPv3 nyata dilakukan hanya dengan credential resmi/authorized.
 
 ---
 
-## P7 — Documentation + Handover Readiness
+## P7 Ã¢â‚¬â€ Documentation + Handover Readiness
 
 - [x] Terminologi counter Observed LAN Hosts tidak menyebut observation sebagai device fisik.
 - [x] Technical handover mendokumentasikan sistem, dependency source-of-truth,
@@ -226,7 +232,7 @@ Ubuntu Desktop 24.x tanpa menganggap native Linux atau always-on service sudah t
 
 ---
 
-## P8A — Native Ubuntu Runtime Compatibility
+## P8A Ã¢â‚¬â€ Native Ubuntu Runtime Compatibility
 
 - [x] Platform `win32`/`linux` eksplisit; platform lain gagal aman.
 - [x] Linux `ip -j` context menghasilkan kontrak scope yang sama, mempertahankan
@@ -247,7 +253,7 @@ validasi host pada milestone P8 berikutnya selesai.
 
 ---
 
-## P8B — Handover UX + Native Ubuntu Always-on Preparation
+## P8B Ã¢â‚¬â€ Handover UX + Native Ubuntu Always-on Preparation
 
 - [x] Devices memakai satu daftar inventory utama dengan status/config Health Watch
   kontekstual; daftar inventory dan monitoring duplikat tidak lagi dirender.
@@ -341,18 +347,18 @@ tanpa menyatakan systemd sudah dipasang atau production always-on sudah lulus.
   karena WSL command juga keluar tanpa output dari sesi automation. Oleh karena itu live
   WSL Device Inspect dan browser-specific checks dari Health/Traffic/LAN hop tetap `[~]`;
   tidak diklaim selesai atau disimulasikan.
-- Setiap kali sebuah task selesai, update checklist ini di commit yang sama dengan kodenya — jangan biarkan file ini basi/tidak sinkron dengan kondisi repo.
+- Setiap kali sebuah task selesai, update checklist ini di commit yang sama dengan kodenya Ã¢â‚¬â€ jangan biarkan file ini basi/tidak sinkron dengan kondisi repo.
 - [2026-08-15] Runner heartbeat pulih. Root cause adalah kontrak capability yang tidak sinkron: runner mengirim operasi keempat `device_inspect`, sedangkan validator `diagnostic-jobs` yang sudah dideploy masih mengharuskan tepat tiga operasi lama dan mengembalikan HTTP 400 `Runner operations are invalid`. Validator serta safe heartbeat logging diperbaiki, `diagnostic-jobs` dideploy ulang, 28 runner tests lulus, Scheduled Task direstart, dan backend terverifikasi `online` dengan heartbeat age 9 detik. Live Device Inspect belum dijalankan sehingga item operasi tetap `[~]`.
 - Kalau ada keputusan yang menyimpang dari `PRD.md`/`AGENTS.md`/`DESIGN.md` di tengah jalan, catat alasannya singkat di bagian ini sebelum lanjut, dan konfirmasi ke Raka.
 - [2026-08-11] Target iperf3/mtr asli masih pending izin dari B (belum dapat
   PC/VM di LAN yang confirmed boleh dipakai bebas). Sementara pipeline
   divalidasi pakai localhost sebagai target. Checklist "Setup dan verifikasi
   iperf3 -s pada target nyata" tetap [ ] sampai target asli confirmed dan
-  diverifikasi — jangan dicentang walau localhost sudah jalan mulus.
+  diverifikasi Ã¢â‚¬â€ jangan dicentang walau localhost sudah jalan mulus.
 - [2026-08-11] UI diagnostik Fase 5 selesai dan terverifikasi. Migration dan
   function diagnostics sudah aktif di project Supabase `krsixpywzeqazuhrgvib`.
-  Path dan bandwidth test localhost berhasil end-to-end melalui agent →
-  function → tabel diagnostics. Bandwidth test upload menghasilkan tepat satu
+  Path dan bandwidth test localhost berhasil end-to-end melalui agent Ã¢â€ â€™
+  function Ã¢â€ â€™ tabel diagnostics. Bandwidth test upload menghasilkan tepat satu
   row `bandwidth_measurements` (`53.770451 Mbps`), sementara jumlah `events`
   dan `traffic_metrics` tetap 0. Target eksternal tetap belum diverifikasi dan
   checklist setup target nyata tetap [ ].
@@ -365,8 +371,8 @@ tanpa menyatakan systemd sudah dipasang atau production always-on sudah lulus.
   yang tidak konsisten ditolak HTTP 400. Count `events` dan `traffic_metrics`
   tetap 0 sebelum/sesudah test. Belum ada klaim bottleneck LAN nyata; target
   iperf3 eksternal masih menunggu otorisasi.
-- [2026-08-11] One-click localhost pipeline berhasil melalui Windows runner →
-  `wsl.exe --exec` → persistent agent venv → iperf3 JSON stream/MTR → endpoint
+- [2026-08-11] One-click localhost pipeline berhasil melalui Windows runner Ã¢â€ â€™
+  `wsl.exe --exec` Ã¢â€ â€™ persistent agent venv Ã¢â€ â€™ iperf3 JSON stream/MTR Ã¢â€ â€™ endpoint
   diagnostics. Job `3f8419c5-0b9c-48e3-8a47-877e974cd37e` menyimpan dua row
   receiver throughput (upload `54.067161 Mbps`, download `159.971681 Mbps`) dan
   satu hop localhost (`0.209 ms`, loss `0%`); live Mbps teramati dan progress
@@ -381,8 +387,8 @@ tanpa menyatakan systemd sudah dipasang atau production always-on sudah lulus.
   disebabkan heartbeat berada di polling loop yang ikut menunggu proses
   upload/download/MTR. Heartbeat runner sekarang memakai timer independen dan
   job localhost `03f34693-8cc1-4449-b13e-154f76108098` terverifikasi melewati
-  `queued` → `preparing_runner` → `starting_wsl` → `checking_target` →
-  `upload` → `download` → `mtr` → `saving` → `complete`, dengan live Mbps
+  `queued` Ã¢â€ â€™ `preparing_runner` Ã¢â€ â€™ `starting_wsl` Ã¢â€ â€™ `checking_target` Ã¢â€ â€™
+  `upload` Ã¢â€ â€™ `download` Ã¢â€ â€™ `mtr` Ã¢â€ â€™ `saving` Ã¢â€ â€™ `complete`, dengan live Mbps
   teramati dan umur heartbeat maksimum `10.2` detik (batas offline `30` detik).
   Delta `events` dan `traffic_metrics` tetap `0`. Frontend test, lint,
   typecheck, dan production build lulus. Verifikasi klik dari browser admin
@@ -506,7 +512,7 @@ tanpa menyatakan systemd sudah dipasang atau production always-on sudah lulus.
   untuk target inventory on-link `192.168.188.249` melalui Wi-Fi fisik dan untuk
   self address `192.168.112.1` melalui `vEthernet (WSL (Hyper-V firewall)) 2`;
   target kedua menghasilkan `This Device`, `interface_type=virtual`, MAC null,
-  tanpa hardcode IP. Dua E2E runner→helper→WSL→agent→Supabase selesai dengan
+  tanpa hardcode IP. Dua E2E runnerÃ¢â€ â€™helperÃ¢â€ â€™WSLÃ¢â€ â€™agentÃ¢â€ â€™Supabase selesai dengan
   authorization source inventory, operator identity tetap, raw output tidak ada,
   serta delta events dan traffic_metrics masing-masing 0. Remote security verifier
   membuktikan admin/viewer/RLS, target authorization, injection rejection,
@@ -533,7 +539,7 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   profile lokal, counter cache, latest-state upsert, event transisi) lulus unit test,
   lint, typecheck, dan production build; total frontend 44 test lulus. Migration
   `202608160001_managed_infrastructure_telemetry.sql` diaudit dan aman (additive/
-  scoped), tetapi **belum diterapkan ke project `krsixpywzeqazuhrgvib` — diterapkan
+  scoped), tetapi **belum diterapkan ke project `krsixpywzeqazuhrgvib` Ã¢â‚¬â€ diterapkan
   manual oleh Raka**, sehingga schema/RLS/Realtime remote verification masih pending.
   Edge Function `managed-telemetry` tetap **belum di-deploy** (IMPLEMENTED +
   CONTRACT/UNIT VERIFIED only). Browser E2E synthetic
@@ -548,7 +554,7 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   `e2e-managed-telemetry-*`: admin config form tersimpan dan muncul di daftar,
   Device Profile menampilkan status Connected + identitas sistem + uptime + tabel
   interface (10 total, 8 physical, 7 up/1 down, errors 1, discards 2, null util
-  sebagai "—" bukan 0%), interface detail dengan warning link issue/speed changed/
+  sebagai "Ã¢â‚¬â€" bukan 0%), interface detail dengan warning link issue/speed changed/
   logical, Realtime update device/interface tanpa refresh (pathname+timeOrigin sama),
   viewer read-only tanpa kontrol admin dan tanpa secret di DOM, desktop/mobile tanpa
   horizontal overflow, Device Inspector surface tetap menampilkan stored evidence
@@ -562,15 +568,15 @@ Traffic snapshot, hop, diagnostic job, Health target/latest, runner, discovery,
   `[functions.managed-telemetry]` di `supabase/config.toml`) dan terverifikasi remote
   penuh dengan `scripts/verify_managed_telemetry_function.mjs` (marker
   `verify-fn-managed-telemetry-*`, `ok: true`). Dua bug nyata ditemukan dan diperbaiki
-  lewat probe remote: (1) stale-cleanup membangun `not.in.1` (PGRST100) → filter
+  lewat probe remote: (1) stale-cleanup membangun `not.in.1` (PGRST100) Ã¢â€ â€™ filter
   parenthesized `(1,2,3)`, dan (2) root cause 500 `ReferenceError: target_id is not
-  defined` karena shorthand `target_id` di map interfaceRows → `target_id: targetId`.
+  defined` karena shorthand `target_id` di map interfaceRows Ã¢â€ â€™ `target_id: targetId`.
   Verifikasi mencakup authorization (anon 403, non-JWT 401, cross-runner 403),
   `list_targets` scoped per runner + shape + empty-runner `[]`, publish device/6
   interface/event upsert, dedup transisi (0 event), recovery resolution (event terbuka
   ter-resolve), stale-cleanup scoped ke satu target (B/C tidak tersentuh), limit
-  interface 201 → 400 dan payload >64 KiB → 400, penolakan secret-shaped key
-  (community → 400), RLS approved-read (admin JWT baca latest), tidak ada secret
+  interface 201 Ã¢â€ â€™ 400 dan payload >64 KiB Ã¢â€ â€™ 400, penolakan secret-shaped key
+  (community Ã¢â€ â€™ 400), RLS approved-read (admin JWT baca latest), tidak ada secret
   tersimpan (`snmp2c_community_encrypted` null), `list_targets` mencerminkan latest,
   dan Realtime delivery state `managed_device_latest` hasil function ke subscriber
   approved tanpa refresh. Regression bersih: runner nyata `raka-local-wsl` online

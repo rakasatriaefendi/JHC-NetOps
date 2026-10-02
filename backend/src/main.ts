@@ -1,8 +1,8 @@
-import { BackendConfigurationError, loadBackendConfig, requireSupabaseRuntimeConfig } from "./config.js";
+import { BackendConfigurationError, loadBackendConfig } from "./config.js";
 import { Pool } from "pg";
 import { PostgresAssetRepository, ASSET_QUERY_TIMEOUT_MS } from "./assets/repository.js";
 import { PostgresAssetChangeRepository } from "./assets/change-repository.js";
-import { PostgresAssetEvidenceSource, SupabaseAssetEvidenceSource } from "./assets/evidence.js";
+import { PostgresAssetEvidenceSource } from "./assets/evidence.js";
 import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
 import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
@@ -11,15 +11,11 @@ import { PostgresAssetReportRepository } from "./assets/report-repository.js";
 import { LinuxIpRouteAdapter } from "./assets/scan-network-adapter.js";
 import { ScanNetworkManager } from "./assets/scan-network-manager.js";
 import { PostgresScanNetworkRepository } from "./assets/scan-network-repository.js";
-import { SupabaseManagedTelemetryRepository } from "./managed-telemetry/repository.js";
-import { SupabaseNetworkHealthRepository } from "./network-health/repository.js";
-import { SupabaseTrafficRepository } from "./traffic/repository.js";
-import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
 import { buildServer, createGracefulShutdown } from "./server.js";
 import { FileReportBrandingStore } from "./report-branding/storage.js";
 import { PostgresMedicalEquipmentRepository } from "./medical-equipment/repository.js";
 import { selectApplicationPersistence } from "./persistence/authority.js";
-import { type ApplicationRepositories, type SupabaseApplicationRepositories } from "./persistence/application-repositories.js";
+import { type ApplicationRepositories } from "./persistence/application-repositories.js";
 import { PoolPostgresQuery } from "./persistence/postgres-query.js";
 import { PostgresProfilesRepository } from "./persistence/profiles.js";
 import { PostgresNetworkInventoryRepository } from "./persistence/inventory.js";
@@ -45,17 +41,7 @@ async function main(): Promise<void> {
   const config = loadBackendConfig();
   const realtimeBroker = new LocalRealtimeBroker();
   const realtimeListener: { current: PostgresRealtimeListener | null } = { current: null };
-  const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
-    supabase: () => {
-      const supabase = requireSupabaseRuntimeConfig(config);
-      return {
-        heartbeat: new SupabaseRunnerHeartbeatRepository(supabase.url, supabase.serviceRoleKey),
-        health: new SupabaseNetworkHealthRepository(supabase.url, supabase.serviceRoleKey),
-        traffic: new SupabaseTrafficRepository(supabase.url, supabase.serviceRoleKey),
-        telemetry: new SupabaseManagedTelemetryRepository(supabase.url, supabase.serviceRoleKey),
-      };
-    },
-    localPostgres: () => {
+  const applicationRepositories = selectApplicationPersistence<ApplicationRepositories & { _pool: Pool }>(config.persistenceAuthority, () => {
       const appPool = new Pool({
         connectionString: config.applicationDatabaseUrl,
         max: 10,
@@ -93,9 +79,8 @@ async function main(): Promise<void> {
         realtimeBroker,
       );
       return repos;
-    },
   });
-  const localRepos = config.persistenceAuthority === "local_postgres" ? applicationRepositories as ApplicationRepositories : null;
+  const localRepos: ApplicationRepositories = applicationRepositories;
   const assetPool = config.assets ? new Pool({
     connectionString: config.assets.databaseUrl,
     max: 5,
@@ -108,12 +93,7 @@ async function main(): Promise<void> {
   const assetRepository = assetPool ? new PostgresAssetRepository(assetPool) : null;
   const reportBranding = config.assets ? new FileReportBrandingStore(config.assets.reportBrandingDir) : null;
   const assetSynchronizer = assetRepository && !config.candidateReadOnly
-    ? new BoundedAssetSynchronizer(localRepos
-      ? new PostgresAssetEvidenceSource(localRepos.inventory)
-      : (() => {
-        const supabase = requireSupabaseRuntimeConfig(config);
-        return new SupabaseAssetEvidenceSource(supabase.url, supabase.serviceRoleKey);
-      })(), assetRepository)
+    ? new BoundedAssetSynchronizer(new PostgresAssetEvidenceSource(localRepos.inventory), assetRepository)
     : null;
   const scanNetworkManager = assetPool && config.assets
     ? new ScanNetworkManager(new PostgresScanNetworkRepository(assetPool), new LinuxIpRouteAdapter())
@@ -132,9 +112,7 @@ async function main(): Promise<void> {
     )
     : null;
   if (!config.candidateReadOnly && assetScanController) await assetScanController.initialize();
-  const appPool = config.persistenceAuthority === "local_postgres" && "_pool" in applicationRepositories
-    ? (applicationRepositories as Record<string, unknown>)._pool as Pool
-    : null;
+  const appPool = applicationRepositories._pool;
   const buildServerOptions: Record<string, unknown> = {
     candidateReadOnly: config.candidateReadOnly,
     runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },

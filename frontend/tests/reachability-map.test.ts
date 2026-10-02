@@ -52,7 +52,7 @@ test("viewer has no manual ping action and enabled admin requests remain one-sho
   assert.match(source, /className="nodrag nopan/);
   assert.match(manualPingSource, /Ping timeout|Tidak terjangkau/);
   assert.match(legacyNetworkControl, /await requireAdminProfile\(\)/);
-  assert.match(legacyNetworkControl, /body: \{ action: "manual_ping", target_id: target \}/);
+  assert.match(legacyNetworkControl, /createPingJobLocal\(userId,[\s\S]*target_id: target/);
   assert.doesNotMatch(legacyNetworkControl, /requested_by|ip_address|ping_count|timeout_ms/);
 });
 

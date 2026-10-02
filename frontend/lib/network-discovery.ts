@@ -1,7 +1,6 @@
 "use server";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { applicationAuthority, localNetworkDiscovery, localRunners } from "./application-persistence.ts";
+import { localNetworkDiscovery, localRunners } from "./application-persistence.ts";
 import type {
   DiscoverySession,
   DiscoveryRunner,
@@ -21,20 +20,12 @@ export type {
   observedTrafficIps,
 };
 
-export async function loadDiscoverySessions(supabase: SupabaseClient, isAdmin: boolean) {
+export async function loadDiscoverySessions(isAdmin: boolean) {
   if (!isAdmin) return { data: [] as DiscoverySession[], error: false };
-  if (applicationAuthority() === "local_postgres") {
-    // Local mode: admin discovery sessions not yet exposed via API; return empty
-    return { data: [] as DiscoverySession[], error: false };
-  }
-  const { data, error } = await supabase.from("network_discovery_sessions").select("*").limit(50).returns<DiscoverySession[]>();
-  return { data: data ?? [], error: Boolean(error) };
+  return { data: [] as DiscoverySession[], error: false };
 }
 
-export async function loadDiscoveryRunners(fallback: DiscoveryRunner[]) {
-  if (applicationAuthority() !== "local_postgres") {
-    return { data: fallback, error: false };
-  }
+export async function loadDiscoveryRunners(_fallback: DiscoveryRunner[] = []) {
   const rows = await localRunners();
   if (!rows) return { data: [] as DiscoveryRunner[], error: true };
   return {
@@ -44,7 +35,6 @@ export async function loadDiscoveryRunners(fallback: DiscoveryRunner[]) {
 }
 
 export async function loadDiscoverySessionLocal(runnerId: string): Promise<DiscoverySession | null> {
-  if (applicationAuthority() !== "local_postgres") return null;
   const session = await localNetworkDiscovery(runnerId);
   return session as DiscoverySession | null;
 }

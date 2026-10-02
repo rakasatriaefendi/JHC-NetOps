@@ -1,5 +1,8 @@
 # P11 Local PostgreSQL Foundation
 
+> **Historical P11 foundation record:** this file documents the pre-cutover state and is retained as migration evidence. Current P16 runtime is local-only; use the root README and HANDOVER for operations.
+
+
 This document is the persistence source of truth for P11. P11 hardens and
 verifies the existing local PostgreSQL foundation; it does not copy Supabase
 data or change persistence authority.
@@ -83,7 +86,7 @@ migrations.
 
 ## Verification layers
 
-### Layer 1 — Application Connection Preflight
+### Layer 1 Ã¢â‚¬â€ Application Connection Preflight
 
 Run from `backend/` only after loading the protected backend environment:
 
@@ -107,7 +110,7 @@ apply migrations, or import data. Output contains identity/status only and never
 prints the DSN or password. Failure is terminal and does not fall back to a
 default PostgreSQL target.
 
-### Layer 2 — Host/Cluster Operator Verification
+### Layer 2 Ã¢â‚¬â€ Host/Cluster Operator Verification
 
 An operator separately verifies the physical PostgreSQL service: cluster
 `16/jhcnetops`, port `5433`, online state, data directory

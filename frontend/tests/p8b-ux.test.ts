@@ -7,7 +7,7 @@ function source(relativePath: string) { return readFileSync(new URL(relativePath
 test("Devices uses one inventory-driven list with consolidated Health Watch state", () => {
   const page = source("../app/(protected)/devices/page.tsx");
   const inventory = source("../components/devices/device-inventory.tsx");
-  assert.match(page, /network_health_latest\(status,last_checked_at\)/);
+  assert.match(page, /network_health_latest: target\.latest \?\? null/);
   assert.match(page, /<DeviceInventory/);
   assert.doesNotMatch(page, /NetworkHealthTargets/);
   assert.equal((inventory.match(/<table/g) ?? []).length, 1);
@@ -31,17 +31,17 @@ test("Devices exposes contextual edit, Health Watch management, and confirmed de
 test("inventory deletion blocks Health Watch and SNMP dependencies without broad cleanup", () => {
   const action = source("../app/actions/devices.ts");
   assert.match(action, /deleteNetworkNodeAction/);
-  assert.match(action, /network_targets[\s\S]*select\("id"\)[\s\S]*node_id/);
-  assert.match(action, /managed_telemetry_targets[\s\S]*select\("id"\)[\s\S]*node_id/);
+  assert.match(action, /DEPENDENT_TARGETS_PRESENT/);
+  assert.match(action, /\/api\/application\/network-nodes\/\$\{nodeId\}/);
   assert.match(action, /blocked-health-snmp|blocked-health|blocked-snmp/);
-  assert.match(action, /from\("network_nodes"\)\.delete\(\)\.eq\("id", nodeId\)/);
+  assert.match(action, /localApplicationRequest\("DELETE", `\/api\/application\/network-nodes\/\$\{nodeId\}`/);
   assert.doesNotMatch(action, /from\("(?:events|managed_device_latest|managed_interface_latest|hop_measurements|bandwidth_measurements)"\)\.delete/);
 });
 
 test("Health Watch deletion targets only its configuration row", () => {
   const action = source("../app/actions/devices.ts");
   const section = action.slice(action.indexOf("export async function deleteNetworkTargetAction"), action.indexOf("export async function deleteNetworkNodeAction"));
-  assert.match(section, /from\("network_targets"\)\.delete\(\)\.eq\("id", targetId\)/);
+  assert.match(section, /\/api\/application\/network-targets\/\$\{targetId\}/);
   assert.doesNotMatch(section, /network_nodes"\)\.delete|managed_telemetry_targets"\)\.delete|events"\)\.delete/);
 });
 
@@ -66,7 +66,7 @@ test("SNMP managed target delete is confirmed and deletes no inventory or Health
   assert.match(component, /t\("telemetry\.delete"\)/);
   assert.match(component, /window\.confirm\(t\("telemetry\.deleteConfirm"/);
   const section = action.slice(action.indexOf("export async function deleteManagedTelemetryTargetAction"));
-  assert.match(section, /from\("managed_telemetry_targets"\)\.delete\(\)\.eq\("id", targetId\)/);
+  assert.match(section, /\/api\/application\/managed-targets\/\$\{targetId\}/);
   assert.doesNotMatch(section, /from\("network_nodes"\)\.delete|from\("network_targets"\)\.delete/);
   assert.doesNotMatch(component + action, /auth_password|priv_password|community\s*:/);
 });

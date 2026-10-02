@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
@@ -10,7 +10,6 @@ import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { findNetworkNode } from "@/lib/network-nodes";
 import type { DiagnosticsData } from "@/lib/diagnostics";
-import { createClient } from "@/lib/supabase/client";
 import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 import { canOperateNetwork } from "@/lib/authorization";
 import {
@@ -37,7 +36,7 @@ export function TrafficLivePage({
   diagnostics: DiagnosticsData;
   loadError: boolean;
   initialSearch?: string;
-  initialAuthority: "supabase" | "local_postgres";
+  initialAuthority: "local_postgres";
 }) {
   const { t, i18n } = useTranslation("traffic");
   const [state, setState] = useState(initialState);
@@ -52,8 +51,7 @@ export function TrafficLivePage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
-  const [runnerAuthority, setRunnerAuthority] = useState<"supabase" | "local_postgres">(initialAuthority);
-  const runnerAuthorityRef = useRef<"supabase" | "local_postgres">(initialAuthority);
+  const [runnerAuthority, setRunnerAuthority] = useState<"local_postgres">(initialAuthority);
 
   const runner = state.runners.find((item) => item.id === runnerId) ?? state.runners[0];
   const active = state.sessions.find(
@@ -76,7 +74,6 @@ export function TrafficLivePage({
     let disposed = false;
     void getTrafficRunnersAction().then((result) => {
       if (disposed) return;
-      runnerAuthorityRef.current = result.authority;
       setRunnerAuthority(result.authority);
       if (result.ok) {
         setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
@@ -117,7 +114,6 @@ export function TrafficLivePage({
     async function refresh() {
       const result = await getTrafficStateAction().catch(() => null);
       if (!disposed && result?.ok && result.data) {
-        runnerAuthorityRef.current = result.authority;
         setRunnerAuthority(result.authority);
         const nextState = result.data;
         setState(nextState);
@@ -127,51 +123,18 @@ export function TrafficLivePage({
     const poll = window.setInterval(() => void refresh(), 5_000);
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
 
-    if (initialAuthority === "local_postgres") {
-      const stopRealtime = startLocalRealtimeInvalidation({
-        topics: ["traffic"],
-        refresh: () => void refresh(),
-        onStatus: (next) => setRealtime(next === "connected"),
-        debounceMs: 250,
-        fallbackIntervalMs: 60_000,
-      });
-      return () => {
-        disposed = true;
-        window.clearInterval(poll);
-        window.clearInterval(clock);
-        stopRealtime();
-      };
-    }
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel("traffic-live-snapshot")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "traffic_live_snapshots" },
-          (payload) => {
-          if (runnerAuthorityRef.current === "local_postgres") return;
-          const next = payload.new as TrafficSnapshot;
-          if (!next.runner_id) return;
-          setState((current) => ({
-            ...current,
-            snapshots: [
-              next,
-              ...current.snapshots.filter((item) => item.runner_id !== next.runner_id),
-            ],
-          }));
-        },
-      )
-      .subscribe((next) => {
-        setRealtime(next === "SUBSCRIBED");
-        if (next !== "SUBSCRIBED") void refresh();
-      });
-
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["traffic"],
+      refresh: () => void refresh(),
+      onStatus: (next) => setRealtime(next === "connected"),
+      debounceMs: 250,
+      fallbackIntervalMs: 60_000,
+    });
     return () => {
       disposed = true;
       window.clearInterval(poll);
       window.clearInterval(clock);
-      void supabase.removeChannel(channel);
+      stopRealtime();
     };
   }, [initialAuthority]);
 
@@ -185,9 +148,8 @@ export function TrafficLivePage({
     if (!result.ok) setError(t("requestFailed"));
     const latest = await getTrafficStateAction().catch(() => null);
     const latestState = latest?.ok ? latest.data : null;
-    if (latestState) {
-      runnerAuthorityRef.current = latest?.authority ?? runnerAuthorityRef.current;
-      setRunnerAuthority(latest?.authority ?? runnerAuthorityRef.current);
+    if (latest && latestState) {
+      setRunnerAuthority(latest.authority);
       setState(latestState);
     }
     setBusy(false);

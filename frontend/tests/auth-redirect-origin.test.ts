@@ -59,7 +59,7 @@ test("auth routes retain destinations and cache policy with local session operat
   const callbackRoute = readFileSync(new URL("../app/auth/callback/route.ts", import.meta.url), "utf8");
   const authActions = readFileSync(new URL("../app/actions/auth.ts", import.meta.url), "utf8");
   const loginForm = readFileSync(new URL("../components/auth/login-form.tsx", import.meta.url), "utf8");
-  const proxy = readFileSync(new URL("../lib/supabase/proxy.ts", import.meta.url), "utf8");
+  const proxy = readFileSync(new URL("../lib/auth-proxy.ts", import.meta.url), "utf8");
 
   assert.match(resolveRoute, /resolveAuthRedirectOrigin\(requestUrl, request\.headers\)/);
   assert.match(resolveRoute, /authDestination\(profile\.status\)/);

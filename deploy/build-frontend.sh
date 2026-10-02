@@ -21,20 +21,11 @@ fail() {
 [[ -r "$FRONTEND_ENV" ]] || fail "frontend environment file is unavailable"
 
 set -a
-# Public compatibility values are compiled into the client bundle when Supabase authority is selected.
 . "$FRONTEND_ENV"
 set +a
 
 [[ -n "${NEXT_PUBLIC_SITE_URL:-}" ]] || fail "frontend environment is missing NEXT_PUBLIC_SITE_URL"
-case "${PERSISTENCE_AUTHORITY:-}" in
-  local_postgres) ;;
-  supabase)
-    for variable_name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
-      [[ -n "${!variable_name:-}" ]] || fail "frontend environment is missing ${variable_name}"
-    done
-    ;;
-  *) fail "frontend environment has missing or invalid PERSISTENCE_AUTHORITY" ;;
-esac
+[[ "${PERSISTENCE_AUTHORITY:-}" = "local_postgres" ]] || fail "frontend PERSISTENCE_AUTHORITY must be local_postgres"
 
 export NODE_ENV=production
 export PATH="${NODE_DIR}:${PATH}"

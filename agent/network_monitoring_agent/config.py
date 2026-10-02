@@ -12,8 +12,6 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Settings:
-    supabase_url: str
-    service_role_key: str
     network_interface: str | None
     gateway_ip: str | None
     dns_test_host: str
@@ -26,25 +24,12 @@ class Settings:
     def from_env(cls) -> "Settings":
         load_dotenv()
 
-        if _persistence_authority() == "local_postgres":
-            raise ValueError(
-                "Continuous legacy metrics delivery is unavailable under local_postgres"
-            )
-
-        supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-        service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-
-        if not supabase_url.startswith(("http://", "https://")):
-            raise ValueError("SUPABASE_URL must be a valid HTTP(S) URL")
-        if not service_role_key:
-            raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required")
+        _persistence_authority()
 
         interval_seconds = _positive_int("METRICS_INTERVAL_SECONDS", 10)
         request_timeout = _positive_float("REQUEST_TIMEOUT_SECONDS", 10.0)
 
         return cls(
-            supabase_url=supabase_url,
-            service_role_key=service_role_key,
             network_interface=_optional_env("NETWORK_INTERFACE"),
             gateway_ip=_optional_env("GATEWAY_IP"),
             dns_test_host=os.getenv("DNS_TEST_HOST", "one.one.one.one").strip()
@@ -60,48 +45,16 @@ class Settings:
 
 
 @dataclass(frozen=True)
-class DiagnosticsSettings:
-    supabase_url: str
-    service_role_key: str
-    request_timeout_seconds: float
-
-    @classmethod
-    def from_env(cls) -> "DiagnosticsSettings":
-        load_dotenv()
-        if _persistence_authority() == "local_postgres":
-            raise ValueError(
-                "Legacy diagnostics delivery is unavailable under local_postgres"
-            )
-        supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-        service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-
-        if not supabase_url.startswith(("http://", "https://")):
-            raise ValueError("SUPABASE_URL must be a valid HTTP(S) URL")
-        if not service_role_key:
-            raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required")
-
-        return cls(
-            supabase_url=supabase_url,
-            service_role_key=service_role_key,
-            request_timeout_seconds=_positive_float(
-                "DIAGNOSTICS_REQUEST_TIMEOUT_SECONDS",
-                30.0,
-            ),
-        )
-
-
-@dataclass(frozen=True)
 class TrafficSettings:
     backend_url: str
     backend_token: str
-    local_backend: bool
     request_timeout_seconds: float
     buffer_path: Path
 
     @classmethod
     def from_env(cls) -> "TrafficSettings":
         load_dotenv()
-        authority = _persistence_authority()
+        _persistence_authority()
         local_url = os.getenv("LOCAL_BACKEND_URL", "").strip().rstrip("/")
         local_token = os.getenv("LOCAL_BACKEND_TOKEN", "")
         if local_url or local_token:
@@ -111,17 +64,10 @@ class TrafficSettings:
                     or parsed.path not in {"", "/"} or not 32 <= len(local_token) <= 512
                     or any(character.isspace() for character in local_token)):
                 raise ValueError("Local Traffic backend configuration is invalid")
-            return cls(local_url, local_token, True,
+            return cls(local_url, local_token,
                        _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
                        Path(os.getenv("TRAFFIC_BUFFER_PATH", "data/traffic-buffer.sqlite3")).expanduser())
-        if authority == "local_postgres":
-            raise ValueError("Local Traffic backend configuration is required")
-        url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-        if not url.startswith(("http://", "https://")) or not key:
-            raise ValueError("Traffic backend credentials are required")
-        return cls(url, key, False, _positive_float("TRAFFIC_REQUEST_TIMEOUT_SECONDS", 15.0),
-                   Path(os.getenv("TRAFFIC_BUFFER_PATH", "data/traffic-buffer.sqlite3")).expanduser())
+        raise ValueError("Local Traffic backend configuration is required")
 
 
 def _optional_env(name: str) -> str | None:
@@ -131,8 +77,8 @@ def _optional_env(name: str) -> str | None:
 
 def _persistence_authority() -> str:
     value = os.getenv("PERSISTENCE_AUTHORITY", "").strip()
-    if value not in {"supabase", "local_postgres"}:
-        raise ValueError("PERSISTENCE_AUTHORITY must be supabase or local_postgres")
+    if value != "local_postgres":
+        raise ValueError("PERSISTENCE_AUTHORITY must be local_postgres")
     return value
 
 

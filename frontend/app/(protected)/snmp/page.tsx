@@ -13,9 +13,9 @@ type SnmpPageProps = { searchParams: Promise<{ telemetry_notice?: string; teleme
 
 export default async function SnmpPage({ searchParams }: SnmpPageProps) {
   const { t } = await getServerTranslation("snmp");
-  const { supabase, profile } = await requireApprovedProfile();
+  const { profile } = await requireApprovedProfile();
   const params = await searchParams;
-  const { inventory, runnersResult, telemetry, portable } = await loadSnmpWorkspaceData(supabase);
+  const { inventory, runnersResult, telemetry, portable } = await loadSnmpWorkspaceData();
   const runners = (runnersResult.data ?? []) as { id: string; display_name: string; capabilities: RunnerCapabilities }[];
   const connected = telemetry.data.filter((target) => target.latest?.status === "connected").length;
   const pollErrors = telemetry.data.filter((target) => target.latest && !["connected", "partial"].includes(target.latest.status)).length;

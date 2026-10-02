@@ -43,7 +43,7 @@ export class PostgresProfilesRepository {
     return rows.map(profile).filter((row): row is LocalProfile => row !== null);
   }
 
-  /** Call only after a trusted frontend/server route has verified the Supabase Auth identity. */
+  /** Call only after a trusted frontend/server route has verified the Local Auth identity. */
   async bootstrapPending(authUserId: string, email: string, fullName: string | null, signal: AbortSignal): Promise<LocalProfile> {
     if (!UUID.test(authUserId) || email.length < 3 || email.length > 320 || /[\x00-\x1f\x7f]/.test(email) ||
       (fullName !== null && (fullName.length > 200 || /[\x00-\x1f\x7f]/.test(fullName)))) {

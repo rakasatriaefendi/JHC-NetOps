@@ -15,19 +15,11 @@
     "test:postgres:assets": "node --import tsx --test tests/integration/assets-postgres.integration.ts",
     "lint": "eslint src tests scripts",
     "preflight:postgres": "node --env-file-if-exists=.env --import tsx scripts/postgres-foundation-preflight.ts",
-    "p12:snapshot": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts snapshot",
-    "p12:import": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts import",
-    "p12:verify": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts verify",
-    "p12:reconcile": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts reconcile",
-    "p12:compare": "node --env-file-if-exists=.env --import tsx scripts/p12-rehearsal.ts compare",
-    "p13:cutover": "node --env-file-if-exists=.env --import tsx scripts/p13-cutover.ts",
-    "p13:import-s1": "node --env-file-if-exists=.env --import tsx scripts/p13-import-s1.ts",
     "auth:enroll-existing": "node --env-file-if-exists=.env --import tsx scripts/enroll-local-auth.ts",
     "preview:asset-report": "tsx scripts/generate-asset-report-preview.ts"
   },
   "dependencies": {
     "@excel.js/exceljs": "0.15.0",
-    "@supabase/supabase-js": "^2.116.0",
     "fastify": "^5.12.3",
     "pg": "^8.16.3"
   },

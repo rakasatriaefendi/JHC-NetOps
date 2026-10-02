@@ -1,96 +1,44 @@
 export class BackendClient {
-  constructor(url, serviceRoleKey, localBackend = null, persistenceAuthority = process.env.PERSISTENCE_AUTHORITY) {
-    if (persistenceAuthority !== "supabase" && persistenceAuthority !== "local_postgres") {
-      throw new Error("Persistence authority is missing or invalid");
-    }
-    if (persistenceAuthority === "supabase" && (!url || !serviceRoleKey)) {
-      throw new Error("Supabase backend credentials are unavailable");
-    }
-    if (persistenceAuthority === "local_postgres" && !localBackend) {
-      throw new Error("Local backend configuration is required");
-    }
-    this.persistenceAuthority = persistenceAuthority;
-    const edgeBaseUrl = persistenceAuthority === "supabase" ? url.replace(/\/$/, "") : null;
-    this.endpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/diagnostic-jobs` : null;
-    this.trafficEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/traffic-live` : null;
-    this.healthEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/network-health` : null;
-    this.discoveryEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/network-discovery` : null;
-    this.inspectionEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/device-inspector` : null;
-    this.telemetryEndpoint = edgeBaseUrl ? `${edgeBaseUrl}/functions/v1/managed-telemetry` : null;
-    this.headers = edgeBaseUrl ? {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      "Content-Type": "application/json",
-    } : null;
+  constructor(localBackend, persistenceAuthority = process.env.PERSISTENCE_AUTHORITY) {
+    if (persistenceAuthority !== "local_postgres") throw new Error("PERSISTENCE_AUTHORITY must be local_postgres");
+    if (!localBackend) throw new Error("Local backend configuration is required");
     this.localHeartbeatEndpoint = localBackend
       ? `${localBackend.url}/api/runner/heartbeat`
       : null;
     this.localHealthEndpoint = localBackend ? `${localBackend.url}/api/runner/network-health` : null;
     this.localTrafficEndpoint = localBackend ? `${localBackend.url}/api/runner/traffic` : null;
     this.localTelemetryEndpoint = localBackend ? `${localBackend.url}/api/runner/managed-telemetry` : null;
-    this.localDiscoveryEndpoint = localBackend && persistenceAuthority === "local_postgres"
-      ? `${localBackend.url}/api/runner/network-discovery`
-      : null;
-    this.localInspectionEndpoint = localBackend && persistenceAuthority === "local_postgres"
-      ? `${localBackend.url}/api/runner/device-inspector`
-      : null;
+    this.localDiscoveryEndpoint = `${localBackend.url}/api/runner/network-discovery`;
+    this.localInspectionEndpoint = `${localBackend.url}/api/runner/device-inspector`;
     this.localBackendHeaders = localBackend ? {
       Authorization: `Bearer ${localBackend.token}`,
       "Content-Type": "application/json",
     } : null;
   }
 
-  heartbeat(runner) {
-    return this.localHeartbeatEndpoint
-      ? this.#postLocalHeartbeat({ runner })
-      : this.#post({ action: "runner_heartbeat", runner });
-  }
-  claimPreflight(runnerId) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "claim_preflight", runner_id: runnerId });
-  }
-  completePreflight(runnerId, requestId, targetId, context) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "complete_preflight", runner_id: runnerId, request_id: requestId, target_id: targetId, ...context });
-  }
-  failPreflight(runnerId, requestId, errorCode) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "fail_preflight", runner_id: runnerId, request_id: requestId, error_code: errorCode });
-  }
-  claim(runnerId) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "claim_job", runner_id: runnerId });
-  }
-  updateJobContext(runnerId, jobId, context) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "update_job_context", runner_id: runnerId, job_id: jobId, ...context });
-  }
-  progress(runnerId, jobId, stage, progress) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "update_progress", runner_id: runnerId, job_id: jobId, stage, progress });
-  }
-  complete(runnerId, jobId) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "complete_job", runner_id: runnerId, job_id: jobId });
-  }
-  fail(runnerId, jobId, errorCode, errorMessage) {
-    if (this.persistenceAuthority !== "supabase") return Promise.resolve(null);
-    return this.#post({ action: "fail_job", runner_id: runnerId, job_id: jobId, error_code: errorCode, error_message: errorMessage });
-  }
-  claimTraffic(runnerId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "claim_session", runner_id: runnerId }); }
-  trafficProgress(runnerId, sessionId, stage) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "update_session", runner_id: runnerId, session_id: sessionId, stage }); }
-  completeTraffic(runnerId, sessionId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "complete_session", runner_id: runnerId, session_id: sessionId }); }
-  failTraffic(runnerId, sessionId, code, message) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, this.trafficEndpoint, { action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: code, error_message: message }); }
-  healthTargets(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "list_targets", runner_id: runnerId }); }
-  claimManualPing(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "claim_manual_ping", runner_id: runnerId }); }
+  heartbeat(runner) { return this.#postLocalHeartbeat({ runner }); }
+  claimPreflight() { return Promise.resolve(null); }
+  completePreflight() { return Promise.resolve(null); }
+  failPreflight() { return Promise.resolve(null); }
+  claim() { return Promise.resolve(null); }
+  updateJobContext() { return Promise.resolve(null); }
+  progress() { return Promise.resolve(null); }
+  complete() { return Promise.resolve(null); }
+  fail() { return Promise.resolve(null); }
+  claimTraffic(runnerId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, { action: "claim_session", runner_id: runnerId }); }
+  trafficProgress(runnerId, sessionId, stage) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, { action: "update_session", runner_id: runnerId, session_id: sessionId, stage }); }
+  completeTraffic(runnerId, sessionId) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, { action: "complete_session", runner_id: runnerId, session_id: sessionId }); }
+  failTraffic(runnerId, sessionId, code, message) { return this.#postRecurring("Traffic", this.localTrafficEndpoint, { action: "fail_session", runner_id: runnerId, session_id: sessionId, error_code: code, error_message: message }); }
+  healthTargets(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, { action: "list_targets", runner_id: runnerId }); }
+  claimManualPing(runnerId) { return this.#postRecurring("Network health", this.localHealthEndpoint, { action: "claim_manual_ping", runner_id: runnerId }); }
   completeManualPing(runnerId, pingId, result) {
-    return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "complete_manual_ping", runner_id: runnerId, ping_id: pingId, result });
+    return this.#postRecurring("Network health", this.localHealthEndpoint, { action: "complete_manual_ping", runner_id: runnerId, ping_id: pingId, result });
   }
   failManualPing(runnerId, pingId, errorCode) {
-    return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "fail_manual_ping", runner_id: runnerId, ping_id: pingId, error_code: errorCode });
+    return this.#postRecurring("Network health", this.localHealthEndpoint, { action: "fail_manual_ping", runner_id: runnerId, ping_id: pingId, error_code: errorCode });
   }
   publishHealth(runnerId, states, transitions) {
-    return this.#postRecurring("Network health", this.localHealthEndpoint, this.healthEndpoint, { action: "publish", runner_id: runnerId, states, transitions });
+    return this.#postRecurring("Network health", this.localHealthEndpoint, { action: "publish", runner_id: runnerId, states, transitions });
   }
   claimDiscovery(runnerId) { return this.#postDiscovery({ action: "claim_session", runner_id: runnerId }); }
   discoveryContextReady(runnerId, sessionId, context) {
@@ -115,18 +63,11 @@ export class BackendClient {
   failInspection(runnerId, inspectionId, errorCode) {
     return this.#postInspection({ action: "fail_session", runner_id: runnerId, inspection_id: inspectionId, error_code: errorCode });
   }
-  managedTelemetryTargets(runnerId) { return this.#postRecurring("Managed telemetry", this.localTelemetryEndpoint, this.telemetryEndpoint, { action: "list_targets", runner_id: runnerId }); }
+  managedTelemetryTargets(runnerId) { return this.#postRecurring("Managed telemetry", this.localTelemetryEndpoint, { action: "list_targets", runner_id: runnerId }); }
   publishManagedTelemetry(runnerId, device, interfaces, transitions, observedHosts = []) {
-    return this.#postRecurring("Managed telemetry", this.localTelemetryEndpoint, this.telemetryEndpoint, { action: "publish", runner_id: runnerId, device, interfaces, transitions, observed_hosts: observedHosts }, true);
+    return this.#postRecurring("Managed telemetry", this.localTelemetryEndpoint, { action: "publish", runner_id: runnerId, device, interfaces, transitions, observed_hosts: observedHosts }, true);
   }
 
-  async #post(body) {
-    this.#assertEdgeMutationAllowed();
-    const response = await fetch(this.endpoint, { method: "POST", headers: this.headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(backendFailureMessage("Backend", response.status, payload));
-    return payload.data;
-  }
   async #postLocalHeartbeat(body) {
     const response = await fetch(this.localHeartbeatEndpoint, {
       method: "POST",
@@ -138,33 +79,25 @@ export class BackendClient {
     if (!response.ok) throw new Error(`Local heartbeat request failed with HTTP ${response.status}`);
     return payload.data;
   }
-  async #postRecurring(label, localEndpoint, edgeEndpoint, body, managedTelemetryPublish = false) {
-    const local = Boolean(localEndpoint);
-    if (!local) this.#assertEdgeMutationAllowed();
-    const response = await fetch(localEndpoint ?? edgeEndpoint, {
+  async #postRecurring(label, localEndpoint, body, managedTelemetryPublish = false) {
+    const response = await fetch(localEndpoint, {
       method: "POST",
-      headers: local ? this.localBackendHeaders : this.headers,
+      headers: this.localBackendHeaders,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (managedTelemetryPublish) throw managedTelemetryPublishError(response.status, payload);
-      throw new Error(backendFailureMessage(`${local ? "Local " : ""}${label} backend`, response.status, payload));
+      throw new Error(backendFailureMessage(`Local ${label} backend`, response.status, payload));
     }
     return payload.data;
   }
 async #postDiscovery(body) {
-    return this.#postRecurring("Network discovery", this.localDiscoveryEndpoint, this.discoveryEndpoint, body);
+    return this.#postRecurring("Network discovery", this.localDiscoveryEndpoint, body);
   }
   async #postInspection(body) {
-    return this.#postRecurring("Device inspection", this.localInspectionEndpoint, this.inspectionEndpoint, body);
-  }
-
-  #assertEdgeMutationAllowed() {
-    if (this.persistenceAuthority !== "supabase") {
-      throw new Error("Legacy Supabase application mutation is blocked under local_postgres authority");
-    }
+    return this.#postRecurring("Device inspection", this.localInspectionEndpoint, body);
   }
 }
 

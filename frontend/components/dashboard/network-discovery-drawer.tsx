@@ -11,12 +11,10 @@ import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider
 import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerAvailable, observedTrafficIps, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery-client";
 import { NETWORK_NODE_TYPES, findNetworkNode, networkNodeTypeLabel, type NetworkNode, type NetworkNodeInput, type NetworkNodeType } from "@/lib/network-nodes";
 import type { NetworkHealthTarget } from "@/lib/network-health-client";
-import { createClient } from "@/lib/supabase/client";
 import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import { getDiscoveryRunnersAction, getDiscoverySessionAction } from "@/app/actions/network-discovery";
 import { getTrafficStateAction } from "@/app/actions/traffic";
-import type { TrafficSnapshot } from "@/lib/traffic";
 import { mutateDiscoverySessionAction } from "@/app/actions/legacy-network-control";
 
 export function NetworkDiscoveryDrawer({
@@ -37,7 +35,7 @@ export function NetworkDiscoveryDrawer({
   const { t } = useTranslation("discovery");
   const router = useRouter();
   const [liveRunners, setLiveRunners] = useState(() => runners);
-  const [runnerAuthority, setRunnerAuthority] = useState<"supabase" | "local_postgres" | null>(null);
+  const [runnerAuthority, setRunnerAuthority] = useState<"local_postgres" | null>(null);
   const eligibleRunners = useMemo(() => liveRunners.filter((runner) => runner.capabilities.operations?.includes("network_discovery")), [liveRunners]);
   const [runnerId, setRunnerId] = useState(() => runners.find((runner) => runner.capabilities.operations?.includes("network_discovery"))?.id ?? "");
   const [sessions, setSessions] = useState(initialSessions);
@@ -103,51 +101,24 @@ export function NetworkDiscoveryDrawer({
   useEffect(() => {
     if (!open || !runner?.id || !runnerAuthority) return;
 
-    if (runnerAuthority === "local_postgres") {
-      let active = true;
-      const selectedRunnerId = runner.id;
-      const refreshTraffic = () => void getTrafficStateAction().then((result) => {
-        if (!active || !result.ok || result.authority !== "local_postgres" || !result.data) return;
-        setRecentTrafficIps(new Set(observedTrafficIps(
-          result.data.snapshots.filter((snapshot) => snapshot.runner_id === selectedRunnerId),
-        )));
-      }).catch(() => {
-        // Keep the last authoritative Traffic correlation on a transient refresh failure.
-      });
-      const stopRealtime = startLocalRealtimeInvalidation({
-        topics: ["traffic"],
-        refresh: refreshTraffic,
-        onStatus: () => {},
-        debounceMs: 250,
-        fallbackIntervalMs: 60_000,
-      });
-      return () => { active = false; stopRealtime(); };
-    }
-
-    const supabase = createClient();
-    const channel = supabase.channel(`network-discovery:${runner.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_snapshots", filter: `runner_id=eq.${runner.id}` }, (payload) => {
-        const snapshot = payload.new as TrafficSnapshot;
-        setRecentTrafficIps(new Set([
-          ...snapshot.flows.flatMap((flow) => [flow.src_ip, flow.dst_ip]),
-          ...snapshot.top_talkers.map((talker) => talker.ip),
-        ]));
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "network_discovery_sessions", filter: `runner_id=eq.${runner.id}` }, (payload) => {
-        const next = payload.new as DiscoverySession;
-        if (!next.runner_id) return;
-        setSessions((current) => [next, ...current.filter((item) => item.runner_id !== next.runner_id)]);
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "diagnostic_runners", filter: `id=eq.${runner.id}` }, (payload) => {
-        const heartbeat = payload.new as DiscoveryRunner;
-        if (heartbeat.id !== runner.id) return;
-        setLiveRunners((current) => current.map((item) => item.id === heartbeat.id
-          ? { ...item, ...heartbeat }
-          : item));
-        setFreshnessNow(Date.now());
-      });
-    channel.subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    let active = true;
+    const selectedRunnerId = runner.id;
+    const refreshTraffic = () => void getTrafficStateAction().then((result) => {
+      if (!active || !result.ok || !result.data) return;
+      setRecentTrafficIps(new Set(observedTrafficIps(
+        result.data.snapshots.filter((snapshot) => snapshot.runner_id === selectedRunnerId),
+      )));
+    }).catch(() => {
+      // Keep the last authoritative Traffic correlation on a transient refresh failure.
+    });
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["traffic"],
+      refresh: refreshTraffic,
+      onStatus: () => {},
+      debounceMs: 250,
+      fallbackIntervalMs: 60_000,
+    });
+    return () => { active = false; stopRealtime(); };
   }, [open, runner?.id, runnerAuthority]);
 
   useEffect(() => {

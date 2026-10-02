@@ -17,16 +17,16 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ target?: string }> }) {
   const { t } = await getServerTranslation("dashboard");
-  const { supabase, profile } = await requireApprovedProfile();
+  const { profile } = await requireApprovedProfile();
   const params = await searchParams;
   const canOperate = canOperateNetwork(profile.role);
-  const health = await loadNetworkHealth(supabase);
+  const health = await loadNetworkHealth();
   const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
     getDiagnosticsAction(),
-    loadAuthoritativeTrafficState(supabase, profile.role),
-    loadAuthoritativeNetworkNodes(supabase),
-    loadDiscoverySessions(supabase, canOperate),
-    loadHealthSamples(supabase, health.data.map((t) => t.id), "1h"),
+    loadAuthoritativeTrafficState(profile.role),
+    loadAuthoritativeNetworkNodes(),
+    loadDiscoverySessions(canOperate),
+    loadHealthSamples(health.data.map((t) => t.id), "1h"),
   ]);
   const discoveryRunners = await loadDiscoveryRunners(traffic.data.runners);
 

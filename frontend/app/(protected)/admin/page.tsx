@@ -1,7 +1,7 @@
 import { UserAccessControl } from "@/components/admin/user-access-control";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { normalizedProfile, requireAdminProfile, type Profile } from "@/lib/auth";
-import { applicationAuthority, localProfiles } from "@/lib/application-persistence";
+import { localProfiles } from "@/lib/application-persistence";
 import { getServerTranslation } from "@/i18n/server";
 import { ReportBrandingSettings } from "@/components/admin/report-branding-settings";
 import { loadReportBranding } from "@/lib/report-branding";
@@ -15,15 +15,10 @@ type AdminPageProps = {
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const { t, locale } = await getServerTranslation("admin");
-  const { supabase, userId } = await requireAdminProfile();
+  const { userId } = await requireAdminProfile();
   const params = await searchParams;
   const [profiles, branding] = await Promise.all([
-    applicationAuthority() === "local_postgres"
-      ? localProfiles().then((rows) => (rows ?? []).map(normalizedProfile).filter((row): row is Profile => row !== null))
-      : supabase.from("profiles")
-        .select("id, email, full_name, role, status, created_at, approved_at, approved_by")
-        .order("created_at", { ascending: true })
-        .returns<Profile[]>().then(({ data }) => data ?? []),
+    localProfiles().then((rows) => (rows ?? []).map(normalizedProfile).filter((row): row is Profile => row !== null)),
     loadReportBranding(),
   ]);
   const approvedCount = profiles.filter(

@@ -21,9 +21,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 export default async function ObservedHostsPage({ params }: ObservedHostsPageProps) {
   const { t, language } = await getServerTranslation(["snmp", "common"]);
   const { targetId } = await params;
-  const { supabase } = await requireApprovedProfile();
+  await requireApprovedProfile();
   const result = UUID_PATTERN.test(targetId)
-    ? await loadObservedHostsData(supabase, targetId)
+    ? await loadObservedHostsData(targetId)
     : { target: null, observedHosts: [], error: false, portable: { enabled: false as const, scenario: null } };
   const target = result.target;
   const latestObservation = target

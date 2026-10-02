@@ -15,7 +15,6 @@ from .diagnostics import (
     run_iperf3,
     run_mtr,
 )
-from .diagnostics_delivery import DiagnosticDeliveryError
 from .inspection_trace import InspectionTrace
 from .streaming import DiagnosticRunError, run_diagnostic_suite
 
@@ -79,7 +78,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.command == "managed-telemetry-poll":
             _run_managed_telemetry_poll(args)
             return
-    except (DiagnosticCommandError, DiagnosticDeliveryError, ValueError) as exc:
+    except (DiagnosticCommandError, ValueError) as exc:
         parser.exit(2, f"diagnostic failed: {exc}\n")
 
     _run_continuous_monitor()
@@ -132,7 +131,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bandwidth.add_argument(
         "--no-upload",
         action="store_true",
-        help="print parsed JSON without sending it to Supabase",
+        help="print parsed JSON without external delivery",
     )
     bandwidth.add_argument("--binary", default="iperf3", help=argparse.SUPPRESS)
 
@@ -161,7 +160,7 @@ def _build_parser() -> argparse.ArgumentParser:
     path.add_argument(
         "--no-upload",
         action="store_true",
-        help="print parsed JSON without sending it to Supabase",
+        help="print parsed JSON without external delivery",
     )
     path.add_argument("--binary", default="mtr", help=argparse.SUPPRESS)
 
@@ -293,41 +292,18 @@ def _run_traffic_live(args: argparse.Namespace) -> None:
     run_traffic_capture(runner_id=args.runner_id, session_id=args.session_id,
                         duration_seconds=args.duration, interface=args.interface,
                         client=TrafficClient(settings.backend_url, settings.backend_token,
-                                             settings.request_timeout_seconds,
-                                             local_backend=settings.local_backend),
+                                             settings.request_timeout_seconds),
                         buffer_path=settings.buffer_path, emit=emit)
 
 
 def _upload_bandwidth(measurement: object) -> None:
-    from .config import DiagnosticsSettings
-    from .diagnostics import BandwidthMeasurement
-    from .diagnostics_delivery import DiagnosticsClient
-
-    if not isinstance(measurement, BandwidthMeasurement):
-        raise DiagnosticDeliveryError("Invalid bandwidth measurement")
-    settings = DiagnosticsSettings.from_env()
-    DiagnosticsClient(
-        settings.supabase_url,
-        settings.service_role_key,
-        settings.request_timeout_seconds,
-    ).push_bandwidth(measurement)
+    del measurement
+    raise ValueError("Direct diagnostic upload is unavailable; use runner orchestration")
 
 
 def _upload_hops(measurements: object) -> None:
-    from .config import DiagnosticsSettings
-    from .diagnostics import HopMeasurement
-    from .diagnostics_delivery import DiagnosticsClient
-
-    if not isinstance(measurements, list) or not all(
-        isinstance(item, HopMeasurement) for item in measurements
-    ):
-        raise DiagnosticDeliveryError("Invalid hop measurements")
-    settings = DiagnosticsSettings.from_env()
-    DiagnosticsClient(
-        settings.supabase_url,
-        settings.service_role_key,
-        settings.request_timeout_seconds,
-    ).push_hops(measurements)
+    del measurements
+    raise ValueError("Direct diagnostic upload is unavailable; use runner orchestration")
 
 
 def _run_managed_telemetry_poll(args: argparse.Namespace) -> None:
@@ -364,15 +340,12 @@ def _run_managed_telemetry_poll(args: argparse.Namespace) -> None:
 
 
 def _run_diagnostic_job(args: argparse.Namespace) -> None:
-    from .config import DiagnosticsSettings
-    from .diagnostics_delivery import DiagnosticsClient
+    class RunnerDelivery:
+        def push_bandwidth(self, measurement: object) -> None:
+            emit({"type": "bandwidth_result", "measurement": measurement.as_payload()})
 
-    settings = DiagnosticsSettings.from_env()
-    client = DiagnosticsClient(
-        settings.supabase_url,
-        settings.service_role_key,
-        settings.request_timeout_seconds,
-    )
+        def push_hops(self, measurements: Sequence[object]) -> None:
+            emit({"type": "hop_results", "measurements": [item.as_payload() for item in measurements]})
 
     def emit(event: dict[str, object]) -> None:
         print(json.dumps(event, separators=(",", ":")), flush=True)
@@ -387,7 +360,7 @@ def _run_diagnostic_job(args: argparse.Namespace) -> None:
             duration_seconds=args.duration,
             port=args.port,
             environment=args.environment,
-            client=client,
+            client=RunnerDelivery(),
             emit=emit,
             iperf_binary=args.iperf_binary,
             mtr_binary=args.mtr_binary,

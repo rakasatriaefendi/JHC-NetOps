@@ -1,5 +1,8 @@
 # P10D Asset Intelligence split plan
 
+> **Historical design record:** references to the former evidence source describe the accepted P10D implementation phase. Current runtime evidence is read from local PostgreSQL through the backend.
+
+
 Date: 2026-09-09. P10D1-A, P10D1-B, the narrowed P10D2 Asset Change History,
 and P10D3 Scan Network Settings are implemented in source; runtime acceptance remains pending.
 
@@ -12,7 +15,7 @@ P10D1-B adds one explicit active-scan capability inside the existing backend; it
 does not add a second API/service, PM2 process, Flask/MariaDB service, port 5002,
 arbitrary Nmap target/flags, or automatic network operation.
 
-## P10D1-A — retained evidence ingestion (implemented in source)
+## P10D1-A Ã¢â‚¬â€ retained evidence ingestion (implemented in source)
 
 ### Persistence and reconciliation
 
@@ -68,7 +71,7 @@ uses one parameterized PostgreSQL bulk upsert. It never starts Discovery, Device
 Inspector, SNMP, ICMP, Nmap, or another collector. A failed source refresh leaves
 the retained local inventory readable.
 
-## P10D1-B — active inventory enrichment (implemented in source)
+## P10D1-B Ã¢â‚¬â€ active inventory enrichment (implemented in source)
 
 An approved Operator/Admin can explicitly start Quick Discovery or Deep Inventory
 Scan from `/assets`. The backend accepts only configured canonical RFC1918 CIDRs,
@@ -78,7 +81,7 @@ uses bounded workers and per-host deadlines. One active job is allowed, cancel
 terminates active processes, and restart recovery prevents stale `running` state.
 No raw XML, credentials, P10D2 identity snapshots, or change events are stored.
 
-## P10D2 — bounded Asset Changes history (implemented in source)
+## P10D2 Ã¢â‚¬â€ bounded Asset Changes history (implemented in source)
 
 ### Persistence
 
@@ -107,10 +110,10 @@ it is not an asset status or stored boolean. Medical Equipment remains P10F.
 | Device inventory fields | `/assets` main table | P10D1 compact columns; port count, not a long string. |
 | OS/platform summary | `/assets` Insights | P10D1 collapsible, selection filters main table. |
 | Vendor summary | `/assets` Insights | P10D1 collapsible; Unknown handled explicitly. |
-| Vendor → type summary | `/assets` Insights | P10D1 drill/filter, no duplicate table/card wall. |
+| Vendor Ã¢â€ â€™ type summary | `/assets` Insights | P10D1 drill/filter, no duplicate table/card wall. |
 | Device details | Centered dialog on `/assets` | P10C shell; P10D1 Overview/Network; P10D2 Identity/history. |
 | Port/service details | Device detail Network view | P10D1 progressive disclosure. |
-| MAC identity/IP history/change events | `/history` → Asset Changes | P10D2 summary + compact event table. |
+| MAC identity/IP history/change events | `/history` Ã¢â€ â€™ Asset Changes | P10D2 summary + compact event table. |
 | Immutable scan results | Observation Snapshots | P10D2; normalized observations, not legacy scans/raw output. |
 | Excel reporting | Contextual export from `/assets` and History | P10E; server-side and filter-aware. |
 | Medical equipment registry | `/medical-equipment` under Asset Management | P10F, separate equipment domain, optional asset link. |

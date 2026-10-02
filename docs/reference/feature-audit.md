@@ -1,5 +1,8 @@
 # Legacy Network Inventory audit and P10C-P10F integration plan
 
+> **Historical feature audit:** architecture and dependency statements below describe the repository at the time of the P10 audit, not the current P16 local-only runtime.
+
+
 Date: 2026-09-08. Branch: `feat/p10c-asset-inventory`.
 
 The supplied reference is physically stored at

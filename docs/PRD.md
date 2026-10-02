@@ -1,4 +1,11 @@
-# PRD — Network Traffic Monitoring Dashboard
+# PRD Ã¢â‚¬â€ Network Traffic Monitoring Dashboard
+
+> **Current P16 architecture:** Local Auth, Fastify loopback, dedicated
+> PostgreSQL `16/jhcnetops:5433/jhc_netops`, Local Runner/agent, and local
+> LISTEN/NOTIFY/SSE are authoritative. Sections below that describe the original
+> cloud architecture are retained as historical product evolution, not active
+> runtime or deployment requirements.
+
 
 ## 1. Latar belakang & tujuan
 
@@ -10,9 +17,9 @@ Saat ini deteksi masalah jaringan dilakukan secara manual/reaktif (menunggu lapo
 
 ## 3. Target pengguna
 
-- **Admin (Raka)** — akses penuh, approve user baru, lihat semua data.
-- **Viewer (approved user)** — bisa memantau dashboard, traffic, history, dan alert. Tidak bisa approve user lain.
-- **User baru (pending)** — sudah register tapi menunggu approval, belum bisa akses data.
+- **Admin (Raka)** Ã¢â‚¬â€ akses penuh, approve user baru, lihat semua data.
+- **Viewer (approved user)** Ã¢â‚¬â€ bisa memantau dashboard, traffic, history, dan alert. Tidak bisa approve user lain.
+- **User baru (pending)** Ã¢â‚¬â€ sudah register tapi menunggu approval, belum bisa akses data.
 
 ## 4. Goals
 
@@ -21,7 +28,7 @@ Saat ini deteksi masalah jaringan dilakukan secara manual/reaktif (menunggu lapo
 3. Simpan history event penting dengan klasifikasi severity: `low`, `medium`, `high`, `critical`.
 4. Alert real-time untuk event yang sedang aktif.
 5. AI agent (Hermes) membaca history sebagai knowledge untuk memberi ringkasan/analisis otomatis pada event.
-6. Autentikasi dengan alur register → approval manual oleh admin.
+6. Autentikasi dengan alur register Ã¢â€ â€™ approval manual oleh admin.
 7. Bisa dijalankan portable di laptop pribadi, dan bisa diakses dari browser mana saja setelah dideploy.
 8. Seluruh infrastruktur hosting menggunakan free tier.
 9. Diagnostik bandwidth & path on-demand: ukur throughput real (bukan cuma ping) dan hop latency antar titik, untuk memvalidasi dugaan bottleneck topologi (mis. cek apakah masalahnya di jalur/hop tertentu, bukan cuma "internet lambat").
@@ -32,7 +39,7 @@ Saat ini deteksi masalah jaringan dilakukan secara manual/reaktif (menunggu lapo
 - Machine learning custom untuk deteksi anomali (versi awal pakai rule-based threshold).
 - Multi-lokasi/multi-agent secara bersamaan (bisa jadi pengembangan lanjutan).
 - Mobile app native.
-- Bandwidth/path diagnostics berjalan kontinu real-time seperti `traffic_metrics` — ini fitur on-demand/interval panjang, sengaja dipisah supaya tidak memicu false alarm di severity engine (lihat bagian 7.5).
+- Bandwidth/path diagnostics berjalan kontinu real-time seperti `traffic_metrics` Ã¢â‚¬â€ ini fitur on-demand/interval panjang, sengaja dipisah supaya tidak memicu false alarm di severity engine (lihat bagian 7.5).
 
 ## 6. Arsitektur sistem
 
@@ -59,7 +66,7 @@ Realtime, P15 mengganti Auth, dan P16 decommission/handover. Inventory authority
 lengkap dan kontrak preservasi ada di
 [P11 Local PostgreSQL Foundation](P11_LOCAL_POSTGRESQL_FOUNDATION.md).
 
-Catatan tambahan: pengukuran bandwidth (`iperf3`) butuh `iperf3 -s` jalan di titik target (mis. server pusat) sebagai counterpart. Ini di luar jalur `traffic_metrics`/severity — datanya masuk tabel terpisah (`bandwidth_measurements`, `hop_measurements`) dan tidak dihitung ke baseline rolling average, supaya test bandwidth yang sengaja generate traffic tinggi tidak memicu event `medium`/`high` palsu.
+Catatan tambahan: pengukuran bandwidth (`iperf3`) butuh `iperf3 -s` jalan di titik target (mis. server pusat) sebagai counterpart. Ini di luar jalur `traffic_metrics`/severity Ã¢â‚¬â€ datanya masuk tabel terpisah (`bandwidth_measurements`, `hop_measurements`) dan tidak dihitung ke baseline rolling average, supaya test bandwidth yang sengaja generate traffic tinggi tidak memicu event `medium`/`high` palsu.
 
 ## 7. Komponen
 
@@ -67,36 +74,36 @@ Catatan tambahan: pengukuran bandwidth (`iperf3`) butuh `iperf3 -s` jalan di tit
 - Library: `scapy` atau `pyshark` (capture & parsing paket), `psutil` (statistik interface), `requests`/`supabase-py` (push data).
 - Fungsi:
   - Hitung metrik agregat per interval (default 10 detik): bytes in/out, packet count, breakdown protokol.
-  - Health check: ping ke gateway, resolve DNS → indikator `gateway_reachable`, `dns_reachable`.
-  - Kumpulkan flow ringkas (5-tuple: src/dst IP, port, protocol, size, timestamp) — bukan raw packet.
+  - Health check: ping ke gateway, resolve DNS Ã¢â€ â€™ indikator `gateway_reachable`, `dns_reachable`.
+  - Kumpulkan flow ringkas (5-tuple: src/dst IP, port, protocol, size, timestamp) Ã¢â‚¬â€ bukan raw packet.
   - Buffer lokal (SQLite/file) saat koneksi ke Supabase terputus, retry otomatis.
 
-### 7.2 Backend — Supabase
+### 7.2 Backend Ã¢â‚¬â€ Supabase
 - Auth bawaan Supabase + tabel `profiles` untuk role & status approval.
 - Edge function `ingest`: terima data dari agent, bandingkan ke baseline, hitung status, simpan ke `traffic_metrics`, buat row `events` jika melewati threshold.
 - RLS: hanya `status = approved` yang bisa membaca data operasional.
 - Realtime channel: push update ke frontend tanpa polling.
 
-### 7.3 Frontend — Next.js (Vercel)
+### 7.3 Frontend Ã¢â‚¬â€ Next.js (Vercel)
 Halaman:
-- **Dashboard** — status ringkas saat ini + grafik traffic singkat.
-- **Traffic** — tabel flow detail dengan search & filter dropdown (protocol, IP, port, rentang waktu).
-- **History** — daftar event yang sudah terjadi, difilter berdasarkan severity/tanggal.
-- **Alert** — event yang sedang aktif (belum `resolved_at`).
-- **Admin (khusus role admin)** — daftar user `pending`, tombol approve/reject.
+- **Dashboard** Ã¢â‚¬â€ status ringkas saat ini + grafik traffic singkat.
+- **Traffic** Ã¢â‚¬â€ tabel flow detail dengan search & filter dropdown (protocol, IP, port, rentang waktu).
+- **History** Ã¢â‚¬â€ daftar event yang sudah terjadi, difilter berdasarkan severity/tanggal.
+- **Alert** Ã¢â‚¬â€ event yang sedang aktif (belum `resolved_at`).
+- **Admin (khusus role admin)** Ã¢â‚¬â€ daftar user `pending`, tombol approve/reject.
 
 ### 7.4 Hermes AI Agent (Flask, Hugging Face Spaces)
 - Dipanggil event-based (bukan polling terus-menerus), saat ada event baru dengan severity signifikan.
 - Endpoint `/analyze`: ambil context history (jsonb) dari Supabase terkait event serupa, kirim ke LLM, tulis `ai_summary` kembali ke tabel `events`.
 
 ### 7.5 Bandwidth & path diagnostics (on-demand)
-- Bagian dari local capture agent, tapi job terpisah dari agregasi traffic 10 detik — dijalankan manual (`network-monitor bandwidth-test`) atau terjadwal jarang (default tiap 5-15 menit, jangan sekencang metrik biasa).
+- Bagian dari local capture agent, tapi job terpisah dari agregasi traffic 10 detik Ã¢â‚¬â€ dijalankan manual (`network-monitor bandwidth-test`) atau terjadwal jarang (default tiap 5-15 menit, jangan sekencang metrik biasa).
 - **Throughput**: `iperf3 -c <target> -J`, target adalah `iperf3 -s` yang jalan di titik yang mau diuji (mis. server pusat). Hasil: `bitrate_mbps`, `jitter_ms`.
-- **Hop path**: `mtr --json -c 5 <target>`. Hasil: daftar hop dengan `avg_latency_ms` dan `loss_percent` per hop — dipakai buat lihat di hop mana delay mulai muncul (mis. validasi dugaan router selasar jadi bottleneck).
+- **Hop path**: `mtr --json -c 5 <target>`. Hasil: daftar hop dengan `avg_latency_ms` dan `loss_percent` per hop Ã¢â‚¬â€ dipakai buat lihat di hop mana delay mulai muncul (mis. validasi dugaan router selasar jadi bottleneck).
 - Setiap command wajib menerima `connection_type` eksplisit (`wifi`/`ethernet`); jangan infer dari nama interface WSL seperti `eth0`. Simpan juga label lokasi sumber, label target, dan hostname/IP target asli agar hasil bisa dibandingkan dan ditelusuri.
 - WiFi dan Ethernet tetap memakai pipeline, endpoint, dan tabel yang sama. WiFi adalah pengukuran end-to-end client-ke-server, tetapi bukan bukti bottleneck LAN kabel. Untuk dugaan kabel, switch/uplink, atau segmen LAN, prioritaskan hasil Ethernet.
 - Kedua hasil dikirim lewat endpoint terpisah (bukan `ingest` yang sama dengan `traffic_metrics`), disimpan ke tabel `bandwidth_measurements` dan `hop_measurements` (lihat bagian 8).
-- **Tidak** masuk ke perhitungan baseline/severity di bagian 9 — ini data diagnostik yang dilihat manual di dashboard, bukan trigger otomatis.
+- **Tidak** masuk ke perhitungan baseline/severity di bagian 9 Ã¢â‚¬â€ ini data diagnostik yang dilihat manual di dashboard, bukan trigger otomatis.
 - Dashboard menyediakan filter sumber, target, dan tipe koneksi, serta perbandingan numerik latest bitrate untuk beberapa lokasi menuju target yang sama. Interpretasi hanya menunjukkan *suspected bottleneck*: MTR menampilkan hop Layer 3 yang merespons dan tidak menampilkan setiap switch Layer 2.
 - IP hop yang merespons dapat diberi label manual melalui lookup reusable
   `network_nodes`. Label, tipe perangkat, lokasi, dan notes tidak disalin ke
@@ -142,7 +149,7 @@ Halaman:
 - Scapy hanya mengekstrak directional 5-tuple, timestamps, byte, dan packet count. Payload, PCAP, URL, DNS content, hostname, credential, cookie, token, serta data aplikasi/pasien tidak dikumpulkan.
 - Packet diagregasi lokal dalam map 5-tuple. Live snapshot 2 detik berisi maksimal 100 flow, 30 conversation, dan 10 top talker dengan payload maksimal 64 KiB; satu row snapshot per runner dioverwrite dan satu Realtime subscription dipakai per halaman.
 - Flow persistence memakai cumulative upsert batch maksimal 100 changed flow setiap 10 detik, bukan packet-per-row. ACTIVE berarti terlihat dalam 5 detik, recently idle sampai 15 detik, lalu flow keluar dari live snapshot pada 30 detik.
-- Flow dan conversation berbeda: flow mempertahankan arah A→B; conversation menormalisasi pasangan endpoint tetapi tetap menyimpan byte A→B dan B→A.
+- Flow dan conversation berbeda: flow mempertahankan arah AÃ¢â€ â€™B; conversation menormalisasi pasangan endpoint tetapi tetap menyimpan byte AÃ¢â€ â€™B dan BÃ¢â€ â€™A.
 - Fine-grained flow disimpan 48 jam dan dibersihkan hourly dalam batch 5.000. Snapshot stale dibersihkan setelah 2 jam dan terminal session setelah 7 hari. Pada ukuran `flows` >300 MB backend memberi warning; >400 MB optional flow history dihentikan agar events dan diagnostic result tetap diprioritaskan.
 - Observed traffic/rate tidak sama dengan available bandwidth. Flow Detail hanya boleh menautkan **latest measured path** terpisah; jangan mengklaim hop MTR sebagai exact route flow.
 - SPAN, NetFlow, dan broad infrastructure collector tetap future scope. Managed Infrastructure Telemetry (SNMP read-only untuk target allow-listed) diimplementasikan sebagai workflow terpisah pada bagian 7.11.
@@ -190,12 +197,12 @@ Halaman:
 - Hasil parsial yang berhasil tetapi tidak memiliki evidence identitas cukup ditampilkan sebagai `Insufficient evidence`, bukan error. Device type dan capabilities tetap terpisah; managed switch hanya boleh diklasifikasikan dari identity eksplisit yang kuat.
 - Detected identity (`detected_fingerprint`, `last_inspected_at`) terpisah dari operator identity (`name`, `location`, `device_type`, `notes`). Reinspection tidak boleh menimpa operator identity atau status Health Watch dan tidak membuat event alert.
 - Hasil inspection pertama bersifat temporary dalam satu slot per runner dan expired setelah 10 menit. Unknown device tidak otomatis dibuat sebagai inventory. Penyimpanan fingerprint/operator identity memerlukan action admin eksplisit; approved viewer hanya dapat melihat profile yang sudah disimpan. Konflik antara role otomatis `This Device` dan kategori operator hanya menghasilkan peringatan inventory-quality; sistem tidak mengubah nama/kategori operator, membuat Health target, atau membuat alert secara otomatis.
-- Satu reusable Device Profile drawer dipakai dari Discovery, Health Watch, Traffic, dan hop LAN Diagnostics. Unmanaged Layer-2 switch tanpa IP management mungkin tidak terlihat, MTR hanya menampilkan responding Layer-3 hops, dan hasil adalah evidence identitas—bukan topology discovery atau bukti perangkat rusak.
+- Satu reusable Device Profile drawer dipakai dari Discovery, Health Watch, Traffic, dan hop LAN Diagnostics. Unmanaged Layer-2 switch tanpa IP management mungkin tidak terlihat, MTR hanya menampilkan responding Layer-3 hops, dan hasil adalah evidence identitasÃ¢â‚¬â€bukan topology discovery atau bukti perangkat rusak.
 - SNMP read-only untuk target terkelola (allow-list) diimplementasikan pada bagian 7.11; LLDP/CDP, topology mapping, SNMP SET, deep scan, SPAN/NetFlow, dan vulnerability assessment tetap di luar scope iterasi ini.
 
 ### 7.11 Managed Infrastructure Telemetry (SNMP read-only)
 
-- Fitur ini menjawab "berapa throughput/utilisasi/error/discard port perangkat terkelola yang disetujui" dari perangkat itu sendiri (SNMP read-only), terpisah dari Traffic pasif pada bagian 7.1–7.7, Health Watch (7.8), Discovery (7.9), dan Device Inspector (7.10).
+- Fitur ini menjawab "berapa throughput/utilisasi/error/discard port perangkat terkelola yang disetujui" dari perangkat itu sendiri (SNMP read-only), terpisah dari Traffic pasif pada bagian 7.1Ã¢â‚¬â€œ7.7, Health Watch (7.8), Discovery (7.9), dan Device Inspector (7.10).
 - Hanya perangkat yang sudah ada di `network_nodes` yang boleh dijadikan target. Admin menambahkan satu target melalui `/snmp#managed-telemetry` dan memilih **credential profile** yang sudah didefinisikan (bukan memasukkan community string atau username/password SNMP di form). Nama profile adalah referensi bounded ke config lokal runner; sekretnya hanya ada di runner dan tidak pernah dikirim ke Supabase, browser, atau log.
 - Runner memakai profil lokal untuk melakukan polling SNMPv2c/v3 read-only dengan OID tetap dan terbatas (identitas sistem, uptime, satu set interface fisik/logis, oktet counters, dan error/discard). Tidak ada walk bebas, kredensial tebakan, SNMP SET, LLDP/CDP, topology discovery, atau deep scan.
 - Polling bounded: interval target yang didukung 30 atau 60 detik, concurrency kecil, timeout pendek, dan tidak mengganggu capture/Health Watch/Diagnostics. Runner hanya menyimpan **latest-state** (satu row device + satu row per interface) plus event transisi saat nilai ambang terlewati; tidak membuat row per poll.
@@ -264,7 +271,7 @@ Baseline dihitung dari rolling average (median per jam, 24-48 jam terakhir).
 
 1. User register lewat form Next.js (Supabase Auth).
 2. Trigger database otomatis insert row `profiles` dengan status `pending`.
-3. RLS memblokir akses data selama status belum `approved` — user melihat halaman "menunggu persetujuan".
+3. RLS memblokir akses data selama status belum `approved` Ã¢â‚¬â€ user melihat halaman "menunggu persetujuan".
 4. Admin (Raka) membuka halaman Admin, melihat daftar pending, approve/reject.
 5. Setelah `approved`, user bisa akses dashboard penuh sesuai role.
 
@@ -282,17 +289,17 @@ Admin pertama (Raka) di-seed manual lewat SQL editor Supabase setelah register p
 
 ## 12. Roadmap MVP
 
-1. **Fondasi** — schema Supabase, auth + approval flow, agent versi basic (ping/psutil), dashboard status up/down.
-2. **Traffic detail** — tambah scapy untuk flow table, halaman Traffic dengan search & filter.
-3. **Klasifikasi & alert** — rule engine severity, halaman History & Alert.
-4. **AI layer** — integrasi Hermes Agent untuk ringkasan otomatis per event.
-5. **Bandwidth & path diagnostics (opsional, on-demand)** — job iperf3/mtr terpisah, tabel & halaman diagnostik baru, tidak masuk baseline severity.
-6. **Operational network visibility** — Traffic pasif, selective Health Watch,
+1. **Fondasi** Ã¢â‚¬â€ schema Supabase, auth + approval flow, agent versi basic (ping/psutil), dashboard status up/down.
+2. **Traffic detail** Ã¢â‚¬â€ tambah scapy untuk flow table, halaman Traffic dengan search & filter.
+3. **Klasifikasi & alert** Ã¢â‚¬â€ rule engine severity, halaman History & Alert.
+4. **AI layer** Ã¢â‚¬â€ integrasi Hermes Agent untuk ringkasan otomatis per event.
+5. **Bandwidth & path diagnostics (opsional, on-demand)** Ã¢â‚¬â€ job iperf3/mtr terpisah, tabel & halaman diagnostik baru, tidak masuk baseline severity.
+6. **Operational network visibility** Ã¢â‚¬â€ Traffic pasif, selective Health Watch,
    on-demand bounded Network Discovery, dan Managed Infrastructure Telemetry (SNMP
    read-only, 7.11) tetap sebagai workflow terpisah.
 
 ## 13. Risiko & catatan teknis
 
-- Free tier Supabase & HF Spaces punya batas resource dan bisa sleep saat idle — desain harus toleran terhadap ini (agent buffer lokal, Hermes dipanggil event-based bukan real-time).
-- Menyimpan raw packet penuh akan membebani database — gunakan flow record ringkas.
+- Free tier Supabase & HF Spaces punya batas resource dan bisa sleep saat idle Ã¢â‚¬â€ desain harus toleran terhadap ini (agent buffer lokal, Hermes dipanggil event-based bukan real-time).
+- Menyimpan raw packet penuh akan membebani database Ã¢â‚¬â€ gunakan flow record ringkas.
 - Definisi baseline/threshold sebaiknya terpusat di satu tempat (edge function), bukan di tiap agent, agar konsisten jika suatu saat ada lebih dari satu titik monitoring.

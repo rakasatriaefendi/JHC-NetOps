@@ -1,5 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 export const NETWORK_NODE_TYPES = [
   "gateway",
   "router",
@@ -40,23 +38,6 @@ export type NetworkNodeInput = {
   location: string | null;
   notes: string | null;
 };
-
-export const NETWORK_NODE_SELECT =
-  "id, ip_address, name, device_type, location, notes, detected_fingerprint, last_inspected_at, created_by, created_at, updated_at";
-
-export async function loadNetworkNodes(
-  supabase: SupabaseClient,
-): Promise<{ data: NetworkNode[]; error: boolean }> {
-  const { data, error } = await supabase
-    .from("network_nodes")
-    .select(NETWORK_NODE_SELECT)
-    .order("ip_address", { ascending: true })
-    .returns<NetworkNode[]>();
-
-  return error
-    ? { data: [], error: true }
-    : { data: data ?? [], error: false };
-}
 
 export function findNetworkNode(
   nodes: NetworkNode[],

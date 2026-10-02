@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireOperatorProfile } from "@/lib/auth";
-import { applicationAuthority, applicationDeleted, localApplicationRequest, localHealthTarget, localNetworkNode,
+import { applicationDeleted, localApplicationRequest, localHealthTarget, localNetworkNode,
   localNetworkNodes, localRunner } from "@/lib/application-persistence";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
 import {
@@ -50,44 +50,18 @@ export async function saveManualNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { supabase, userId } = await requireOperatorProfile();
-  if (applicationAuthority() === "local_postgres") {
-    const nodes = await localNetworkNodes();
-    if (!nodes) redirect("/devices?device_error=save-failed#device-inventory");
-    if (nodes.some((node) => node.ip_address === normalizedIp)) {
-      redirect("/devices?device_notice=existing#device-inventory");
-    }
-    const created = await localApplicationRequest("POST", "/api/application/network-nodes", {
-      actor_id: userId,
-      input: { ip_address: normalizedIp, name: input.name.trim(), device_type: input.device_type,
-        location: input.location, notes: input.notes },
-    });
-    if (!created.ok) redirect("/devices?device_error=save-failed#device-inventory");
-    revalidatePath("/devices");
-    revalidatePath("/snmp");
-    revalidatePath("/dashboard");
-    redirect("/devices?device_notice=created#device-inventory");
-  }
-  const { data: existing, error: lookupError } = await supabase
-    .from("network_nodes")
-    .select("id")
-    .eq("ip_address", normalizedIp)
-    .maybeSingle();
-  if (lookupError) redirect("/devices?device_error=save-failed#device-inventory");
-  if (existing) redirect("/devices?device_notice=existing#device-inventory");
-
-  const { error } = await supabase.from("network_nodes").insert({
-    ip_address: normalizedIp,
-    name: input.name.trim(),
-    device_type: input.device_type,
-    location: input.location,
-    notes: input.notes,
-    created_by: userId,
-  });
-  if (error?.code === "23505") {
+  const { userId } = await requireOperatorProfile();
+  const nodes = await localNetworkNodes();
+  if (!nodes) redirect("/devices?device_error=save-failed#device-inventory");
+  if (nodes.some((node) => node.ip_address === normalizedIp)) {
     redirect("/devices?device_notice=existing#device-inventory");
   }
-  if (error) redirect("/devices?device_error=save-failed#device-inventory");
+  const created = await localApplicationRequest("POST", "/api/application/network-nodes", {
+    actor_id: userId,
+    input: { ip_address: normalizedIp, name: input.name.trim(), device_type: input.device_type,
+      location: input.location, notes: input.notes },
+  });
+  if (!created.ok) redirect("/devices?device_error=save-failed#device-inventory");
 
   revalidatePath("/devices");
   revalidatePath("/snmp");
@@ -119,33 +93,14 @@ export async function saveNetworkTargetAction(formData: FormData) {
     && Number.isFinite(values.loss_warning_percent) && values.loss_warning_percent >= 0 && values.loss_warning_percent <= 100;
   if (!valid) redirect("/devices?health_error=invalid-request#network-health-targets");
 
-  const { supabase, userId } = await requireOperatorProfile();
-  if (applicationAuthority() === "local_postgres") {
-    const [node, runner] = await Promise.all([localNetworkNode(nodeId), localRunner(runnerId)]);
-    if (!node || !runner) redirect("/devices?health_error=unknown-target#network-health-targets");
-    const saved = await localApplicationRequest("POST", "/api/application/network-targets", {
-      actor_id: userId, input: { node_id: nodeId, runner_id: runnerId,
-        enabled: formData.get("enabled") === "on", critical: formData.get("critical") === "on", ...values },
-    });
-    if (!saved.ok) redirect("/devices?health_error=save-failed#network-health-targets");
-    revalidatePath("/devices");
-    revalidatePath("/dashboard");
-    redirect("/devices?health_notice=saved#network-health-targets");
-  }
-  const [{ data: node }, { data: runner }] = await Promise.all([
-    supabase.from("network_nodes").select("id").eq("id", nodeId).maybeSingle(),
-    supabase.from("diagnostic_runners").select("id").eq("id", runnerId).maybeSingle(),
-  ]);
+  const { userId } = await requireOperatorProfile();
+  const [node, runner] = await Promise.all([localNetworkNode(nodeId), localRunner(runnerId)]);
   if (!node || !runner) redirect("/devices?health_error=unknown-target#network-health-targets");
-  const { error } = await supabase.from("network_targets").upsert({
-    node_id: nodeId,
-    runner_id: runnerId,
-    enabled: formData.get("enabled") === "on",
-    critical: formData.get("critical") === "on",
-    probe_method: "icmp",
-    ...values,
-  }, { onConflict: "runner_id,node_id" });
-  if (error) redirect("/devices?health_error=save-failed#network-health-targets");
+  const saved = await localApplicationRequest("POST", "/api/application/network-targets", {
+    actor_id: userId, input: { node_id: nodeId, runner_id: runnerId,
+      enabled: formData.get("enabled") === "on", critical: formData.get("critical") === "on", ...values },
+  });
+  if (!saved.ok) redirect("/devices?health_error=save-failed#network-health-targets");
   revalidatePath("/devices");
   revalidatePath("/dashboard");
   redirect("/devices?health_notice=saved#network-health-targets");
@@ -161,32 +116,11 @@ export async function updateNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { supabase, userId } = await requireOperatorProfile();
-  if (applicationAuthority() === "local_postgres") {
-    const existing = await localNetworkNode(nodeId);
-    if (!existing || typeof existing.ip_address !== "string") {
-      redirect("/devices?device_error=unknown-device#device-inventory");
-    }
-    const input: NetworkNodeInput = {
-      ip_address: existing.ip_address, name: String(formData.get("name") ?? ""),
-      device_type: deviceType ? deviceType as NetworkNodeType : null,
-      location: optionalText(formData.get("location")), notes: optionalText(formData.get("notes")),
-    };
-    if (validateManualNetworkNodeInput(input)) redirect("/devices?device_error=invalid-request#device-inventory");
-    const updated = await localApplicationRequest("PATCH", `/api/application/network-nodes/${nodeId}`, {
-      actor_id: userId, input: { name: input.name.trim(), device_type: input.device_type,
-        location: input.location, notes: input.notes },
-    });
-    if (!updated.ok) redirect("/devices?device_error=save-failed#device-inventory");
-    revalidateDevices();
-    redirect("/devices?device_notice=updated#device-inventory");
+  const { userId } = await requireOperatorProfile();
+  const existing = await localNetworkNode(nodeId);
+  if (!existing || typeof existing.ip_address !== "string") {
+    redirect("/devices?device_error=unknown-device#device-inventory");
   }
-  const { data: existing, error: lookupError } = await supabase
-    .from("network_nodes")
-    .select("id,ip_address")
-    .eq("id", nodeId)
-    .maybeSingle();
-  if (lookupError || !existing) redirect("/devices?device_error=unknown-device#device-inventory");
 
   const input: NetworkNodeInput = {
     ip_address: existing.ip_address,
@@ -199,13 +133,11 @@ export async function updateNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { error } = await supabase.from("network_nodes").update({
-    name: input.name.trim(),
-    device_type: input.device_type,
-    location: input.location,
-    notes: input.notes,
-  }).eq("id", nodeId);
-  if (error) redirect("/devices?device_error=save-failed#device-inventory");
+  const updated = await localApplicationRequest("PATCH", `/api/application/network-nodes/${nodeId}`, {
+    actor_id: userId, input: { name: input.name.trim(), device_type: input.device_type,
+      location: input.location, notes: input.notes },
+  });
+  if (!updated.ok) redirect("/devices?device_error=save-failed#device-inventory");
 
   revalidateDevices();
   redirect("/devices?device_notice=updated#device-inventory");
@@ -221,32 +153,16 @@ export async function deleteNetworkTargetAction(formData: FormData) {
     redirect("/devices?health_error=invalid-request#network-health-targets");
   }
 
-  const { supabase, userId } = await requireOperatorProfile();
-  if (applicationAuthority() === "local_postgres") {
-    const target = await localHealthTarget(targetId);
-    if (!target || typeof target.node_name !== "string" || typeof target.ip_address !== "string" ||
-      confirmation !== confirmationLabel(target.node_name, target.ip_address)) {
-      redirect("/devices?health_error=unknown-target#network-health-targets");
-    }
-    const deleted = await localApplicationRequest("DELETE", `/api/application/network-targets/${targetId}`,
-      { actor_id: userId, confirmation });
-    if (!applicationDeleted(deleted)) redirect("/devices?health_error=delete-failed#network-health-targets");
-    revalidatePath("/devices");
-    revalidatePath("/dashboard");
-    redirect("/devices?health_notice=deleted#network-health-targets");
-  }
-  const { data: target, error: lookupError } = await supabase
-    .from("network_targets")
-    .select("id,node_id,network_nodes(name,ip_address)")
-    .eq("id", targetId)
-    .maybeSingle();
-  const node = relation(target?.network_nodes);
-  if (lookupError || !target || !node || confirmation !== confirmationLabel(node.name, node.ip_address)) {
+  const { userId } = await requireOperatorProfile();
+  const target = await localHealthTarget(targetId);
+  if (!target || typeof target.node_name !== "string" || typeof target.ip_address !== "string" ||
+    confirmation !== confirmationLabel(target.node_name, target.ip_address)) {
     redirect("/devices?health_error=unknown-target#network-health-targets");
   }
 
-  const { error } = await supabase.from("network_targets").delete().eq("id", targetId);
-  if (error) redirect("/devices?health_error=delete-failed#network-health-targets");
+  const deleted = await localApplicationRequest("DELETE", `/api/application/network-targets/${targetId}`,
+    { actor_id: userId, confirmation });
+  if (!applicationDeleted(deleted)) redirect("/devices?health_error=delete-failed#network-health-targets");
   revalidatePath("/devices");
   revalidatePath("/dashboard");
   redirect("/devices?health_notice=deleted#network-health-targets");
@@ -262,43 +178,18 @@ export async function deleteNetworkNodeAction(formData: FormData) {
     redirect("/devices?device_error=invalid-request#device-inventory");
   }
 
-  const { supabase, userId } = await requireOperatorProfile();
-  if (applicationAuthority() === "local_postgres") {
-    const node = await localNetworkNode(nodeId);
-    if (!node || typeof node.name !== "string" || typeof node.ip_address !== "string" ||
-      confirmation !== confirmationLabel(node.name, node.ip_address)) {
-      redirect("/devices?device_error=unknown-device#device-inventory");
-    }
-    const deleted = await localApplicationRequest("DELETE", `/api/application/network-nodes/${nodeId}`,
-      { actor_id: userId, confirmation });
-    if (!applicationDeleted(deleted)) {
-      redirect(`/devices?device_error=${deleted.code === "DEPENDENT_TARGETS_PRESENT" ? "blocked-health-snmp" : "delete-failed"}#device-inventory`);
-    }
-    revalidateDevices();
-    redirect("/devices?device_notice=deleted#device-inventory");
-  }
-  const { data: node, error: lookupError } = await supabase
-    .from("network_nodes")
-    .select("id,name,ip_address")
-    .eq("id", nodeId)
-    .maybeSingle();
-  if (lookupError || !node || confirmation !== confirmationLabel(node.name, node.ip_address)) {
+  const { userId } = await requireOperatorProfile();
+  const node = await localNetworkNode(nodeId);
+  if (!node || typeof node.name !== "string" || typeof node.ip_address !== "string" ||
+    confirmation !== confirmationLabel(node.name, node.ip_address)) {
     redirect("/devices?device_error=unknown-device#device-inventory");
   }
 
-  const [{ data: healthDependencies, error: healthError }, { data: snmpDependencies, error: snmpError }] = await Promise.all([
-    supabase.from("network_targets").select("id").eq("node_id", nodeId).limit(1),
-    supabase.from("managed_telemetry_targets").select("id").eq("node_id", nodeId).limit(1),
-  ]);
-  if (healthError || snmpError) redirect("/devices?device_error=dependency-check-failed#device-inventory");
-  if (healthDependencies?.length && snmpDependencies?.length) {
-    redirect("/devices?device_error=blocked-health-snmp#device-inventory");
+  const deleted = await localApplicationRequest("DELETE", `/api/application/network-nodes/${nodeId}`,
+    { actor_id: userId, confirmation });
+  if (!applicationDeleted(deleted)) {
+    redirect(`/devices?device_error=${deleted.code === "DEPENDENT_TARGETS_PRESENT" ? "blocked-health-snmp" : "delete-failed"}#device-inventory`);
   }
-  if (healthDependencies?.length) redirect("/devices?device_error=blocked-health#device-inventory");
-  if (snmpDependencies?.length) redirect("/devices?device_error=blocked-snmp#device-inventory");
-
-  const { error } = await supabase.from("network_nodes").delete().eq("id", nodeId);
-  if (error) redirect("/devices?device_error=delete-failed#device-inventory");
   revalidateDevices();
   redirect("/devices?device_notice=deleted#device-inventory");
 }
@@ -310,15 +201,6 @@ function optionalText(value: FormDataEntryValue | null) {
 
 function integerBetween(value: number, minimum: number, maximum: number) {
   return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
-}
-
-function relation(value: unknown): { name: string; ip_address: string } | null {
-  if (Array.isArray(value)) return relation(value[0]);
-  if (!value || typeof value !== "object") return null;
-  const row = value as { name?: unknown; ip_address?: unknown };
-  return typeof row.name === "string" && typeof row.ip_address === "string"
-    ? { name: row.name, ip_address: row.ip_address }
-    : null;
 }
 
 function confirmationLabel(name: string, ipAddress: string) {

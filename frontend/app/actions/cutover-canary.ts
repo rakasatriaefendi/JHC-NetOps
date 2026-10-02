@@ -1,7 +1,7 @@
 "use server";
 
 import { requireAdminProfile } from "@/lib/auth";
-import { applicationAuthority, localApplicationRequest } from "@/lib/application-persistence";
+import { localApplicationRequest } from "@/lib/application-persistence";
 
 /**
  * Internal cutover canary server action.
@@ -20,10 +20,6 @@ export async function executeCutoverCanary(): Promise<{
   readOk?: boolean;
   cleanupOk?: boolean;
 }> {
-  if (applicationAuthority() !== "local_postgres") {
-    return { ok: false, error: "Canary requires local_postgres authority" };
-  }
-
   await requireAdminProfile();
   const cutoverIdentity = `p13-cutover-${Date.now()}-${crypto.randomUUID().replaceAll("-", "").slice(0, 6)}`;
   const payload = { test: "internal-cutover-canary", timestamp: new Date().toISOString() };

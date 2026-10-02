@@ -92,7 +92,7 @@ test("Next realtime route uses existing approved profile auth and server-only ba
   assert.match(route, /normalizedProfile\(await localAuthenticatedProfile\(\)\)/);
   assert.doesNotMatch(route, /supabase\.auth\.|getClaims\(\)/);
   assert.match(route, /profile\?\.status === "approved"/);
-  assert.match(route, /applicationAuthority\(\) === "local_postgres"/);
-  assert.match(route, /localBackendConfig\(\)/);
+  assert.match(route, /createLocalRealtimeProxy\(\{/);
+  assert.match(route, /backend: localBackendConfig/);
   assert.doesNotMatch(route, /LOCAL_BACKEND_(?:URL|TOKEN)|127\.0\.0\.1|Bearer /);
 });

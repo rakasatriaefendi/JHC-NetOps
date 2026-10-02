@@ -39,11 +39,11 @@ test("Traffic client refreshes authoritative local state and ignores shadow snap
   const component = readFileSync(new URL("../components/traffic/traffic-live-page.tsx", import.meta.url), "utf8");
   const action = readFileSync(new URL("../app/actions/traffic.ts", import.meta.url), "utf8");
   assert.match(component, /getTrafficRunnersAction/);
-  assert.match(component, /runnerAuthorityRef\.current === "local_postgres"\) return/);
+  assert.match(component, /runnerAuthority !== "local_postgres"\) return/);
   assert.match(component, /setState\(nextState\)/);
   assert.match(component, /transient refresh failure does not erase the last authoritative heartbeat/i);
   assert.match(component, /window\.setInterval[^]*10_000/);
-  assert.match(action, /authority === "local_postgres"[\s\S]*localRunners\(\)/);
-  assert.match(action, /\.from\("diagnostic_runners"\)/);
+  assert.match(action, /const authority = "local_postgres" as const;[\s\S]*localRunners\(\)/);
+  assert.match(action, /normalizeTrafficRunnerSnapshots\(rows\)/);
   assert.doesNotMatch(component, /LOCAL_BACKEND_FRONTEND_TOKEN|localRunners|localApplicationRequest/);
 });

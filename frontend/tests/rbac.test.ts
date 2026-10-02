@@ -10,7 +10,6 @@ import {
   isActiveUser,
   isProfileRole,
 } from "../lib/authorization.ts";
-import { canOperateNetwork as canOperateAtEdge } from "../../supabase/functions/_shared/authorization.ts";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -21,9 +20,6 @@ test("role and access predicates keep authorization independent", () => {
   assert.equal(canAdministerUsers("admin"), true);
   assert.equal(canAdministerUsers("operator"), false);
   assert.equal(canAdministerUsers("viewer"), false);
-  assert.equal(canOperateAtEdge("admin"), true);
-  assert.equal(canOperateAtEdge("operator"), true);
-  assert.equal(canOperateAtEdge("viewer"), false);
   assert.equal(isActiveUser("approved"), true);
   assert.equal(isActiveUser("pending"), false);
   assert.equal(isActiveUser("rejected"), false);
@@ -32,7 +28,7 @@ test("role and access predicates keep authorization independent", () => {
 
 test("network actions require both approved status and an operational role", () => {
   const networkActionAllowed = (status: unknown, role: unknown) =>
-    status === "approved" && canOperateAtEdge(role);
+    status === "approved" && typeof role === "string" && isProfileRole(role) && canOperateNetwork(role);
 
   assert.equal(networkActionAllowed("approved", "operator"), true);
   assert.equal(networkActionAllowed("pending", "operator"), false);
@@ -80,20 +76,6 @@ test("Admin UI exposes independent role and access selectors", () => {
   assert.match(control, /t\("common:status\.rejected"\)/);
   assert.match(control, /t\("access\.saving"\)/);
   assert.doesNotMatch(control, /Menyimpanâ€¦/);
-});
-
-test("all active network endpoints require an approved profile and the shared operator predicate", () => {
-  for (const path of [
-    "../../supabase/functions/diagnostic-jobs/index.ts",
-    "../../supabase/functions/network-discovery/index.ts",
-    "../../supabase/functions/device-inspector/index.ts",
-    "../../supabase/functions/traffic-live/index.ts",
-    "../../supabase/functions/network-health/index.ts",
-  ]) {
-    const endpoint = source(path);
-    assert.match(endpoint, /profile\?\.status\s*!==\s*["']approved["'][\s\S]{0,160}403/, `${path}: approved status gate`);
-    assert.match(endpoint, /canOperateNetwork\(auth\.role\)/, `${path}: operator role gate`);
-  }
 });
 
 test("database migration enforces Operator policies and last-admin safety", () => {

@@ -10,11 +10,11 @@ import type { AssetChangeHistoryQuery } from "@/lib/asset-change-contract";
 
 export default async function HistoryPage({ searchParams }: { searchParams: Promise<AssetChangeHistoryQuery> }) {
   const { t } = await getServerTranslation("history");
-  const { supabase, profile } = await requireApprovedProfile();
+  const { profile } = await requireApprovedProfile();
   const query = await searchParams;
   const [networkNodes, healthEvents, assetChanges] = await Promise.all([
-    loadAuthoritativeNetworkNodes(supabase),
-    loadNetworkHealthHistory(supabase),
+    loadAuthoritativeNetworkNodes(),
+    loadNetworkHealthHistory(),
     loadAssetChangeHistory(query),
   ]);
   return (

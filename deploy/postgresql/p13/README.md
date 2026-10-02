@@ -1,5 +1,8 @@
 # P13 application database cutover runbook
 
+> **Historical accepted P13 runbook:** commands refer to the immutable cutover release and are not exposed by the current package manifest. Do not use this file to restore a compatibility authority in P16.
+
+
 This is a reviewed operator runbook and source-side evidence journal. Nothing in
 this directory runs automatically. P13 targets only PostgreSQL
 `16/jhcnetops`, port `5433`, database `jhc_netops`. PostgreSQL `16/main`, port
@@ -67,7 +70,7 @@ PM2, Supabase deployment, or migrations: it records independently produced and
 reviewed evidence. This separation prevents a single command from becoming an
 implicit production cutover.
 
-## Pre-cutover — CHECKPOINT 0
+## Pre-cutover Ã¢â‚¬â€ CHECKPOINT 0
 
 Run `preflight` only after operator review. Retain:
 
@@ -125,7 +128,7 @@ and Asset evidence sync disabled. It intentionally does not claim migration
 `008` objects, Realtime projector readiness, or a `projection-outbox` buffer:
 those do not exist until the reviewed final schema/import has completed.
 
-## Final copy — CHECKPOINT 1
+## Final copy Ã¢â‚¬â€ CHECKPOINT 1
 
 Capture a complete immutable S1 only after the freeze gate passes. Keep all 21
 accepted P12 application tables, canonical keys, full content hashes, and a
@@ -271,7 +274,7 @@ captured S1 hash. The journal invocation itself uses the `jhc_netops_app` DSN
 and never substitutes for the actual administrative transaction or executes
 SQL.
 
-## Verify — CHECKPOINT 2
+## Verify Ã¢â‚¬â€ CHECKPOINT 2
 
 Run the complete P12 parity checks plus P13 gates: counts, keysets, hashes,
 foreign keys, active rows, Auth logical references, target coverage, buffer
@@ -279,7 +282,7 @@ manifests, identity dispositions, and the absence of automatic ambiguous merges.
 `verify-final` accepts only a PASS report for the exact target/S1 identity and
 then records `CHECKPOINT_2_LOCAL_IMPORTED_VERIFIED`.
 
-## Authority switch — CHECKPOINT 3
+## Authority switch Ã¢â‚¬â€ CHECKPOINT 3
 
 Immediately capture fresh post-import authority evidence under the same cutover
 identity. Unlike the earlier freeze gate, this gate requires migration `008`
@@ -315,7 +318,7 @@ and `ollama-server`. Only the reviewed NetOps processes are in scope.
 
 ## Rollback window
 
-- Checkpoints 0–2: Supabase is authoritative. Application code can return to the
+- Checkpoints 0Ã¢â‚¬â€œ2: Supabase is authoritative. Application code can return to the
   accepted release and the pre-apply local checkpoint can be restored under a
   separate reviewed database step.
 - Checkpoint 3 with zero accepted local writes: a coordinated configuration /

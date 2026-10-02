@@ -13,7 +13,6 @@ import { PostgresProfilesRepository } from "../src/persistence/profiles.js";
 import { PostgresNetworkInventoryRepository } from "../src/persistence/inventory.js";
 import { PostgresHopMeasurementsRepository } from "../src/persistence/hop-measurements.js";
 import { buildServer } from "../src/server.js";
-import { SupabaseRestClient } from "../src/supabase-rest.js";
 
 const migration = readFileSync(fileURLToPath(new URL("../migrations/007_application_persistence.sql", import.meta.url)), "utf8");
 
@@ -60,23 +59,6 @@ test("local stale-session recovery retains the reviewed bounded lease predicate"
   assert.equal(calls.length, 1);
   for (const fragment of ["10 minutes", "30 seconds", "45 seconds", "SESSION_ORPHANED"]) {
     assert.ok(calls[0]!.includes(fragment));
-  }
-});
-
-test("local authority rejects legacy Supabase application REST and RPC before network", async () => {
-  const originalFetch = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = async () => { calls += 1; throw new Error("unexpected network call"); };
-  try {
-    const client = new SupabaseRestClient("https://example.invalid", "test-only-key", "local_postgres");
-    const signal = new AbortController().signal;
-    await assert.rejects(client.table("network_nodes", { method: "POST", body: { id: "fixture" }, signal }),
-      /requires supabase authority/);
-    await assert.rejects(client.table("profiles", { signal }), /requires supabase authority/);
-    await assert.rejects(client.rpc("expire_stale_traffic_sessions", {}, signal), /requires supabase authority/);
-    assert.equal(calls, 0);
-  } finally {
-    globalThis.fetch = originalFetch;
   }
 });
 

@@ -1,65 +1,13 @@
-# Supabase Backend
+# Historical Supabase Migration Evidence
 
-Folder ini berisi migration database, RLS policy, Realtime setup, dan Edge Functions.
-Semua perubahan schema harus dibuat sebagai migration baru; jangan mengubah production
-schema hanya melalui Dashboard tanpa menyimpan migration yang setara.
+Folder ini dipertahankan hanya untuk migration historis immutable di
+`supabase/migrations/**`. File tersebut merekam schema/RLS/Realtime lama dan
+tidak boleh diubah dalam P16.3.
 
-## Isi folder
+Tidak ada Supabase runtime, SDK, Edge Function, config project, deployment script,
+atau compatibility authority aktif. Jangan menjalankan migration atau deploy dari
+folder ini. Project remote tetap tidak disentuh sampai P16.4 menerima seluruh
+quality gate dan operator menyetujui decommission final.
 
-### Edge Functions
-
-| Function | Fungsi |
-|---|---|
-| `ingest` | Menerima traffic metrics dan menjalankan baseline/severity terpusat. |
-| `diagnostics` | Menyimpan bandwidth dan hop measurements. |
-| `diagnostic-jobs` | API structured job one-click LAN Diagnostics. |
-| `traffic-live` | Lifecycle session, snapshot, dan flow persistence. |
-| `network-health` | Target Health Watch, latest status, dan transition event. |
-| `network-discovery` | Session dan result Discovery yang sementara/bounded. |
-| `device-inspector` | Lifecycle inspeksi satu target yang terotorisasi dan bounded. |
-| `managed-telemetry` | Konfigurasi target serta persistence latest Managed SNMP dan Observed LAN Hosts. |
-
-Diagnostics, Health Watch, Traffic, dan Discovery memiliki jalur terpisah. Hasil
-diagnostics tidak boleh masuk rolling baseline atau severity `ingest`.
-
-### Migrations
-
-Migration mencakup schema awal, auth/RLS, diagnostics, Live Traffic, lock recovery,
-network context, node inventory, Health Watch/history/manual ping, Network Discovery,
-Device Inspector, Managed Telemetry, alerting, dan Observed LAN Hosts.
-
-## Setup
-
-Dari root repository:
-
-```powershell
-npx supabase login
-npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push
-```
-
-Deploy function sesuai fitur yang digunakan:
-
-```powershell
-npx supabase functions deploy ingest
-npx supabase functions deploy diagnostics
-npx supabase functions deploy diagnostic-jobs
-npx supabase functions deploy traffic-live
-npx supabase functions deploy network-health
-npx supabase functions deploy network-discovery
-npx supabase functions deploy device-inspector
-npx supabase functions deploy managed-telemetry
-```
-
-Jangan commit `supabase/.temp`; folder tersebut berisi state lokal project link.
-
-## Access control
-
-- Tabel operasional hanya dapat dibaca profile berstatus `approved`.
-- Admin mempunyai policy tambahan untuk approval dan konfigurasi.
-- Browser tidak memperoleh service-role key.
-- Mutation runner dilakukan melalui endpoint tervalidasi/service role.
-- Admin pertama di-seed manual sesuai [AUTH_SETUP.md](../docs/AUTH_SETUP.md).
-
-Sebelum mengubah schema, cocokkan dengan bagian skema di [PRD.md](../docs/PRD.md)
-dan aturan RLS pada [AGENTS.md](../docs/AGENTS.md).
+Rollback source dilakukan dengan release immutable dan runbook fase terkait,
+bukan dengan mengaktifkan kembali fallback dalam source current.

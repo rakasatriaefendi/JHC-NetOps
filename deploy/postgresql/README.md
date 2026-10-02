@@ -1,5 +1,10 @@
 # Dedicated JHC NetOps PostgreSQL cluster
 
+> **Current P16 runtime:** local PostgreSQL, Local Auth, and local SSE are
+> authoritative. P12/P13/P15 sections below are retained as historical rollout
+> evidence. They do not authorize a remote fallback or compatibility authority.
+
+
 These files are the reviewed provisioning/recovery path for the established
 foundation. They are **not** executed by the application or by repository tests.
 
@@ -63,7 +68,7 @@ another database or schema.
 
 ## Verification layers
 
-### Layer 1 — Application Connection Preflight
+### Layer 1 Ã¢â‚¬â€ Application Connection Preflight
 
 Perform read-only acceptance with the application role. `psql` prompts for the
 password and the commands do not print it:
@@ -100,7 +105,7 @@ preflight must remain read-only. It executes only `SELECT`; it never applies the
 migration wrapper or repairs missing objects. This candidate procedure does not
 alter the final live release or `current` symlink workflow.
 
-### Layer 2 — Host/Cluster Operator Verification
+### Layer 2 Ã¢â‚¬â€ Host/Cluster Operator Verification
 
 Separately, an authorized operator verifies that cluster `16/jhcnetops` is
 online on port `5433`, uses data directory
@@ -170,9 +175,9 @@ authoritative. It validates and drops exactly the 16 `shadow_*` triggers created
 by migration 008. It does not drain or rewrite the existing backlog, drop the
 enqueue function, alter domain tables, or touch any `local_realtime_*` trigger.
 
-Keep the existing protected Supabase server credentials during the rollback
-window, but they are no longer required by a `local_postgres` backend release.
-Do not remove the Supabase project, packages, historical outbox, or watermarks.
+Historical remote credentials are not part of the active release or environment.
+Retain only protected offline rollback evidence until P16.4 acceptance. Do not
+remove historical outbox/watermarks or the remote project during P16.3.
 Apply the immutable candidate migration only during the approved NetOps change
 window, with the NetOps backend stopped and the exact dedicated cluster named:
 
@@ -276,7 +281,7 @@ Rolling application code back to P15.2 can restore application correctness,
 but it cannot by itself restore shadow projection: migration 015 has retired
 the producer triggers. Restoring shadow projection is a separate reviewed
 database change that must recreate the exact migration-008 trigger inventory,
-validate preserved outbox/watermark evidence, retain the protected Supabase
-credentials, and only then run the P15.2 projector. Never claim that a symlink
+validate preserved outbox/watermark evidence and use the separately archived,
+reviewed rollback release and credentials. Current source contains no projector. Never claim that a symlink
 rollback alone re-enables shadow production, and never purge historical rows as
 part of either rollback.

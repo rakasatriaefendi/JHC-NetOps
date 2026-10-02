@@ -23,7 +23,7 @@ test("runtime auth surfaces contain no Supabase Auth calls", () => {
     "../app/auth/callback/route.ts",
     "../app/api/realtime/events/route.ts",
     "../lib/auth.ts",
-    "../lib/supabase/proxy.ts",
+    "../lib/auth-proxy.ts",
   ]) assert.doesNotMatch(source(path), /supabase\.auth\.|\.auth\.(?:getClaims|getUser|signInWithPassword|signUp|signOut|exchangeCodeForSession)/);
 });
 

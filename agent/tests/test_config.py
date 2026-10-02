@@ -3,16 +3,14 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-from network_monitoring_agent.config import DiagnosticsSettings, Settings, TrafficSettings
+from network_monitoring_agent.config import Settings, TrafficSettings
 
 
 class SettingsTest(TestCase):
     @patch("network_monitoring_agent.config.load_dotenv")
     def test_blank_optional_values_use_defaults(self, _load_dotenv) -> None:
         environment = {
-            "PERSISTENCE_AUTHORITY": "supabase",
-            "SUPABASE_URL": "https://example.supabase.co/",
-            "SUPABASE_SERVICE_ROLE_KEY": "test-secret",
+            "PERSISTENCE_AUTHORITY": "local_postgres",
             "METRICS_INTERVAL_SECONDS": "",
             "LOCAL_BUFFER_PATH": "",
             "REQUEST_TIMEOUT_SECONDS": "",
@@ -21,7 +19,6 @@ class SettingsTest(TestCase):
         with patch.dict(os.environ, environment, clear=True):
             settings = Settings.from_env()
 
-        self.assertEqual(settings.supabase_url, "https://example.supabase.co")
         self.assertEqual(settings.interval_seconds, 10)
         self.assertEqual(settings.buffer_path, Path("data/metrics-buffer.sqlite3"))
         self.assertEqual(settings.request_timeout_seconds, 10.0)
@@ -36,7 +33,6 @@ class SettingsTest(TestCase):
         with patch.dict(os.environ, environment, clear=True):
             settings = TrafficSettings.from_env()
         self.assertEqual(settings.backend_url, "http://127.0.0.1:3402")
-        self.assertTrue(settings.local_backend)
         self.assertEqual(settings.backend_token, environment["LOCAL_BACKEND_TOKEN"])
 
     @patch("network_monitoring_agent.config.load_dotenv")
@@ -52,17 +48,12 @@ class SettingsTest(TestCase):
                     TrafficSettings.from_env()
 
     @patch("network_monitoring_agent.config.load_dotenv")
-    def test_local_authority_never_falls_back_to_edge_delivery(self, _load_dotenv) -> None:
+    def test_local_authority_requires_local_traffic_delivery(self, _load_dotenv) -> None:
         base = {
             "PERSISTENCE_AUTHORITY": "local_postgres",
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_SERVICE_ROLE_KEY": "service-key",
         }
         with patch.dict(os.environ, base, clear=True):
-            with self.assertRaisesRegex(ValueError, "Continuous legacy metrics delivery"):
-                Settings.from_env()
-            with self.assertRaisesRegex(ValueError, "Legacy diagnostics delivery"):
-                DiagnosticsSettings.from_env()
+            self.assertEqual(Settings.from_env().interval_seconds, 10)
             with self.assertRaisesRegex(ValueError, "Local Traffic backend configuration is required"):
                 TrafficSettings.from_env()
 

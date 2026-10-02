@@ -24,7 +24,6 @@ import {
   type NetworkNodeInput,
   type NetworkNodeType,
 } from "@/lib/network-nodes";
-import { createClient } from "@/lib/supabase/client";
 import { healthTargetMonitoringStateAction, promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
 import type { ProfileRole } from "@/lib/authorization";
@@ -93,17 +92,6 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
     });
     return () => { cancelled = true; stopRealtime(); };
   }, [inspectionAuthority, opened, runner, session]);
-
-  useEffect(() => {
-    if (!opened || !runner || inspectionAuthority !== "supabase") return;
-    const supabase = createClient();
-    const channel = supabase.channel(`device-inspector:${runner.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "device_inspection_sessions", filter: `runner_id=eq.${runner.id}` }, (payload) => {
-        const next = payload.new as DeviceInspectionSession;
-        if (next.target_ip === opened.ipAddress) setSession(next);
-      }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [inspectionAuthority, opened, runner]);
 
   useEffect(() => {
     let cancelled = false;

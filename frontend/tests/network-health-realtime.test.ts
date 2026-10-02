@@ -113,7 +113,7 @@ test("Network Health consumer has no Supabase channel or Edge Function fallback"
   assert.match(realtime, /new EventSource\(url\)/);
   assert.match(realtime, /"\/api\/realtime\/events"/);
   assert.match(dashboard, /router\.refresh\(\)/);
-  assert.match(authoritativeSource, /applicationAuthority\(\) === "local_postgres"/);
+  assert.match(authoritativeSource, /return loadNetworkHealthLocal\(\)/);
   assert.match(authoritativeSource, /localHealthTargets\(\)/);
   assert.match(authoritativeSource, /localEvents\(20, "network_health"\)/);
 });

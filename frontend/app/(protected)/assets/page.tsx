@@ -7,8 +7,7 @@ import type { InspectorRunner } from "@/lib/device-inspector";
 import { loadAssetInventory, loadAssetScanState, type AssetInventoryQuery } from "@/lib/assets";
 import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { loadMedicalNetworkLinks } from "@/lib/medical-equipment";
-import { applicationAuthority, localHealthTargets, localManagedTargets, localRunners } from "@/lib/application-persistence";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { localHealthTargets, localManagedTargets, localRunners } from "@/lib/application-persistence";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +17,13 @@ type ManagedTargetContextRow = {
 };
 
 export default async function AssetsPage({ searchParams }: { searchParams: Promise<AssetInventoryQuery> }) {
-  const { supabase, profile } = await requireApprovedProfile();
+  const { profile } = await requireApprovedProfile();
   const query = await searchParams;
   const [result, scan, nodes, context] = await Promise.all([
     loadAssetInventory(query),
     loadAssetScanState(),
-    loadAuthoritativeNetworkNodes(supabase),
-    loadAssetContext(supabase),
+    loadAuthoritativeNetworkNodes(),
+    loadAssetContext(),
   ]);
   const canOperate = canOperateNetwork(profile.role);
   const medicalLinksResult = result.data ? await loadMedicalNetworkLinks(result.data.items.map((asset) => asset.id)) : { data: [], error: null };
@@ -55,33 +54,21 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
   </main>;
 }
 
-async function loadAssetContext(supabase: SupabaseClient): Promise<{
+async function loadAssetContext(): Promise<{
   runners: InspectorRunner[];
   managedTargets: ManagedTargetContextRow[];
   healthTargetIds: string[];
 }> {
-  if (applicationAuthority() === "local_postgres") {
-    const [runners, managedTargets, healthTargets] = await Promise.all([
-      localRunners(), localManagedTargets(), localHealthTargets(),
-    ]);
-    return {
-      runners: (runners ?? []) as InspectorRunner[],
-      managedTargets: (managedTargets ?? []).map((target) => ({
-        id: String(target.id),
-        network_nodes: target.node as ManagedTargetContextRow["network_nodes"],
-      })),
-      healthTargetIds: (healthTargets ?? []).filter((target) => target.enabled === true)
-        .map((target) => String(target.id)),
-    };
-  }
   const [runners, managedTargets, healthTargets] = await Promise.all([
-    supabase.from("diagnostic_runners").select("id,display_name,last_seen_at,health_status,capabilities").order("display_name").returns<InspectorRunner[]>(),
-    supabase.from("managed_telemetry_targets").select("id,network_nodes!inner(name,ip_address)").returns<ManagedTargetContextRow[]>(),
-    supabase.from("network_targets").select("id").eq("enabled", true).returns<{ id: string }[]>(),
+    localRunners(), localManagedTargets(), localHealthTargets(),
   ]);
   return {
-    runners: runners.data ?? [],
-    managedTargets: managedTargets.data ?? [],
-    healthTargetIds: (healthTargets.data ?? []).map((target) => target.id),
+    runners: (runners ?? []) as InspectorRunner[],
+    managedTargets: (managedTargets ?? []).map((target) => ({
+      id: String(target.id),
+      network_nodes: target.node as ManagedTargetContextRow["network_nodes"],
+    })),
+    healthTargetIds: (healthTargets ?? []).filter((target) => target.enabled === true)
+      .map((target) => String(target.id)),
   };
 }

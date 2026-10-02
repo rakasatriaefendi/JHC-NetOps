@@ -2,7 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-export type ApplicationAuthority = "supabase" | "local_postgres";
+export type ApplicationAuthority = "local_postgres";
 
 type AuthorityContextValue = {
   authority: ApplicationAuthority;

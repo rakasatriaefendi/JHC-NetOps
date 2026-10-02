@@ -10,9 +10,7 @@ export async function localApplicationRequest(
   path: string,
   body?: Record<string, unknown>,
 ): Promise<{ ok: boolean; data: unknown; code: string }> {
-  if (getApplicationAuthority() !== "local_postgres") {
-    throw new Error("Local application request requires local_postgres authority");
-  }
+  getApplicationAuthority();
   const config = localBackendConfig();
   const approvedPath = safeApplicationPath(path);
   if (!config || !approvedPath) {

@@ -1,10 +1,7 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
 import { canAdministerUsers, canOperateNetwork, isActiveUser, type ProfileRole, type ProfileStatus } from "@/lib/authorization";
 import { localAuthenticatedProfile } from "@/lib/local-auth";
-import { getApplicationAuthority } from "@/lib/application-authority";
 
 export type { ProfileRole, ProfileStatus } from "@/lib/authorization";
 
@@ -20,7 +17,6 @@ export type Profile = {
 };
 
 type AuthenticatedProfile = {
-  supabase: SupabaseClient;
   userId: string;
   profile: Profile | null;
 };
@@ -28,20 +24,9 @@ type AuthenticatedProfile = {
 export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile> {
   const profile = normalizedProfile(await localAuthenticatedProfile());
   if (!profile) redirect("/login");
-  const supabase = getApplicationAuthority() === "supabase"
-    ? await createClient()
-    : unavailableSupabaseClient();
   const userId = profile.id;
 
-  return { supabase, userId, profile };
-}
-
-function unavailableSupabaseClient(): SupabaseClient {
-  return new Proxy({}, {
-    get() {
-      throw new Error("Supabase compatibility client is unavailable under local_postgres authority");
-    },
-  }) as SupabaseClient;
+  return { userId, profile };
 }
 
 export function normalizedProfile(value: Record<string, unknown> | null): Profile | null {

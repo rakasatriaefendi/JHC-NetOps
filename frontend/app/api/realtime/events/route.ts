@@ -1,5 +1,4 @@
 import { normalizedProfile } from "@/lib/auth";
-import { applicationAuthority } from "@/lib/application-persistence";
 import { localAuthenticatedProfile } from "@/lib/local-auth";
 import { localBackendConfig } from "@/lib/assets";
 import { createLocalRealtimeProxy } from "@/lib/local-realtime-route";
@@ -14,5 +13,5 @@ async function approvedSession(): Promise<boolean> {
 
 export const GET = createLocalRealtimeProxy({
   authenticate: approvedSession,
-  backend: () => applicationAuthority() === "local_postgres" ? localBackendConfig() : null,
+  backend: localBackendConfig,
 });

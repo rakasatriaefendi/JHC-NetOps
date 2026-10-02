@@ -16,8 +16,8 @@ test("Other known targets reuses the single Manual Ping provider and target-id-o
   assert.match(dashboard, /manualPing\.run\(target\.id\)/);
   assert.match(map, /useManualPing\(\)/);
   assert.match(manualPing, /queueManualPingAction\(targetId\)/);
-  assert.match(networkControl, /functions\.invoke[^]*"network-health"/);
-  assert.match(networkControl, /body: \{ action: "manual_ping", target_id: target \}/);
+  assert.match(networkControl, /createPingJobLocal\(userId,[\s\S]*target_id: target/);
+  assert.match(networkControl, /createPingJobLocal\(userId,[\s\S]*target_id: target/);
   assert.doesNotMatch(dashboard, /ip_address[^\n]*manual_ping|manual_ping[^\n]*ip_address/);
 });
 

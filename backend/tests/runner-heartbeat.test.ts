@@ -7,7 +7,6 @@ import type {
   RunnerHeartbeatRow,
   StoredRunnerHeartbeat,
 } from "../src/runner-heartbeat/repository.js";
-import { SupabaseRunnerHeartbeatRepository } from "../src/runner-heartbeat/repository.js";
 import { RUNNER_HEARTBEAT_BODY_LIMIT_BYTES } from "../src/runner-heartbeat/route.js";
 import { buildServer } from "../src/server.js";
 
@@ -223,35 +222,6 @@ test("heartbeat request body is bounded below the global backend limit", async (
   await server.close();
 });
 
-test("Supabase repository uses bounded REST mutations without surfacing credentials", async (t) => {
-  const requests: Array<{ url: string; options: RequestInit }> = [];
-  t.mock.method(globalThis, "fetch", async (url: string | URL | Request, options?: RequestInit) => {
-    requests.push({ url: String(url), options: options ?? {} });
-    if (String(url).includes("diagnostic_runners")) {
-      return new Response(JSON.stringify([{
-        id: "runner-test",
-        last_seen_at: NOW.toISOString(),
-        health_status: "online",
-        health_error_code: null,
-      }]), { status: 201 });
-    }
-    return new Response(null, { status: 204 });
-  });
-  const secret = "service-role-secret-never-returned";
-  const repository = new SupabaseRunnerHeartbeatRepository("https://project.example.invalid", secret);
-  const row = { ...heartbeat().runner, last_seen_at: NOW.toISOString(), updated_at: NOW.toISOString() } as RunnerHeartbeatRow;
-  const signal = AbortSignal.timeout(10_000);
-  const result = await repository.upsertHeartbeat(row, signal);
-  await repository.expireStaleTrafficSessions(row.id, signal);
-
-  assert.equal(result.id, "runner-test");
-  assert.equal(requests.length, 2);
-  assert.match(requests[0]?.url ?? "", /\/rest\/v1\/diagnostic_runners\?/);
-  assert.match(requests[1]?.url ?? "", /\/rest\/v1\/rpc\/expire_stale_traffic_sessions$/);
-  assert.equal(JSON.parse(String(requests[1]?.options.body)).p_runner_id, row.id);
-  assert.doesNotMatch(JSON.stringify(result), /service-role-secret/);
-});
-
 test("persistence failures return and log only bounded categories", async () => {
   const repository: RunnerHeartbeatRepository = {
     async upsertHeartbeat() {
@@ -280,17 +250,4 @@ test("persistence failures return and log only bounded categories", async () => 
   );
   assert.doesNotMatch(routeSource, /request\.body.*log|error\.message.*log/);
   await server.close();
-});
-
-test("local mutation fields and recovery coupling match the retained Edge heartbeat contract", () => {
-  const edgeSource = readFileSync(
-    new URL("../../supabase/functions/diagnostic-jobs/index.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(edgeSource, /last_seen_at: now/);
-  assert.match(edgeSource, /health_status: payload\.runner\.health_status/);
-  assert.match(edgeSource, /health_error_code: payload\.runner\.health_error_code/);
-  assert.match(edgeSource, /capabilities: capabilities\.value/);
-  assert.match(edgeSource, /updated_at: now/);
-  assert.match(edgeSource, /expire_stale_traffic_sessions/);
 });

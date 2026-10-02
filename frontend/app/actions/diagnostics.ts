@@ -1,7 +1,7 @@
 "use server";
 
 import { requireApprovedProfile } from "@/lib/auth";
-import { applicationAuthority, localBandwidthByJob, localBandwidthMeasurements, localDiagnosticJob,
+import { localBandwidthByJob, localBandwidthMeasurements, localDiagnosticJob,
   localDiagnosticJobs, localHopByJob, localHopMeasurements, localRunners,
   type ApplicationAuthority } from "@/lib/application-persistence";
 import type { DiagnosticHistoryData, DiagnosticHistoryQuery } from "@/lib/diagnostic-history";
@@ -12,77 +12,54 @@ import type { DiagnosticsData } from "@/lib/diagnostics";
 type Result<T> = Readonly<{ ok: boolean; authority: ApplicationAuthority; data: T }>;
 
 export async function getDiagnosticJobStateAction(): Promise<Result<DiagnosticJobState>> {
-  const { supabase } = await requireApprovedProfile();
-  const authority = applicationAuthority();
-  if (authority === "local_postgres") {
-    const runners = await localRunners();
-    if (!runners) return { ok: false, authority, data: emptyJobState() };
-    const jobGroups = await Promise.all(runners.slice(0, 50).map((runner) =>
-      typeof runner.id === "string" ? localDiagnosticJobs(runner.id) : Promise.resolve(null)));
-    if (jobGroups.some((group) => group === null)) return { ok: false, authority, data: emptyJobState() };
-    const jobs = jobGroups.flatMap((group) => group ?? [])
-      .sort((left, right) => Date.parse(String(right.created_at)) - Date.parse(String(left.created_at)))
-      .slice(0, 25);
-    return { ok: true, authority, data: {
-      runners: runners as DiagnosticJobState["runners"],
-      jobs: jobs as DiagnosticJobState["jobs"],
-      server_time: new Date().toISOString(),
-    } };
-  }
-  const { data, error } = await supabase.functions.invoke<{ data: DiagnosticJobState }>(
-    "diagnostic-jobs", { method: "GET" });
-  return error || !data?.data
-    ? { ok: false, authority, data: emptyJobState() }
-    : { ok: true, authority, data: data.data };
+  await requireApprovedProfile();
+  const authority = "local_postgres" as const;
+  const runners = await localRunners();
+  if (!runners) return { ok: false, authority, data: emptyJobState() };
+  const jobGroups = await Promise.all(runners.slice(0, 50).map((runner) =>
+    typeof runner.id === "string" ? localDiagnosticJobs(runner.id) : Promise.resolve(null)));
+  if (jobGroups.some((group) => group === null)) return { ok: false, authority, data: emptyJobState() };
+  const jobs = jobGroups.flatMap((group) => group ?? [])
+    .sort((left, right) => Date.parse(String(right.created_at)) - Date.parse(String(left.created_at)))
+    .slice(0, 25);
+  return { ok: true, authority, data: {
+    runners: runners as DiagnosticJobState["runners"],
+    jobs: jobs as DiagnosticJobState["jobs"],
+    server_time: new Date().toISOString(),
+  } };
 }
 
 export async function getDiagnosticsAction(): Promise<Result<DiagnosticsData>> {
-  const { supabase } = await requireApprovedProfile();
-  const authority = applicationAuthority();
-  if (authority === "local_postgres") {
-    const [bandwidth, hops] = await Promise.all([localBandwidthMeasurements(200), localHopMeasurements(512)]);
-    return bandwidth && hops
-      ? { ok: true, authority, data: { bandwidth: bandwidth as DiagnosticsData["bandwidth"], hops: hops as DiagnosticsData["hops"] } }
-      : { ok: false, authority, data: emptyDiagnostics() };
-  }
-  const { data, error } = await supabase.functions.invoke<{ data: DiagnosticsData }>("diagnostics", { method: "GET" });
-  return error || !data?.data
-    ? { ok: false, authority, data: emptyDiagnostics() }
-    : { ok: true, authority, data: data.data };
+  await requireApprovedProfile();
+  const authority = "local_postgres" as const;
+  const [bandwidth, hops] = await Promise.all([localBandwidthMeasurements(200), localHopMeasurements(512)]);
+  return bandwidth && hops
+    ? { ok: true, authority, data: { bandwidth: bandwidth as DiagnosticsData["bandwidth"], hops: hops as DiagnosticsData["hops"] } }
+    : { ok: false, authority, data: emptyDiagnostics() };
 }
 
 export async function getDiagnosticHistoryAction(query: DiagnosticHistoryQuery): Promise<Result<DiagnosticHistoryData>> {
-  const { supabase } = await requireApprovedProfile();
-  const authority = applicationAuthority();
+  await requireApprovedProfile();
+  const authority = "local_postgres" as const;
   if (!validHistoryQuery(query)) return { ok: false, authority, data: emptyHistoryData() };
-  if (authority === "local_postgres") {
-    const bandwidth = await localBandwidthMeasurements(200);
-    if (!bandwidth) return { ok: false, authority, data: emptyHistoryData() };
-    const jobIds = [...new Set(bandwidth.filter((row) => historyMeasurement(row, query))
-      .flatMap((row) => typeof row.job_id === "string" ? [row.job_id] : []))].slice(0, 100);
-    const correlated = await Promise.all(jobIds.map(async (jobId) => ({
-      job: await localDiagnosticJob(jobId),
-      bandwidth: await localBandwidthByJob(jobId),
-      hops: await localHopByJob(jobId),
-    })));
-    if (correlated.some((item) => !item.job || !item.bandwidth || !item.hops)) {
-      return { ok: false, authority, data: emptyHistoryData() };
-    }
-    const completed = correlated.filter((item) => item.job?.status === "completed");
-    return { ok: true, authority, data: {
-      jobs: completed.map((item) => item.job) as DiagnosticHistoryData["jobs"],
-      bandwidth: completed.flatMap((item) => item.bandwidth ?? []) as DiagnosticHistoryData["bandwidth"],
-      hops: completed.flatMap((item) => item.hops ?? []) as DiagnosticHistoryData["hops"],
-    } };
+  const bandwidth = await localBandwidthMeasurements(200);
+  if (!bandwidth) return { ok: false, authority, data: emptyHistoryData() };
+  const jobIds = [...new Set(bandwidth.filter((row) => historyMeasurement(row, query))
+    .flatMap((row) => typeof row.job_id === "string" ? [row.job_id] : []))].slice(0, 100);
+  const correlated = await Promise.all(jobIds.map(async (jobId) => ({
+    job: await localDiagnosticJob(jobId),
+    bandwidth: await localBandwidthByJob(jobId),
+    hops: await localHopByJob(jobId),
+  })));
+  if (correlated.some((item) => !item.job || !item.bandwidth || !item.hops)) {
+    return { ok: false, authority, data: emptyHistoryData() };
   }
-  const params = new URLSearchParams({ view: "history", from: query.from, to: query.to,
-    source: query.source, target: query.target, connection_type: query.connectionType,
-    include_development: String(query.includeDevelopment) });
-  const { data, error } = await supabase.functions.invoke<{ data: DiagnosticHistoryData }>(
-    `diagnostics?${params.toString()}`, { method: "GET" });
-  return error || !data?.data
-    ? { ok: false, authority, data: emptyHistoryData() }
-    : { ok: true, authority, data: data.data };
+  const completed = correlated.filter((item) => item.job?.status === "completed");
+  return { ok: true, authority, data: {
+    jobs: completed.map((item) => item.job) as DiagnosticHistoryData["jobs"],
+    bandwidth: completed.flatMap((item) => item.bandwidth ?? []) as DiagnosticHistoryData["bandwidth"],
+    hops: completed.flatMap((item) => item.hops ?? []) as DiagnosticHistoryData["hops"],
+  } };
 }
 
 function historyMeasurement(row: Record<string, unknown>, query: DiagnosticHistoryQuery): boolean {
