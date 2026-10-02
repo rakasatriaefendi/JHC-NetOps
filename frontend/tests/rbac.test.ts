@@ -75,7 +75,7 @@ test("Admin UI exposes independent role and access selectors", () => {
   assert.match(control, /t\("common:status\.approved"\)/);
   assert.match(control, /t\("common:status\.rejected"\)/);
   assert.match(control, /t\("access\.saving"\)/);
-  assert.doesNotMatch(control, /Menyimpanâ€¦/);
+  assert.doesNotMatch(control, /Menyimpan…/);
 });
 
 test("database migration enforces Operator policies and last-admin safety", () => {
