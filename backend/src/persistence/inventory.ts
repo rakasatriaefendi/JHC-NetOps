@@ -65,6 +65,104 @@ export class PostgresNetworkInventoryRepository {
     return rows;
   }
 
+  async listRunners(signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    return this.database.rows(`
+      SELECT id,display_name,last_seen_at,health_status,health_error_code,capabilities
+      FROM public.diagnostic_runners ORDER BY display_name ASC LIMIT 1000
+    `, [], signal);
+  }
+
+  async listHealthTargets(signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    return this.database.rows(`
+      SELECT t.id,t.node_id,t.runner_id,t.enabled,t.critical,t.probe_interval_seconds,
+        t.timeout_ms,t.failure_threshold,t.recovery_threshold,t.latency_warning_ms,
+        t.loss_warning_percent,
+        jsonb_build_object(
+          'id',n.id,'ip_address',host(n.ip_address),'name',n.name,'device_type',n.device_type,
+          'location',n.location,'detected_fingerprint',n.detected_fingerprint,
+          'last_inspected_at',n.last_inspected_at
+        ) AS node,
+        CASE WHEN l.target_id IS NULL THEN NULL ELSE jsonb_build_object(
+          'status',l.status,'latency_ms',l.latency_ms,
+          'packet_loss_percent',l.packet_loss_percent,'last_checked_at',l.last_checked_at,
+          'last_success_at',l.last_success_at,'consecutive_failures',l.consecutive_failures,
+          'sample_count',l.sample_count
+        ) END AS latest
+      FROM public.network_targets t
+      JOIN public.network_nodes n ON n.id=t.node_id
+      LEFT JOIN public.network_health_latest l ON l.target_id=t.id
+      ORDER BY t.created_at ASC LIMIT 10000
+    `, [], signal);
+  }
+
+  async listManagedTargets(signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    const rows = await this.database.rows(`
+      SELECT t.id,t.node_id,t.runner_id,t.enabled,t.credential_profile_ref,t.snmp_version,
+        t.snmp_port,t.poll_interval_seconds,t.oper_error_threshold,t.discard_threshold,
+        t.util_warning_percent,t.util_critical_percent,t.util_sustained_seconds,
+        jsonb_build_object(
+          'id',n.id,'ip_address',host(n.ip_address),'name',n.name,'device_type',n.device_type,
+          'location',n.location,'detected_fingerprint',n.detected_fingerprint,
+          'last_inspected_at',n.last_inspected_at
+        ) AS node,
+        CASE WHEN d.target_id IS NULL THEN NULL ELSE jsonb_build_object(
+          'target_id',d.target_id,'status',d.status,'sys_name',d.sys_name,'sys_descr',d.sys_descr,
+          'sys_object_id',d.sys_object_id,'uptime_seconds',d.uptime_seconds,
+          'manufacturer',d.manufacturer,'model',d.model,'serial_number',d.serial_number,
+          'last_polled_at',d.last_polled_at,'last_success_at',d.last_success_at,
+          'consecutive_poll_failures',d.consecutive_poll_failures,'error_category',d.error_category,
+          'observed_hosts_status',d.observed_hosts_status,'updated_at',d.updated_at
+        ) END AS latest
+      FROM public.managed_telemetry_targets t
+      JOIN public.network_nodes n ON n.id=t.node_id
+      LEFT JOIN public.managed_device_latest d ON d.target_id=t.id
+      ORDER BY t.created_at ASC LIMIT 1000
+    `, [], signal);
+    return rows.map((row) => ({ ...row,
+      util_warning_percent: Number(row.util_warning_percent),
+      util_critical_percent: Number(row.util_critical_percent),
+    }));
+  }
+
+  async listManagedInterfaces(targetId: string | undefined,
+    signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    if (targetId !== undefined && !UUID.test(targetId)) {
+      throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
+    }
+    const rows = await this.database.rows(`
+      SELECT target_id,if_index,name,description,if_type,is_physical,admin_status,oper_status,
+        speed_bps::double precision AS speed_bps,rx_rate_bps::double precision AS rx_rate_bps,
+        tx_rate_bps::double precision AS tx_rate_bps,rx_util_percent::double precision AS rx_util_percent,
+        tx_util_percent::double precision AS tx_util_percent,
+        rx_errors_cumulative::double precision AS rx_errors_cumulative,
+        tx_errors_cumulative::double precision AS tx_errors_cumulative,
+        in_discards_cumulative::double precision AS in_discards_cumulative,
+        out_discards_cumulative::double precision AS out_discards_cumulative,
+        rx_errors_delta,tx_errors_delta,in_discards_delta,out_discards_delta,last_polled_at,updated_at
+      FROM public.managed_interface_latest
+      WHERE ($1::uuid IS NULL OR target_id=$1::uuid)
+      ORDER BY target_id ASC,if_index ASC LIMIT 10000
+    `, [targetId ?? null], signal);
+    return rows;
+  }
+
+  async listManagedObservedHosts(targetId: string | undefined,
+    signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
+    if (targetId !== undefined && !UUID.test(targetId)) {
+      throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
+    }
+    return this.database.rows(`
+      SELECT h.target_id,h.node_id,host(h.ip_address) AS ip_address,
+        h.mac_address::text AS mac_address,h.netbios_name,h.observation_source,
+        h.enrichment_status,h.first_seen_at,h.last_seen_at,h.status,h.updated_at,
+        CASE WHEN n.id IS NULL THEN NULL ELSE jsonb_build_object('name',n.name) END AS network_nodes
+      FROM public.managed_observed_hosts_latest h
+      LEFT JOIN public.network_nodes n ON n.id=h.node_id
+      WHERE ($1::uuid IS NULL OR h.target_id=$1::uuid)
+      ORDER BY h.target_id ASC,h.ip_address ASC LIMIT 10000
+    `, [targetId ?? null], signal);
+  }
+
   async getNode(nodeId: string, signal: AbortSignal): Promise<Record<string, unknown> | null> {
     if (!UUID.test(nodeId)) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
     const rows = await this.database.rows(`

@@ -1,5 +1,8 @@
 # P12 Rehearsal Operator Runbook
 
+> **Historical accepted P12 runbook:** commands refer to the immutable P12 release and are not exposed by the current package manifest. Do not execute them from the P16 local-only release.
+
+
 This tooling is only for an approved P12 dry run. It does not change application
 persistence authority. Never use PostgreSQL `16/main`, port `5432`, or database
 `jhc_netops` as the rehearsal target.

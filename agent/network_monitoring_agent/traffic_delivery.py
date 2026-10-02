@@ -11,15 +11,12 @@ class TrafficDeliveryError(RuntimeError):
 
 
 class TrafficClient:
-    def __init__(self, url: str, key: str, timeout: float = 15.0, *, local_backend: bool = False) -> None:
-        self.endpoint = (f"{url.rstrip('/')}/api/runner/traffic" if local_backend
-                         else f"{url.rstrip('/')}/functions/v1/traffic-live")
+    def __init__(self, url: str, key: str, timeout: float = 15.0) -> None:
+        self.endpoint = f"{url.rstrip('/')}/api/runner/traffic"
         self.timeout = timeout
         self.session = requests.Session()
         self.persistence_session = requests.Session()
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        if not local_backend:
-            headers["apikey"] = key
         self.session.headers.update(headers)
         self.persistence_session.headers.update(self.session.headers)
         retry = Retry(

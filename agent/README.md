@@ -1,92 +1,24 @@
-# Python Network Monitoring Agent
+# Network Monitoring Agent
 
-Pada runtime yang didukung saat ini, agent berjalan di Ubuntu WSL pada perangkat
-Windows yang terhubung ke jaringan target. Komponen ini mengumpulkan metrik,
-menjalankan diagnostics on-demand, dan melakukan bounded header-only traffic capture.
+Agent Python menyediakan collector terstruktur untuk Traffic Live, diagnostics,
+Discovery, Device Inspector, dan Managed SNMP. Penggunaan production
+diorchestrasi oleh Local Runner.
 
-## Tanggung jawab
-
-- Loop `traffic_metrics` independen dengan interval default 10 detik.
-- Health check gateway dan DNS.
-- Buffer SQLite lokal ketika Supabase tidak dapat dijangkau.
-- Ketika kedua `LOCAL_BACKEND_*` tersedia, snapshot dan flow Traffic memakai route
-  runner backend loopback; tidak fallback ke Edge dalam request yang sama.
-- `iperf3` dan `mtr` melalui subprocess dengan output JSON.
-- Live Traffic berbasis metadata IPv4 TCP/UDP/ICMP tanpa payload atau PCAP.
-
-Bandwidth/path diagnostics tidak masuk ke baseline, severity, atau loop metrik.
-
-## Setup WSL
-
-Sumber dependency Python yang otoritatif adalah `pyproject.toml` dan `uv.lock`.
-Gunakan `uv sync --locked` untuk environment yang direproduksi dari lockfile, atau
-jalur compatibility editable berikut bila `uv` belum tersedia. Jangan menyalin
-folder `.venv` dari mesin lain.
+Traffic Live mengirim snapshot/flow bounded ke backend lokal. Buffer SQLite tetap
+menjaga retry/state retention. Capture header-only dan kebutuhan capability Linux
+tetap mengikuti launcher/helper yang direview; P16.3 tidak mengubah perilaku
+`CAP_NET_RAW`.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -e .
-cp .env.example .env
-chmod 600 .env
-sudo apt install iproute2 iputils-ping iperf3 mtr-tiny openssl
-```
-
-Isi minimal `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` pada `.env`. File ini
-bersifat lokal dan diabaikan Git.
-
-## Command
-
-Jalankan loop metrik:
-
-```bash
-network-monitor monitor
-```
-
-Test bandwidth tanpa upload:
-
-```bash
-network-monitor bandwidth-test 192.168.1.253 \
-  --source-label "IT Office" \
-  --target-label "Server 253" \
-  --connection-type wifi \
-  --no-upload
-```
-
-Test path tanpa upload:
-
-```bash
-network-monitor path-test 192.168.1.253 \
-  --source-label "IT Office" \
-  --target-label "Server 253" \
-  --connection-type wifi \
-  --no-upload
-```
-
-Hapus `--no-upload` hanya jika endpoint Supabase sudah siap. Nilai
-`--connection-type` wajib `wifi` atau `ethernet`; jangan menyimpulkannya dari nama
-interface WSL.
-
-Command `diagnostic-run` dan `traffic-live` adalah interface terstruktur untuk
-Windows runner. Penggunaan normal dilakukan melalui UI dan runner, bukan dengan
-membuat argument bebas dari browser.
-
-## Test
-
-```bash
-source .venv/bin/activate
-python -m pip install pytest
 python -m pytest
 ```
 
-## Data yang tidak boleh disimpan
+Environment lokal memakai `LOCAL_BACKEND_URL`, `LOCAL_BACKEND_TOKEN`, dan
+`PERSISTENCE_AUTHORITY=local_postgres`. Direct remote upload tidak didukung.
 
-- Packet payload atau application content.
-- Raw PCAP.
-- URL, credential, cookie, token, atau data pasien.
-- Secret pada log atau stdout protocol runner.
-
-Dokumentasi lengkap: [AGENT_SETUP.md](../docs/AGENT_SETUP.md).
-Target native Ubuntu P8 belum didukung oleh runner; lihat audit gap di
-[UBUNTU_DEPLOYMENT_READINESS.md](../docs/UBUNTU_DEPLOYMENT_READINESS.md).
+Jangan simpan atau keluarkan raw PCAP, packet payload, URL aplikasi, cookie,
+token, credential, data pasien, atau raw stdout tool. Target, OID, port, timeout,
+dan concurrency harus tetap bounded sesuai kontrak runner.

@@ -1,16 +1,8 @@
 # Portable Development Mode
 
-Portable Development Mode menyediakan data Managed Telemetry dan Observed LAN
-Hosts sintetis yang deterministik untuk pengembangan UI lokal tanpa akses ke
-jaringan JHC atau perangkat SNMP nyata.
-
-Mode ini **bukan** emulator SNMP, bukan pengganti validasi perangkat nyata, dan
-tidak menjalankan collector, polling, scan, atau autentikasi SNMP. Fixture tidak
-boleh dianggap sebagai telemetry produksi.
-
-## Mengaktifkan
-
-Jalankan frontend sebagai development server dengan environment lokal:
+Portable Development Mode menyediakan fixture Managed Telemetry dan Observed LAN
+Hosts sintetis untuk pengembangan UI tanpa perangkat SNMP nyata. Mode ini bukan
+emulator SNMP dan tidak menjalankan collector, poll, scan, atau autentikasi SNMP.
 
 ```powershell
 $env:PORTABLE_DEV_MODE = "true"
@@ -18,51 +10,15 @@ $env:PORTABLE_DEV_SCENARIO = "healthy"
 npm.cmd run dev
 ```
 
-Padanan pada shell Linux:
+Scenario: `healthy`, `partial`, `alert_recovery`, dan
+`large_observed_hosts`.
 
-```bash
-export PORTABLE_DEV_MODE=true
-export PORTABLE_DEV_SCENARIO=healthy
-npm run dev
-```
+Mode hanya aktif ketika `NODE_ENV=development` dan flag bernilai `true`.
+Production selalu memakai backend/PostgreSQL lokal authoritative. Workspace SNMP
+menandai fixture dengan jelas dan membuat konfigurasi target read-only. Fixture
+tidak dipersist, tidak memanggil backend mutation, dan tidak menjalankan operasi
+jaringan.
 
-Scenario yang tersedia:
-
-- `healthy`
-- `partial`
-- `alert_recovery`
-- `large_observed_hosts`
-
-`PORTABLE_DEV_SCENARIO` opsional dan default-nya `healthy`. Mode hanya aktif
-ketika `NODE_ENV=development` dan `PORTABLE_DEV_MODE=true`. Production build
-selalu memakai data Supabase meskipun variable tersebut tidak sengaja tersedia.
-
-Workspace `/snmp` dan halaman Observed LAN Hosts menampilkan indikator
-**Portable fixture data**. Konfigurasi target dibuat read-only selama mode ini
-aktif. Fixture berasal dari repository frontend dan tidak dipublish ke Edge
-Function atau tabel Supabase.
-
-Cakupan fixture saat ini hanya workspace Managed SNMP dan Observed LAN Hosts.
-Application shell tetap memakai autentikasi Supabase, sedangkan halaman global
-lain dapat tetap membaca data Supabase nyata. Mode ini bukan lingkungan offline
-untuk seluruh aplikasi.
-
-## Menonaktifkan
-
-Hapus variable atau set ke `false`, lalu restart development server:
-
-```powershell
-Remove-Item Env:PORTABLE_DEV_MODE -ErrorAction SilentlyContinue
-Remove-Item Env:PORTABLE_DEV_SCENARIO -ErrorAction SilentlyContinue
-```
-
-Pada shell Linux:
-
-```bash
-unset PORTABLE_DEV_MODE PORTABLE_DEV_SCENARIO
-```
-
-Default selalu OFF. Auth dan tooling frontend normal masih dapat membutuhkan
-Internet, tetapi fixture tidak membutuhkan jaringan JHC. Jangan menyimpan
-credential, data rumah sakit, atau identifier infrastruktur nyata di fixture.
-Implementasi collector/OID/auth/counter/alert SNMP tetap tidak berubah.
+Matikan dengan menghapus kedua variable dan restart development server. Jangan
+memasukkan credential, data rumah sakit, atau identifier infrastruktur nyata ke
+fixture.

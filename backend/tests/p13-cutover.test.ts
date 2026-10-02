@@ -6,7 +6,6 @@ import type { P12AuthReferenceReport } from "../src/data-migration/reporting.js"
 import { P12_TABLES } from "../src/data-migration/contract.js";
 import type { P12VerificationReport } from "../src/data-migration/verification.js";
 import {
-  assertPersistenceAuthority,
   parsePersistenceAuthority,
   selectApplicationPersistence,
 } from "../src/persistence/authority.js";
@@ -56,13 +55,10 @@ test("authority is explicit, invalid values fail, and selected implementations n
   assert.throws(() => parsePersistenceAuthority("auto"), /PERSISTENCE_AUTHORITY/);
 
   const calls: string[] = [];
-  const local = selectApplicationPersistence("local_postgres", {
-    supabase: () => { calls.push("supabase"); return "wrong"; },
-    localPostgres: () => { calls.push("local"); return "local"; },
-  });
+  const local = selectApplicationPersistence("local_postgres", () => { calls.push("local"); return "local"; });
   assert.equal(local, "local");
   assert.deepEqual(calls, ["local"]);
-  assert.throws(() => assertPersistenceAuthority("local_postgres", "supabase"));
+  assert.throws(() => parsePersistenceAuthority("remote"), /PERSISTENCE_AUTHORITY/);
 });
 
 test("workflow policy is exhaustive for actual persisted job/session statuses", () => {
@@ -397,6 +393,70 @@ test("post-cutover verifier rejects an active legacy Supabase writer and incompl
   assert.ok(unknown.blockers.includes("supabase_realtime_shadow:UNKNOWN"));
 });
 
+test("post-cutover verifier rejects failed outbox rows and persistent projector failure", () => {
+  const record = postflightRecord();
+  const failedOutbox = verifyP13PostCutover({
+    ...postCutoverFixture(record),
+    projection_outbox: {
+      ...postCutoverFixture(record).projection_outbox!,
+      total_count: 2,
+      delivered_count: 1,
+      failed_count: 1,
+    },
+  });
+  assert.equal(failedOutbox.status, "FAIL");
+  assert.ok(failedOutbox.blockers.includes("projection_outbox_healthy:FAIL"));
+
+  const persistentFailure = verifyP13PostCutover({
+    ...postCutoverFixture(record),
+    projection_outbox: {
+      ...postCutoverFixture(record).projection_outbox!,
+      projector_status: "degraded",
+      consecutive_batch_failures: 3,
+      persistent_batch_failure: true,
+      last_failure_at: "2026-09-15T02:59:59.000Z",
+      last_failure_code: "OUTBOX_FETCH_FAILED",
+    },
+  });
+  assert.equal(persistentFailure.status, "FAIL");
+  assert.ok(persistentFailure.blockers.includes("projection_outbox_healthy:FAIL"));
+});
+
+test("post-cutover verifier binds local authority, dedicated database identity, and runtime role", () => {
+  const record = postflightRecord();
+  const wrongAuthority = verifyP13PostCutover({ ...postCutoverFixture(record), persistence_authority: "supabase" });
+  assert.ok(wrongAuthority.blockers.includes("local_authority:FAIL"));
+  for (const databaseIdentity of [
+    { cluster: "16/main", port: 5433, database: "jhc_netops", endpoint: "127.0.0.1", runtime_role: "jhc_netops_app" },
+    { cluster: "16/jhcnetops", port: 5433, database: "other", endpoint: "127.0.0.1", runtime_role: "jhc_netops_app" },
+    { cluster: "16/jhcnetops", port: 5433, database: "jhc_netops", endpoint: "127.0.0.1", runtime_role: "postgres" },
+  ]) {
+    const report = verifyP13PostCutover({ ...postCutoverFixture(record), database_identity: databaseIdentity });
+    assert.equal(report.status, "FAIL");
+    assert.ok(report.blockers.includes("dedicated_database_identity:FAIL"));
+  }
+});
+
+test("post-cutover verifier requires a fresh local runner and no active foreground work", () => {
+  const record = postflightRecord();
+  const staleRunner = verifyP13PostCutover({
+    ...postCutoverFixture(record),
+    runner: { persistence_authority: "local_postgres", health_status: "online", last_seen_at: "2026-09-15T02:59:00.000Z" },
+  });
+  assert.ok(staleRunner.blockers.includes("runner_local_authority_and_fresh_heartbeat:FAIL"));
+  const activeWork = verifyP13PostCutover({
+    ...postCutoverFixture(record),
+    foreground_work: {
+      active_count: 1,
+      workflows: {
+        diagnostic_jobs: 0, traffic_live_sessions: 0, network_health_ping_jobs: 1,
+        network_discovery_sessions: 0, device_inspection_sessions: 0,
+      },
+    },
+  });
+  assert.ok(activeWork.blockers.includes("no_active_foreground_work:FAIL"));
+});
+
 test("rollback triggers distinguish simple rollback from reconciliation after unprojected local writes", () => {
   const simple = classifyP13CutoverDecision({
     triggers: ["application_read_failure"], checkpoint: "CHECKPOINT_3_LOCAL_ARMED_NO_WRITES",
@@ -484,6 +544,13 @@ test("operator runbook defines exact sequence, NetOps-only restart policy, accep
   for (const acceptance of ["P13 SOURCE READY", "P13 RUNTIME READY", "P13 CUTOVER PASS", "P13 ROLLBACK REQUIRED", "P13 DONE LIVE"]) {
     assert.match(runbook, new RegExp(acceptance));
   }
+  assert.match(runbook, /### Final post-deploy closure procedure/);
+  assert.match(runbook, /\(\s*\n\s*set -euo pipefail/);
+  assert.match(runbook, /api\/application\/outbox\/health/);
+  assert.match(runbook, /P13 POST-CUTOVER PASS/);
+  assert.match(runbook, /P13 POST-CUTOVER FAIL/);
+  assert.match(runbook, /P13_INTENDED_RELEASE_SHA/);
+  assert.match(runbook, /full 40-character Git commit/i);
 });
 
 function readinessFixture(overrides: Partial<P13ReadinessEvidence> = {}): P13ReadinessEvidence {
@@ -665,8 +732,23 @@ function postCutoverFixture(record = postflightRecord()): P13PostCutoverEvidence
     source_checkpoint_identity: SHA,
     cutover_record: record,
     persistence_authority: "local_postgres",
+    database_identity: {
+      cluster: "16/jhcnetops", port: 5433, database: "jhc_netops",
+      endpoint: "127.0.0.1", runtime_role: "jhc_netops_app",
+    },
     local_backend_health: "PASS",
     local_control_plane_health: "PASS",
+    runner: {
+      persistence_authority: "local_postgres", health_status: "online",
+      last_seen_at: "2026-09-15T02:59:55.000Z",
+    },
+    foreground_work: {
+      active_count: 0,
+      workflows: {
+        diagnostic_jobs: 0, traffic_live_sessions: 0, network_health_ping_jobs: 0,
+        network_discovery_sessions: 0, device_inspection_sessions: 0,
+      },
+    },
     write_canary: {
       status: "PASS", kind: "internal_cutover_canary", approved_application_path: true,
       local_commit_observed: true, cleanup_completed: true, application_domain_rows_created: 0,
@@ -675,11 +757,16 @@ function postCutoverFixture(record = postflightRecord()): P13PostCutoverEvidence
     auth: { status: "PASS", authority: "supabase" },
     realtime: { status: "PASS", authority: "supabase_shadow" },
     split_brain: { status: "PASS", indication_count: 0 },
-    release: { status: "PASS", expected_sha: "e".repeat(64), current_sha: "e".repeat(64) },
+    release: { status: "PASS", expected_sha: "e".repeat(40), current_sha: "e".repeat(40) },
     pm2: {
       processes: P13_NETOPS_PM2_PROCESSES.map((name) => ({ name, status: "online" as const, stable: true })),
     },
-    projection_outbox: { status: "PASS", failed_count: 0 },
+    projection_outbox: {
+      total_count: 1, delivered_count: 1, pending_count: 0, failed_count: 0,
+      oldest_pending_age_ms: null, projector_status: "healthy", consecutive_batch_failures: 0,
+      persistent_batch_failure: false, last_success_at: "2026-09-15T02:59:58.000Z",
+      last_failure_at: null, last_failure_code: null,
+    },
   };
 }
 

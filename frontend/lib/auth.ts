@@ -1,9 +1,7 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
 import { canAdministerUsers, canOperateNetwork, isActiveUser, type ProfileRole, type ProfileStatus } from "@/lib/authorization";
-import { applicationAuthority, bootstrapLocalProfile, localProfile } from "@/lib/application-persistence";
+import { localAuthenticatedProfile } from "@/lib/local-auth";
 
 export type { ProfileRole, ProfileStatus } from "@/lib/authorization";
 
@@ -19,46 +17,16 @@ export type Profile = {
 };
 
 type AuthenticatedProfile = {
-  supabase: SupabaseClient;
   userId: string;
   profile: Profile | null;
 };
 
 export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getClaims();
-  const userId = data?.claims?.sub;
+  const profile = normalizedProfile(await localAuthenticatedProfile());
+  if (!profile) redirect("/login");
+  const userId = profile.id;
 
-  if (error || !userId) {
-    redirect("/login");
-  }
-
-  let profile: Profile | null;
-  if (applicationAuthority() === "local_postgres") {
-    profile = await loadLocalAuthenticatedProfile(supabase, userId);
-  } else {
-    const result = await supabase
-      .from("profiles")
-      .select("id, email, full_name, role, status, created_at, approved_at, approved_by")
-      .eq("id", userId)
-      .maybeSingle<Profile>();
-    profile = result.data;
-  }
-
-  return { supabase, userId, profile };
-}
-
-export async function loadLocalAuthenticatedProfile(supabase: SupabaseClient, userId: string): Promise<Profile | null> {
-  let profile = normalizedProfile(await localProfile(userId));
-  if (!profile) {
-    // Supabase Auth proves the UUID/email; the local row is application data.
-    const { data: user } = await supabase.auth.getUser();
-    const email = user.user?.id === userId ? user.user.email : null;
-    const fullName = user.user?.user_metadata?.full_name;
-    profile = email ? normalizedProfile(await bootstrapLocalProfile(userId, email,
-      typeof fullName === "string" ? fullName : null)) : null;
-  }
-  return profile;
+  return { userId, profile };
 }
 
 export function normalizedProfile(value: Record<string, unknown> | null): Profile | null {

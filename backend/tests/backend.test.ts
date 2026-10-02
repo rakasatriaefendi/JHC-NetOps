@@ -13,9 +13,7 @@ import {
 
 const VALID_ENVIRONMENT = {
   RUNNER_API_TOKEN: "r".repeat(32),
-  SUPABASE_URL: "https://project.example.invalid",
-  SUPABASE_SERVICE_ROLE_KEY: "s".repeat(32),
-  PERSISTENCE_AUTHORITY: "supabase",
+  PERSISTENCE_AUTHORITY: "local_postgres",
   FRONTEND_API_TOKEN: "f".repeat(32),
   APPLICATION_DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
   DATABASE_URL: "postgresql://jhc_netops_app:strong-local-password@127.0.0.1:5433/jhc_netops",
@@ -48,10 +46,8 @@ test("configuration defaults to the private loopback endpoint", () => {
     port: 3402,
     runnerApiToken: VALID_ENVIRONMENT.RUNNER_API_TOKEN,
     frontendApiToken: VALID_ENVIRONMENT.FRONTEND_API_TOKEN,
-    persistenceAuthority: "supabase",
+    persistenceAuthority: "local_postgres",
     candidateReadOnly: false,
-    supabaseUrl: VALID_ENVIRONMENT.SUPABASE_URL,
-    supabaseServiceRoleKey: VALID_ENVIRONMENT.SUPABASE_SERVICE_ROLE_KEY,
     applicationDatabaseUrl: VALID_ENVIRONMENT.APPLICATION_DATABASE_URL,
     assets: {
       databaseUrl: VALID_ENVIRONMENT.DATABASE_URL,
@@ -67,8 +63,7 @@ test("configuration defaults to the private loopback endpoint", () => {
 });
 
 test("application persistence authority is explicit and rejects missing or unknown modes", () => {
-  assert.equal(loadBackendConfig(VALID_ENVIRONMENT).persistenceAuthority, "supabase");
-  assert.equal(loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "local_postgres" }).persistenceAuthority, "local_postgres");
+  assert.equal(loadBackendConfig(VALID_ENVIRONMENT).persistenceAuthority, "local_postgres");
   const missingAuthority = Object.fromEntries(
     Object.entries(VALID_ENVIRONMENT).filter(([name]) => name !== "PERSISTENCE_AUTHORITY"),
   );
@@ -79,11 +74,16 @@ test("application persistence authority is explicit and rejects missing or unkno
   );
 });
 
-test("P13 candidate read-only mode is explicit and cannot use local authority", () => {
-  assert.equal(loadBackendConfig({
+test("only local PostgreSQL application authority is accepted", () => {
+  assert.equal(loadBackendConfig(VALID_ENVIRONMENT).persistenceAuthority, "local_postgres");
+  assert.throws(() => loadBackendConfig({ ...VALID_ENVIRONMENT, PERSISTENCE_AUTHORITY: "remote" }), /PERSISTENCE_AUTHORITY/);
+});
+
+test("retired P13 candidate read-only mode cannot start the local-only runtime", () => {
+  assert.throws(() => loadBackendConfig({
     ...VALID_ENVIRONMENT,
     P13_CANDIDATE_READ_ONLY: "true",
-  }).candidateReadOnly, true);
+  }), /not available in the local-only runtime/);
   assert.equal(loadBackendConfig({
     ...VALID_ENVIRONMENT,
     P13_CANDIDATE_READ_ONLY: "false",
@@ -92,11 +92,6 @@ test("P13 candidate read-only mode is explicit and cannot use local authority", 
     ...VALID_ENVIRONMENT,
     P13_CANDIDATE_READ_ONLY: "1",
   }), /P13_CANDIDATE_READ_ONLY/);
-  assert.throws(() => loadBackendConfig({
-    ...VALID_ENVIRONMENT,
-    PERSISTENCE_AUTHORITY: "local_postgres",
-    P13_CANDIDATE_READ_ONLY: "true",
-  }), /cannot be enabled with local_postgres/);
 });
 
 test("candidate mode skips mutating asset startup and read-side synchronization", () => {
@@ -211,9 +206,6 @@ test("invalid or publicly exposed configuration is rejected safely", () => {
     { ...VALID_ENVIRONMENT, PORT: "65536" },
     { ...VALID_ENVIRONMENT, PORT: "3402x" },
     { ...VALID_ENVIRONMENT, RUNNER_API_TOKEN: "short" },
-    { ...VALID_ENVIRONMENT, SUPABASE_URL: "file:///private/database" },
-    { ...VALID_ENVIRONMENT, SUPABASE_URL: "http://public.example.invalid" },
-    { ...VALID_ENVIRONMENT, SUPABASE_SERVICE_ROLE_KEY: "short" },
     { ...VALID_ENVIRONMENT, RUNNER_API_TOKEN: "REPLACE_WITH_A_RANDOM_SHARED_TOKEN_OF_AT_LEAST_32_CHARACTERS" },
   ]) {
     assert.throws(

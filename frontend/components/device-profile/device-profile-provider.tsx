@@ -24,11 +24,13 @@ import {
   type NetworkNodeInput,
   type NetworkNodeType,
 } from "@/lib/network-nodes";
-import { createClient } from "@/lib/supabase/client";
-import { promoteHealthTargetsAction } from "@/app/actions/health-promotion";
+import { healthTargetMonitoringStateAction, promoteHealthTargetsAction } from "@/app/actions/health-promotion";
 import { ManagedTelemetrySection } from "@/components/device-profile/managed-telemetry-section";
 import type { ProfileRole } from "@/lib/authorization";
 import { startDeviceInspectionAction } from "@/app/actions/legacy-network-control";
+import { getDeviceInspectionSessionAction } from "@/app/actions/device-inspection";
+import type { ApplicationAuthority } from "@/lib/application-persistence";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 
 type OpenOptions = {
   ipAddress: string;
@@ -48,6 +50,7 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
   const { nodes, saveNode, saveFingerprint } = useNetworkNodes();
   const [opened, setOpened] = useState<OpenOptions | null>(null);
   const [session, setSession] = useState<DeviceInspectionSession | null>(null);
+  const [inspectionAuthority, setInspectionAuthority] = useState<ApplicationAuthority | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [monitored, setMonitored] = useState<boolean | null>(null);
@@ -62,28 +65,46 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
 
   useEffect(() => {
     if (!opened || !runner) return;
-    const supabase = createClient();
-    const channel = supabase.channel(`device-inspector:${runner.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "device_inspection_sessions", filter: `runner_id=eq.${runner.id}` }, (payload) => {
-        const next = payload.new as DeviceInspectionSession;
-        if (next.target_ip === opened.ipAddress) setSession(next);
-      }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    let cancelled = false;
+    void getDeviceInspectionSessionAction(runner.id).then((result) => {
+      if (cancelled) return;
+      setInspectionAuthority(result.authority);
+      if (result.ok && result.data?.target_ip === opened.ipAddress) setSession(result.data);
+    });
+    return () => { cancelled = true; };
   }, [opened, runner]);
+
+  useEffect(() => {
+    if (!opened || !runner || inspectionAuthority !== "local_postgres" ||
+        (session && !["queued", "running"].includes(session.status))) return;
+    let cancelled = false;
+    const refreshSession = () => {
+      void getDeviceInspectionSessionAction(runner.id).then((result) => {
+        if (!cancelled && result.ok && result.data?.target_ip === opened.ipAddress) setSession(result.data);
+      });
+    };
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["device_inspector"],
+      refresh: refreshSession,
+      onStatus: () => {},
+      debounceMs: 250,
+      fallbackIntervalMs: 2_000,
+    });
+    return () => { cancelled = true; stopRealtime(); };
+  }, [inspectionAuthority, opened, runner, session]);
 
   useEffect(() => {
     let cancelled = false;
     if (!opened || !node || !runner) return;
-    const supabase = createClient();
-    void supabase.from("network_targets").select("id").eq("runner_id", runner.id)
-      .eq("node_id", node.id).eq("enabled", true).limit(1).maybeSingle()
-      .then(({ data }) => { if (!cancelled) setMonitored(Boolean(data)); });
+    void healthTargetMonitoringStateAction(runner.id, node.id)
+      .then((value) => { if (!cancelled) setMonitored(value); });
     return () => { cancelled = true; };
   }, [opened, node, runner]);
 
   function openDeviceProfile(options: OpenOptions) {
     setOpened(options);
     setSession(null);
+    setInspectionAuthority(null);
     setError(null);
     setMonitored(null);
     if (options.inspect) queueMicrotask(() => void startInspection(options));

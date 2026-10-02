@@ -32,6 +32,44 @@ for the transactional Realtime shadow outbox, per-aggregate projection
 watermarks, and bounded internal cutover canary. It requires recorded version
 7, records version 8, leaves `asset.*` unchanged, and is likewise operator-run
 only during an approved P13 window.
+
+`009_local_realtime_invalidation.sql` adds the P14 invalidation-only
+`pg_notify` function and bounded Network Health trigger surface. It records
+version 9 without removing or changing the P13 outbox or shadow projector and
+is also applied only by an operator during an approved change window.
+
+`010_diagnostics_device_inspector_realtime.sql` additively extends the same
+bounded local notification channel with invalidation-only Diagnostics and
+Device Inspector topics. It records version 10, leaves migration 009 and its
+Network Health triggers intact, and does not alter the P13 outbox or shadow
+projector.
+
+`011_local_auth.sql` adds local password credentials and opaque session-token
+digests bound one-to-one to existing `profiles` identities. It stores no role or
+approval state; `profiles` remains the sole authorization authority. The migration
+does not modify migration 010, realtime triggers, the outbox, Traffic, or `asset.*`.
+
+`012_fix_local_realtime_control_trigger.sql` repairs the existing Diagnostics and
+Device Inspector trigger function without changing its topic or table scope.
+
+`013_traffic_realtime.sql` additively publishes invalidation-only Traffic events
+for `traffic_live_sessions` and `traffic_live_snapshots`, keyed by `runner_id`.
+It requires migration 12 and leaves capture, outbox, shadow projection, and all
+earlier local realtime triggers unchanged.
+
+`014_managed_telemetry_realtime.sql` additively publishes invalidation-only
+Managed Telemetry events for the three latest-state tables used live by Device
+Profile, keyed by their common `target_id`. It requires migration 13 and does
+not add realtime behavior to Managed Telemetry events or server-snapshot pages.
+
+`015_retire_shadow_projection.sql` is the P15.3 final shadow-projection
+retirement. It requires migration 14, validates the exact 16 migration-008
+producer triggers, and drops only those triggers. Historical
+`realtime_outbox`/`realtime_projection_watermarks` rows, the enqueue function,
+domain tables, and all migration 009-014 local `pg_notify` triggers remain
+unchanged. The local backend no longer runs a Supabase shadow projector after
+this migration; no backlog drain or cosmetic delivery update is performed.
+
 Apply migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

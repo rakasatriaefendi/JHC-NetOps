@@ -1,4 +1,4 @@
-export const PERSISTENCE_AUTHORITIES = Object.freeze(["supabase", "local_postgres"] as const);
+export const PERSISTENCE_AUTHORITIES = Object.freeze(["local_postgres"] as const);
 
 export type PersistenceAuthority = (typeof PERSISTENCE_AUTHORITIES)[number];
 
@@ -14,24 +14,20 @@ export class PersistenceAuthorityError extends Error {
 export function parsePersistenceAuthority(value: string | undefined): PersistenceAuthority {
   const normalized = value?.trim();
   if (!PERSISTENCE_AUTHORITIES.includes(normalized as PersistenceAuthority)) {
-    throw new PersistenceAuthorityError("PERSISTENCE_AUTHORITY must explicitly be supabase or local_postgres");
+    throw new PersistenceAuthorityError("PERSISTENCE_AUTHORITY must explicitly be local_postgres");
   }
   return normalized as PersistenceAuthority;
 }
 
 /**
- * Selects one complete application persistence implementation exactly once.
- * Factories are intentionally lazy: selecting local authority cannot construct,
- * call, or fall back to a Supabase application repository.
+ * Constructs the single supported local PostgreSQL persistence implementation.
  */
 export function selectApplicationPersistence<T>(
   authority: PersistenceAuthority,
-  factories: Readonly<{
-    supabase: () => T;
-    localPostgres: () => T;
-  }>,
+  factory: () => T,
 ): T {
-  return authority === "supabase" ? factories.supabase() : factories.localPostgres();
+  if (authority !== "local_postgres") throw new PersistenceAuthorityError("Unsupported persistence authority");
+  return factory();
 }
 
 export function assertPersistenceAuthority(

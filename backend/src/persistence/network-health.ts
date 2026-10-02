@@ -105,6 +105,54 @@ export class PostgresNetworkHealthRepository implements NetworkHealthRepository 
     }
     return { states: latest.length, events: inserted };
   }
+
+  async claimManualPing(runnerId: string, signal: AbortSignal): Promise<Row | null> {
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(runnerId)) return null;
+    await this.database.rows(`
+      UPDATE public.network_health_ping_jobs SET
+        status='failed', completed_at=now(), updated_at=now(),
+        error_code='MANUAL_PING_TARGET_UNAVAILABLE'
+      WHERE status IN ('queued','running') AND expires_at < now()
+    `, [], signal);
+    const rows = await this.database.rows(`
+      UPDATE public.network_health_ping_jobs SET
+        status='running', started_at=now(), updated_at=now()
+      WHERE id = (
+        SELECT id FROM public.network_health_ping_jobs
+        WHERE runner_id=$1 AND status='queued' AND expires_at >= now()
+        ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
+      ) AND status='queued' AND expires_at >= now()
+      RETURNING *
+    `, [runnerId], signal);
+    return rows[0] ?? null;
+  }
+
+  async completeManualPing(pingId: string, runnerId: string, now: string, result: Row, signal: AbortSignal): Promise<Row | null> {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const RUNNER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+    if (!UUID.test(pingId) || !RUNNER.test(runnerId)) return null;
+    const rows = await this.database.rows(`
+      UPDATE public.network_health_ping_jobs SET
+        status='completed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
+        result=$4::jsonb
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' AND expires_at >= $3::timestamptz RETURNING *
+    `, [pingId, runnerId, now, JSON.stringify(result)], signal);
+    return rows[0] ?? null;
+  }
+
+  async failManualPing(pingId: string, runnerId: string, now: string, errorCode: string, signal: AbortSignal): Promise<Row | null> {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const RUNNER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+    const ALLOWED_CODES = new Set(["MANUAL_PING_FAILED", "MANUAL_PING_TARGET_UNAVAILABLE"]);
+    if (!UUID.test(pingId) || !RUNNER.test(runnerId) || !ALLOWED_CODES.has(errorCode)) return null;
+    const rows = await this.database.rows(`
+      UPDATE public.network_health_ping_jobs SET
+        status='failed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
+        error_code=$4
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' RETURNING *
+    `, [pingId, runnerId, now, errorCode], signal);
+    return rows[0] ?? null;
+  }
 }
 
 function timestamp(value: unknown): string | unknown {

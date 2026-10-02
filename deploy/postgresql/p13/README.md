@@ -1,5 +1,8 @@
 # P13 application database cutover runbook
 
+> **Historical accepted P13 runbook:** commands refer to the immutable cutover release and are not exposed by the current package manifest. Do not use this file to restore a compatibility authority in P16.
+
+
 This is a reviewed operator runbook and source-side evidence journal. Nothing in
 this directory runs automatically. P13 targets only PostgreSQL
 `16/jhcnetops`, port `5433`, database `jhc_netops`. PostgreSQL `16/main`, port
@@ -67,7 +70,7 @@ PM2, Supabase deployment, or migrations: it records independently produced and
 reviewed evidence. This separation prevents a single command from becoming an
 implicit production cutover.
 
-## Pre-cutover — CHECKPOINT 0
+## Pre-cutover Ã¢â‚¬â€ CHECKPOINT 0
 
 Run `preflight` only after operator review. Retain:
 
@@ -125,7 +128,7 @@ and Asset evidence sync disabled. It intentionally does not claim migration
 `008` objects, Realtime projector readiness, or a `projection-outbox` buffer:
 those do not exist until the reviewed final schema/import has completed.
 
-## Final copy — CHECKPOINT 1
+## Final copy Ã¢â‚¬â€ CHECKPOINT 1
 
 Capture a complete immutable S1 only after the freeze gate passes. Keep all 21
 accepted P12 application tables, canonical keys, full content hashes, and a
@@ -271,7 +274,7 @@ captured S1 hash. The journal invocation itself uses the `jhc_netops_app` DSN
 and never substitutes for the actual administrative transaction or executes
 SQL.
 
-## Verify — CHECKPOINT 2
+## Verify Ã¢â‚¬â€ CHECKPOINT 2
 
 Run the complete P12 parity checks plus P13 gates: counts, keysets, hashes,
 foreign keys, active rows, Auth logical references, target coverage, buffer
@@ -279,7 +282,7 @@ manifests, identity dispositions, and the absence of automatic ambiguous merges.
 `verify-final` accepts only a PASS report for the exact target/S1 identity and
 then records `CHECKPOINT_2_LOCAL_IMPORTED_VERIFIED`.
 
-## Authority switch — CHECKPOINT 3
+## Authority switch Ã¢â‚¬â€ CHECKPOINT 3
 
 Immediately capture fresh post-import authority evidence under the same cutover
 identity. Unlike the earlier freeze gate, this gate requires migration `008`
@@ -315,7 +318,7 @@ and `ollama-server`. Only the reviewed NetOps processes are in scope.
 
 ## Rollback window
 
-- Checkpoints 0–2: Supabase is authoritative. Application code can return to the
+- Checkpoints 0Ã¢â‚¬â€œ2: Supabase is authoritative. Application code can return to the
   accepted release and the pre-apply local checkpoint can be restored under a
   separate reviewed database step.
 - Checkpoint 3 with zero accepted local writes: a coordinated configuration /
@@ -357,11 +360,19 @@ logical Auth references. The report contains hashes and statuses only; do not
 copy production rows into the report.
 
 `post-cutover-verify` runs only after Checkpoint 3 and postflight. It requires
-local application authority, healthy local backend, a clean internal cutover
+local application authority, the exact `16/jhcnetops:5433/jhc_netops` database
+identity as `jhc_netops_app`, healthy local backend, a fresh online runner
+heartbeat whose runtime authority is `local_postgres`, zero active foreground
+diagnostics/Traffic/Manual Ping/Discovery/Inspector work, a clean internal cutover
 canary through an approved application path (write, read-after-write, cleanup),
 a legacy Supabase mutation rejected before network access, Supabase Auth and
 shadow Realtime health, zero split-brain indications, the expected immutable
-release, healthy projection outbox (zero failed events, bounded lag), and
+full 40-character Git commit SHA for the intended and current release evidence,
+healthy projection outbox (consistent total/delivered/
+pending/failed counts, zero failed events, bounded pending count/lag), and a
+recent successful projector batch with no current or persistent batch failure.
+The authenticated `GET /api/application/outbox/health` response supplies the
+bounded counts and projector state without exposing payloads. It also requires
 exactly these stable PM2 processes:
 
 - `jhc-netops-backend`
@@ -371,11 +382,212 @@ exactly these stable PM2 processes:
 The projection loop is owned by `jhc-netops-backend`; it is not a fourth PM2
 process. Backend shutdown stops and awaits the loop before closing PostgreSQL.
 
+The projector allowlist is column-explicit. A rejected unknown aggregate or
+malformed key remains `failed`, is never marked delivered, and is not retried as
+if it were transient. It continues to block later mutations for that same
+aggregate so ordering cannot be falsified; unrelated aggregates remain
+processable. Transient network/Supabase failures retain bounded backoff. Safe
+projector logs contain only event identifiers, aggregate/operation, bounded
+error category/backend code, and bookkeeping stage--never payloads or secrets.
+
 The internal cutover canary uses only `public.cutover_canary`. Its Admin-only
 server action writes, reads, verifies, and deletes the bounded row through the
 loopback application API; it creates no Asset, Medical Equipment, network,
 traffic, health, diagnostic, or telemetry row. Do not substitute a fake
 production device, target, medical record, event, or traffic row.
+
+### Final post-deploy closure procedure
+
+First run the existing authenticated Admin cutover-canary action. Retain its
+bounded result only when write, read-after-write, verify, and cleanup all pass;
+otherwise stop. This is intentionally not replaced by a bearer-token `curl`
+because the Admin server action is part of the approved path.
+
+Then collect the remaining observations in one fail-closed subshell. Supply the
+approved full Git commit, existing record, and new evidence path. The command
+reads only the exact NetOps processes and dedicated application database. It
+does not print environment files, tokens, DSNs, or row payloads:
+
+```bash
+(
+  set -euo pipefail
+  set +x
+
+  ROOT=/var/www/jhc/jhc_noc
+  INTENDED_SHA="${P13_INTENDED_RELEASE_SHA:?full Git commit required}"
+  REL="$ROOT/releases/$INTENDED_SHA"
+  NODE=/home/mini-pc/.nvm/versions/node/v22.23.2/bin/node
+  RECORD="${P13_CUTOVER_RECORD_PATH:?cutover record required}"
+  ARTIFACT_DIR="${P13_POST_CUTOVER_ARTIFACT_DIR:?new artifact directory required}"
+  EVIDENCE="$ARTIFACT_DIR/post-cutover-evidence.json"
+  CANARY="${P13_CANARY_EVIDENCE_PATH:?Admin canary evidence required}"
+  SMOKE="${P13_RUNTIME_SMOKE_EVIDENCE_PATH:?runtime smoke evidence required}"
+  BACKEND_URL=http://127.0.0.1:3402
+
+  case "$INTENDED_SHA" in (*[!0-9a-f]*|'') exit 1;; esac
+  test "${#INTENDED_SHA}" -eq 40
+  test -x "$NODE"
+  test "$(readlink -f "$ROOT/current")" = "$(readlink -f "$REL")"
+  test -r "$RECORD" && test -r "$CANARY" && test -r "$SMOKE"
+  test ! -e "$ARTIFACT_DIR"
+  if env | cut -d= -f1 | grep -q '^P12_'; then
+    printf '%s\n' 'P13 POST-CUTOVER FAIL: P12 environment contamination' >&2
+    exit 1
+  fi
+
+  set -a
+  . "$ROOT/shared/backend/.env"
+  set +a
+  test "${PERSISTENCE_AUTHORITY:-}" = local_postgres
+
+  umask 077
+  mkdir -- "$ARTIFACT_DIR"
+  WORK="$ARTIFACT_DIR/observations"
+  mkdir -- "$WORK"
+  cd "$REL/backend"
+  RUNNER_ID=$("$NODE" -e 'const fs=require("node:fs");const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).runner_id;if(typeof v!=="string"||!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(v))process.exit(1);process.stdout.write(v)' "$ROOT/shared/runner/config.json")
+  export RUNNER_ID
+
+  pm2 jlist | REL="$REL" INTENDED_SHA="$INTENDED_SHA" "$NODE" -e '
+    const fs=require("node:fs"); let text="";
+    process.stdin.on("data",chunk=>text+=chunk).on("end",()=>{
+      const expected=new Set(["jhc-netops-backend","jhc-netops-runner","jhc-netops-frontend"]);
+      const rows=JSON.parse(text).filter(row=>expected.has(row.name));
+      if(rows.length!==3 || new Set(rows.map(row=>row.name)).size!==3 ||
+         rows.some(row=>row.pm2_env?.status!=="online" || row.pm2_env?.pm_cwd!==process.env.REL ||
+           Number(row.pm2_env?.unstable_restarts ?? 0)!==0)) process.exit(1);
+      const runner=rows.find(row=>row.name==="jhc-netops-runner");
+      const runtimeEnv=fs.readFileSync(`/proc/${runner.pid}/environ`).toString().split("\0");
+      const runnerAuthority=runtimeEnv.find(value=>value.startsWith("PERSISTENCE_AUTHORITY="))?.slice(22);
+      if(runnerAuthority!=="local_postgres") process.exit(1);
+      fs.writeFileSync(process.argv[1],JSON.stringify({release_sha:process.env.INTENDED_SHA,
+        runner_authority:runnerAuthority,
+        processes:rows.map(row=>({name:row.name,status:row.pm2_env.status,stable:true}))}));
+    });' "$WORK/pm2.json"
+
+  curl --fail --silent --show-error "$BACKEND_URL/healthz" > "$WORK/backend.json"
+  CURL_CONFIG="$WORK/curl.conf"
+  printf 'header = "Authorization: Bearer %s"\n' "$FRONTEND_API_TOKEN" > "$CURL_CONFIG"
+  curl --config "$CURL_CONFIG" --fail --silent --show-error \
+    "$BACKEND_URL/api/application/outbox/health" > "$WORK/outbox.json"
+  rm -f -- "$CURL_CONFIG"
+
+  "$NODE" --input-type=module - "$WORK/database.json" <<'NODE'
+import pg from "pg";
+import { writeFileSync } from "node:fs";
+const pool = new pg.Pool({ connectionString: process.env.APPLICATION_DATABASE_URL, max: 1,
+  connectionTimeoutMillis: 3000, statement_timeout: 7000, query_timeout: 8000 });
+try {
+  const { rows } = await pool.query(`SELECT
+    current_database()::text AS database,
+    current_setting('port')::int AS port,
+    current_user::text AS runtime_role,
+    current_setting('data_directory')::text AS data_directory,
+    COALESCE(host(inet_server_addr()), 'unix-socket') AS endpoint,
+    (SELECT row_to_json(r) FROM (SELECT id,health_status,last_seen_at
+      FROM public.diagnostic_runners WHERE id=$1) r) AS runner,
+    (SELECT json_build_object(
+      'diagnostic_jobs',count(*) FILTER (WHERE kind='diagnostic_jobs'),
+      'traffic_live_sessions',count(*) FILTER (WHERE kind='traffic_live_sessions'),
+      'network_health_ping_jobs',count(*) FILTER (WHERE kind='network_health_ping_jobs'),
+      'network_discovery_sessions',count(*) FILTER (WHERE kind='network_discovery_sessions'),
+      'device_inspection_sessions',count(*) FILTER (WHERE kind='device_inspection_sessions'))
+     FROM (
+       SELECT 'diagnostic_jobs' kind FROM public.diagnostic_jobs WHERE status IN ('queued','running')
+       UNION ALL SELECT 'traffic_live_sessions' FROM public.traffic_live_sessions WHERE status IN ('queued','running','stopping')
+       UNION ALL SELECT 'network_health_ping_jobs' FROM public.network_health_ping_jobs WHERE status IN ('queued','running')
+       UNION ALL SELECT 'network_discovery_sessions' FROM public.network_discovery_sessions WHERE status IN ('queued','running')
+       UNION ALL SELECT 'device_inspection_sessions' FROM public.device_inspection_sessions WHERE status IN ('queued','running')
+     ) active) AS foreground_work`, [process.env.RUNNER_ID]);
+  const row = rows[0];
+  if (!row || row.database !== 'jhc_netops' || row.port !== 5433 || row.runtime_role !== 'jhc_netops_app' ||
+      row.data_directory !== '/var/lib/postgresql/16/jhcnetops') process.exit(1);
+  writeFileSync(process.argv[2], JSON.stringify(row));
+} finally { await pool.end(); }
+NODE
+
+  printf '%s\n' 'NetOps PM2/release/runner authority evidence:'
+  cat "$WORK/pm2.json"
+  printf '\n'
+  printf '%s\n' 'Dedicated database, runner heartbeat, and active foreground work evidence:'
+  cat "$WORK/database.json"
+  printf '\n'
+  printf '%s\n' 'Outbox totals and projector health evidence:'
+  cat "$WORK/outbox.json"
+  printf '\n'
+
+  printf '%s\n' 'Recent bounded projector errors (absence is expected):'
+  pm2 logs jhc-netops-backend --nostream --lines 200 \
+    | grep -E 'SHADOW_PROJECTOR_BATCH_FAILED|SHADOW_PROJECTION_EVENT_FAILED' || true
+
+  # Build post-cutover-evidence.json from the observed files above, the
+  # successful Admin canary evidence, and the reviewed browser/runtime smoke
+  # evidence. Use the exact P13PostCutoverEvidence field names documented below.
+  # Never set PASS merely because a field is missing. Review the JSON before the
+  # journal step; the verifier maps missing observations to UNKNOWN and blocks.
+  printf '%s\n' 'P13 POST-CUTOVER EVIDENCE READY FOR REVIEW'
+)
+```
+
+After an operator has reviewed the retained observations and assembled the
+exact evidence JSON without defaults, use a second fail-closed subshell for the
+journal only:
+
+```bash
+(
+  set -euo pipefail
+  set +x
+  ROOT=/var/www/jhc/jhc_noc
+  INTENDED_SHA="${P13_INTENDED_RELEASE_SHA:?full Git commit required}"
+  REL="$ROOT/releases/$INTENDED_SHA"
+  NODE=/home/mini-pc/.nvm/versions/node/v22.23.2/bin/node
+  RECORD="${P13_CUTOVER_RECORD_PATH:?cutover record required}"
+  EVIDENCE="${P13_POST_CUTOVER_ARTIFACT_DIR:?artifact directory required}/post-cutover-evidence.json"
+  test "$(readlink -f "$ROOT/current")" = "$(readlink -f "$REL")"
+  test -r "$RECORD" && test -r "$EVIDENCE"
+  if env | cut -d= -f1 | grep -q '^P12_'; then
+    printf '%s\n' 'P13 POST-CUTOVER FAIL: P12 environment contamination' >&2
+    exit 1
+  fi
+  set -a
+  . "$ROOT/shared/backend/.env"
+  set +a
+  test "${PERSISTENCE_AUTHORITY:-}" = local_postgres
+
+  export P13_PHASE=P13
+  export P13_ACTION=post-cutover-verify
+  export P13_EXPECTED_CLUSTER=16/jhcnetops
+  export P13_EXPECTED_PORT=5433
+  export P13_EXPECTED_DATABASE=jhc_netops
+  export P13_EXPECTED_ROLE=jhc_netops_app
+  export P13_SOURCE_CHECKPOINT_IDENTITY="$("$NODE" -e 'const r=require(process.argv[1]);process.stdout.write(r.source_checkpoint_identity)' "$RECORD")"
+  export P13_OPERATOR_ACK="P13:post-cutover-verify:jhc_netops:$P13_SOURCE_CHECKPOINT_IDENTITY"
+  export P13_EVIDENCE_PATH="$EVIDENCE"
+  export P13_DATABASE_URL="$APPLICATION_DATABASE_URL"
+
+  cd "$REL/backend"
+  RESULT=$(npm run --silent p13:cutover -- post-cutover-verify)
+  printf '%s\n' "$RESULT"
+  printf '%s\n' "$RESULT" | grep -q '"status":"PASS"'
+  printf '%s\n' 'P13 POST-CUTOVER PASS'
+)
+```
+
+The evidence JSON must use the exact `P13PostCutoverEvidence` contract. Map the
+database observation to `database_identity` (cluster is `16/jhcnetops` only
+when the exact data directory matches), the newest runner row plus PM2 authority
+to `runner`, the five query counts and their sum to `foreground_work`, the
+authenticated health response to `projection_outbox`, and the exact three PM2
+rows to `pm2`. `P13_RUNTIME_SMOKE_EVIDENCE_PATH` must contain the actually
+observed local control-plane, legacy-writer rejection, Auth, shadow Realtime,
+and split-brain results. The capture command and journal are deliberately
+separate so the evidence can be reviewed; there are no fake true/zero defaults.
+
+On any blocked command or verifier result, print `P13 POST-CUTOVER FAIL`, retain
+the artifacts, and do not edit the cutover record manually. Never touch
+PostgreSQL `16/main`, restart PostgreSQL, modify application rows manually, run
+`apt`, reboot, use broad PM2 commands, or touch `cf-tunnel`, `diva-voice`,
+`kiosk JHC new`, or `ollama-server`.
 
 In `local_postgres` mode, diagnostic preflight/job creation, Manual Ping queue
 creation, Discovery prepare/start, Device Inspector start, and Traffic

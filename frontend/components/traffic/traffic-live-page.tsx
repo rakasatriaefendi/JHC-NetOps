@@ -10,15 +10,18 @@ import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { findNetworkNode } from "@/lib/network-nodes";
 import type { DiagnosticsData } from "@/lib/diagnostics";
-import { createClient } from "@/lib/supabase/client";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 import { canOperateNetwork } from "@/lib/authorization";
 import {
   filterFlows,
+  isTrafficRunnerAvailable,
+  mergeTrafficRunnerSnapshots,
   type TrafficFlow,
   type TrafficSnapshot,
   type TrafficState,
 } from "@/lib/traffic";
 import { mutateTrafficSessionAction } from "@/app/actions/legacy-network-control";
+import { getTrafficRunnersAction, getTrafficStateAction } from "@/app/actions/traffic";
 
 type Tab = "flows" | "conversations" | "talkers";
 
@@ -27,11 +30,13 @@ export function TrafficLivePage({
   diagnostics,
   loadError,
   initialSearch,
+  initialAuthority,
 }: {
   initialState: TrafficState;
   diagnostics: DiagnosticsData;
   loadError: boolean;
   initialSearch?: string;
+  initialAuthority: "local_postgres";
 }) {
   const { t, i18n } = useTranslation("traffic");
   const [state, setState] = useState(initialState);
@@ -46,6 +51,7 @@ export function TrafficLivePage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
+  const [runnerAuthority, setRunnerAuthority] = useState<"local_postgres">(initialAuthority);
 
   const runner = state.runners.find((item) => item.id === runnerId) ?? state.runners[0];
   const active = state.sessions.find(
@@ -59,72 +65,93 @@ export function TrafficLivePage({
     () => filterFlows(snapshot?.flows ?? [], search, protocol, status),
     [snapshot, search, protocol, status],
   );
-  const online = Boolean(
-    runner &&
-      runner.health_status === "online" &&
-      now - Date.parse(runner.last_seen_at) <= 30_000,
-  );
+  const online = isTrafficRunnerAvailable(runner, now);
   const elapsedSeconds = active?.started_at
     ? Math.max(0, Math.floor((now - Date.parse(active.started_at)) / 1000))
     : 0;
 
   useEffect(() => {
     let disposed = false;
-    const supabase = createClient();
+    void getTrafficRunnersAction().then((result) => {
+      if (disposed) return;
+      setRunnerAuthority(result.authority);
+      if (result.ok) {
+        setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
+        setNow(Date.now());
+      }
+    }).catch(() => {
+      // Retain the last runner snapshot until its normal freshness window expires.
+    });
+    return () => { disposed = true; };
+  }, []);
+
+  useEffect(() => {
+    if (runnerAuthority !== "local_postgres") return;
+    let disposed = false;
+    let refreshing = false;
+    async function refreshRunners() {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const result = await getTrafficRunnersAction();
+        if (!disposed && result.ok && result.authority === "local_postgres") {
+          setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
+          setNow(Date.now());
+        }
+      } catch {
+        // A transient refresh failure does not erase the last authoritative heartbeat.
+      } finally {
+        refreshing = false;
+      }
+    }
+    const interval = window.setInterval(() => void refreshRunners(), 10_000);
+    return () => { disposed = true; window.clearInterval(interval); };
+  }, [runnerAuthority]);
+
+  useEffect(() => {
+    let disposed = false;
 
     async function refresh() {
-      const { data, error } = await supabase.functions.invoke<{ data: TrafficState }>(
-        "traffic-live",
-        { method: "GET" },
-      );
-      if (!disposed && !error && data?.data) setState(data.data);
+      const result = await getTrafficStateAction().catch(() => null);
+      if (!disposed && result?.ok && result.data) {
+        setRunnerAuthority(result.authority);
+        const nextState = result.data;
+        setState(nextState);
+      }
     }
 
     const poll = window.setInterval(() => void refresh(), 5_000);
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
-    const channel = supabase
-      .channel("traffic-live-snapshot")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "traffic_live_snapshots" },
-        (payload) => {
-          const next = payload.new as TrafficSnapshot;
-          if (!next.runner_id) return;
-          setState((current) => ({
-            ...current,
-            snapshots: [
-              next,
-              ...current.snapshots.filter((item) => item.runner_id !== next.runner_id),
-            ],
-          }));
-        },
-      )
-      .subscribe((next) => {
-        setRealtime(next === "SUBSCRIBED");
-        if (next !== "SUBSCRIBED") void refresh();
-      });
 
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["traffic"],
+      refresh: () => void refresh(),
+      onStatus: (next) => setRealtime(next === "connected"),
+      debounceMs: 250,
+      fallbackIntervalMs: 60_000,
+    });
     return () => {
       disposed = true;
       window.clearInterval(poll);
       window.clearInterval(clock);
-      void supabase.removeChannel(channel);
+      stopRealtime();
     };
-  }, []);
+  }, [initialAuthority]);
 
   async function runAction(actionName: "create_session" | "stop_session") {
     if (!runner) return;
     setBusy(true);
     setError(null);
-    const supabase = createClient();
     const result = await mutateTrafficSessionAction(actionName === "create_session"
       ? { action: actionName, runnerId: runner.id, durationSeconds: duration }
       : { action: actionName, sessionId: active?.id });
     if (!result.ok) setError(t("requestFailed"));
-    const latest = await supabase.functions.invoke<{ data: TrafficState }>("traffic-live", {
-      method: "GET",
-    });
-    if (latest.data?.data) setState(latest.data.data);
+    const latest = await getTrafficStateAction().catch(() => null);
+    const latestState = latest?.ok ? latest.data : null;
+    if (latest && latestState) {
+      setRunnerAuthority(latest.authority);
+      setState(latestState);
+    }
     setBusy(false);
   }
 

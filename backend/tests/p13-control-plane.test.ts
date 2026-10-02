@@ -45,6 +45,24 @@ test("local Manual Ping resolves the enabled target runner and never accepts a b
   assert.match(insert.sql, /interval '30 seconds'/);
 });
 
+test("local Manual Ping claim excludes expired jobs and terminal mutations bind runner and job", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkHealthPingJobsRepository(database);
+  const now = new Date().toISOString();
+  await repository.claim(RUNNER, signal());
+  await repository.complete(SESSION, RUNNER, now, { ok: true, latency_ms: 2 }, signal());
+  await repository.fail(SESSION, RUNNER, now, "MANUAL_PING_FAILED", signal());
+  const claim = database.calls.find(({ sql }) => sql.includes("FOR UPDATE SKIP LOCKED") && sql.includes("network_health_ping_jobs"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed'") && sql.includes("result=$4::jsonb"));
+  const fail = database.calls.find(({ sql }) => sql.includes("status='failed'") && sql.includes("error_code=$4"));
+  assert.ok(claim);
+  assert.match(claim.sql, /runner_id=\$1 AND status='queued' AND expires_at >= now\(\)/);
+  assert.ok(complete);
+  assert.match(complete.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running' AND expires_at >= \$3::timestamptz/);
+  assert.ok(fail);
+  assert.match(fail.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running'/);
+});
+
 test("local Discovery prepare and start preserve the prepared session lifecycle", async () => {
   const database = new ControlDatabase();
   const repository = new PostgresNetworkDiscoveryRepository(database);
@@ -59,6 +77,27 @@ test("local Discovery prepare and start preserve the prepared session lifecycle"
   assert.deepEqual(start.values, [RUNNER, SESSION]);
 });
 
+test("local Discovery runner mutations enforce runner, session, status, and phase", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkDiscoveryRepository(database);
+  await repository.claim(RUNNER, new Date().toISOString(), signal());
+  await repository.contextReady(RUNNER, SESSION, {
+    connection_type: "wifi", interface_alias: "Wi-Fi", local_ipv4: "192.168.1.67",
+    subnet_cidr: "192.168.1.0/24", total_hosts: 254,
+  }, new Date().toISOString(), signal());
+  await repository.complete(RUNNER, SESSION, 254, new Date().toISOString(), signal());
+  const claim = database.calls.find(({ sql }) => sql.includes("FOR UPDATE SKIP LOCKED"));
+  const context = database.calls.find(({ sql }) => sql.includes("status='idle',completed_at"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed',scanned_hosts"));
+  assert.ok(claim);
+  assert.match(claim.sql, /runner_id=\$1[\s\S]*status='queued'/);
+  assert.ok(context);
+  assert.match(context.sql, /runner_id=\$1 AND session_id=\$2::uuid AND status='running' AND phase='prepare'/);
+  assert.deepEqual(context.values.slice(0, 2), [RUNNER, SESSION]);
+  assert.ok(complete);
+  assert.match(complete.sql, /runner_id=\$1 AND session_id=\$2::uuid AND status='running' AND phase='scan'/);
+});
+
 test("local Device Inspector derives inventory authorization and does not accept a caller source", async () => {
   const database = new ControlDatabase();
   const row = await new PostgresDeviceInspectionRepository(database).create(ACTOR, {
@@ -68,6 +107,40 @@ test("local Device Inspector derives inventory authorization and does not accept
   const insert = database.calls.find(({ sql }) => sql.includes("INSERT INTO public.device_inspection_sessions"));
   assert.ok(insert);
   assert.deepEqual(insert.values, [RUNNER, ACTOR, "192.168.1.50", "inventory"]);
+});
+
+test("local Device Inspector runner lifecycle binds runner, inspection, status, and target", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresDeviceInspectionRepository(database);
+  const now = new Date().toISOString();
+  const claimed = await repository.claim(RUNNER, now, signal());
+  assert.equal(claimed?.status, "running");
+  await repository.updateStage(RUNNER, SESSION, "identity", now, signal());
+  await repository.complete(RUNNER, SESSION, {
+    ip: "192.168.1.50", confidence: "medium", likely_device_type: "server",
+    capabilities: [], evidence: [],
+  }, now, signal());
+  const claim = database.calls.find(({ sql }) => sql.includes("UPDATE public.device_inspection_sessions AS session"));
+  const stage = database.calls.find(({ sql }) => sql.includes("SET stage=$3"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed',stage='complete'"));
+  assert.ok(claim);
+  assert.match(claim.sql, /runner_id=\$1[\s\S]*status='queued'[\s\S]*FOR UPDATE SKIP LOCKED/);
+  assert.ok(stage);
+  assert.match(stage.sql, /runner_id=\$1 AND inspection_id=\$2::uuid AND status='running'/);
+  assert.ok(complete);
+  assert.match(complete.sql, /inspection_id=\$2::uuid AND status='running' AND target_ip=\$4::inet/);
+  assert.deepEqual(complete.values.slice(0, 2), [RUNNER, SESSION]);
+});
+
+test("Discovery remains busy only while a Device Inspection is active", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkDiscoveryRepository(database);
+  database.inspectionBusy = true;
+  await assert.rejects(repository.start(ACTOR, RUNNER, SESSION, signal()),
+    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "RUNNER_BUSY");
+  database.inspectionBusy = false;
+  const started = await repository.start(ACTOR, RUNNER, SESSION, signal());
+  assert.equal(started.status, "queued");
 });
 
 test("local Traffic create and stop use the actor, runner capability, bounds, and transactional lifecycle", async () => {
@@ -99,6 +172,7 @@ class ControlDatabase implements PostgresTransactionalQuery {
   transactions = 0;
   profileStatus = "approved";
   preflight: Record<string, unknown> | null = completedPreflight();
+  inspectionBusy = false;
 
   async rows(sql: string, values: readonly unknown[]): Promise<readonly Record<string, unknown>[]> {
     this.calls.push({ sql, values });
@@ -112,7 +186,7 @@ class ControlDatabase implements PostgresTransactionalQuery {
     if (sql.includes("SELECT id,runner_id FROM public.network_targets")) return [{ id: TARGET, runner_id: RUNNER }];
     if (sql.includes("SELECT id FROM public.network_nodes")) return [{ id: TARGET }];
     if (sql.includes(" AS diagnostic") || sql.includes(" AS traffic,")) {
-      return [{ diagnostic: false, traffic: false, discovery: false, inspection: false }];
+      return [{ diagnostic: false, traffic: false, discovery: false, inspection: this.inspectionBusy }];
     }
     if (sql.includes("SELECT * FROM public.network_discovery_sessions") && sql.includes("status IN ('queued','running')")) return [];
     if (sql.includes("pg_total_relation_size")) return [{ status: "healthy" }];
@@ -130,6 +204,15 @@ class ControlDatabase implements PostgresTransactionalQuery {
     }
     if (sql.includes("INSERT INTO public.device_inspection_sessions")) {
       return [{ runner_id: RUNNER, inspection_id: SESSION, status: "queued", authorization_source: values[3] }];
+    }
+    if (sql.includes("UPDATE public.device_inspection_sessions AS session")) {
+      return [{ runner_id: RUNNER, inspection_id: SESSION, target_ip: "192.168.1.50", status: "running" }];
+    }
+    if (sql.includes("UPDATE public.device_inspection_sessions SET stage=$3")) {
+      return [{ runner_id: RUNNER, inspection_id: SESSION, status: "running", stage: values[2] }];
+    }
+    if (sql.includes("UPDATE public.device_inspection_sessions SET") && sql.includes("status='completed'")) {
+      return [{ runner_id: RUNNER, inspection_id: SESSION, status: "completed" }];
     }
     if (sql.includes("INSERT INTO public.traffic_live_sessions")) {
       return [{ id: SESSION, runner_id: RUNNER, status: "queued" }];

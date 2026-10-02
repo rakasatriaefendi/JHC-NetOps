@@ -1,25 +1,16 @@
 import "server-only";
 
 import { localBackendConfig } from "./assets.ts";
+import { getApplicationAuthority, type ApplicationAuthority } from "./application-authority.ts";
 
-export type ApplicationAuthority = "supabase" | "local_postgres";
-
-export function applicationAuthority(environment: Readonly<Record<string, string | undefined>> = process.env): ApplicationAuthority {
-  const value = environment.PERSISTENCE_AUTHORITY?.trim();
-  if (value !== "supabase" && value !== "local_postgres") {
-    throw new Error("Application persistence authority is missing or invalid");
-  }
-  return value;
-}
+export { getApplicationAuthority as applicationAuthority, type ApplicationAuthority };
 
 export async function localApplicationRequest(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: Record<string, unknown>,
 ): Promise<{ ok: boolean; data: unknown; code: string }> {
-  if (applicationAuthority() !== "local_postgres") {
-    throw new Error("Local application request requires local_postgres authority");
-  }
+  getApplicationAuthority();
   const config = localBackendConfig();
   const approvedPath = safeApplicationPath(path);
   if (!config || !approvedPath) {
@@ -93,6 +84,16 @@ export async function localRunner(runnerId: string): Promise<Record<string, unkn
   return response.ok && record(response.data) ? response.data : null;
 }
 
+export async function localRunners(): Promise<Record<string, unknown>[] | null> {
+  const response = await localApplicationRequest("GET", "/api/application/runners");
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localHealthTargets(): Promise<Record<string, unknown>[] | null> {
+  const response = await localApplicationRequest("GET", "/api/application/network-targets");
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
 export async function localHealthTarget(targetId: string): Promise<Record<string, unknown> | null> {
   if (!uuid(targetId)) return null;
   const response = await localApplicationRequest("GET", `/api/application/network-targets/${targetId}`);
@@ -103,6 +104,25 @@ export async function localManagedTarget(targetId: string): Promise<Record<strin
   if (!uuid(targetId)) return null;
   const response = await localApplicationRequest("GET", `/api/application/managed-targets/${targetId}`);
   return response.ok && record(response.data) ? response.data : null;
+}
+
+export async function localManagedTargets(): Promise<Record<string, unknown>[] | null> {
+  const response = await localApplicationRequest("GET", "/api/application/managed-targets");
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localManagedInterfaces(targetId?: string): Promise<Record<string, unknown>[] | null> {
+  if (targetId !== undefined && !uuid(targetId)) return null;
+  const query = targetId ? `?target_id=${encodeURIComponent(targetId)}` : "";
+  const response = await localApplicationRequest("GET", `/api/application/managed-interfaces${query}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localManagedObservedHosts(targetId?: string): Promise<Record<string, unknown>[] | null> {
+  if (targetId !== undefined && !uuid(targetId)) return null;
+  const query = targetId ? `?target_id=${encodeURIComponent(targetId)}` : "";
+  const response = await localApplicationRequest("GET", `/api/application/managed-observed-hosts${query}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
 export async function localDiagnosticJobs(runnerId: string): Promise<Record<string, unknown>[] | null> {
@@ -174,10 +194,27 @@ export async function localTrafficMetricsByStatus(status: string): Promise<Recor
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
+export async function localHopMeasurements(limit = 512): Promise<Record<string, unknown>[] | null> {
+  const bounded = Math.max(1, Math.min(4096, Math.trunc(limit)));
+  const response = await localApplicationRequest("GET", `/api/application/hop-measurements?limit=${bounded}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localTrafficState(): Promise<Record<string, unknown> | null> {
+  const response = await localApplicationRequest("GET", "/api/application/traffic-state");
+  return response.ok && record(response.data) ? response.data : null;
+}
+
 export async function localEvents(limit = 50, source?: string, sourceRef?: string): Promise<Record<string, unknown>[] | null> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (source) params.set("source", source);
   if (sourceRef) params.set("source_ref", sourceRef);
+  const response = await localApplicationRequest("GET", `/api/application/events?${params.toString()}`);
+  return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localOpenEvents(limit = 50, source: string): Promise<Record<string, unknown>[] | null> {
+  const params = new URLSearchParams({ limit: String(limit), source, unresolved: "true" });
   const response = await localApplicationRequest("GET", `/api/application/events?${params.toString()}`);
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }

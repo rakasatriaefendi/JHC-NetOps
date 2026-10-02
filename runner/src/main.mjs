@@ -26,11 +26,7 @@ try {
   logDirectory = config.log_directory;
   const localBackend = loadLocalBackendConfig(process.env);
   exposeLocalBackendToWsl(localBackend, process.env, config.runtime_platform);
-  backend = new BackendClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    localBackend,
-  );
+  backend = new BackendClient(localBackend, process.env.PERSISTENCE_AUTHORITY);
 } catch {
   log("Runner configuration is invalid");
   process.exit(2);

@@ -1,27 +1,27 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import type { ManagedTelemetryRepository } from "../src/managed-telemetry/repository.js";
-import { SupabaseManagedTelemetryRepository } from "../src/managed-telemetry/repository.js";
 import { normalizeObservedHosts, prepareObservedHostRows } from "../src/managed-telemetry/observed-hosts.js";
 import type { NetworkHealthRepository } from "../src/network-health/repository.js";
-import { SupabaseNetworkHealthRepository } from "../src/network-health/repository.js";
 import { buildServer } from "../src/server.js";
 import type { TrafficRepository } from "../src/traffic/repository.js";
-import { SupabaseTrafficRepository } from "../src/traffic/repository.js";
 
 const TOKEN = "local-runner-token-for-tests-only";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
 const NOW = new Date("2026-09-07T03:04:05.000Z");
 const TARGET = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
-const EVENT = "33333333-3333-4333-8333-333333333333";
 
 class FakeHealth implements NetworkHealthRepository {
   calls: string[] = [];
+  manualResult: Record<string, unknown> | null = null;
+  claimResult: Record<string, unknown> | null = null;
   async listTargets() { this.calls.push("list"); return { targets: [{ id: TARGET }] }; }
   async publish() { this.calls.push("publish"); return { states: 1, events: 0 }; }
+  async claimManualPing() { this.calls.push("claim_manual_ping"); return this.claimResult; }
+  async completeManualPing() { this.calls.push("complete_manual_ping"); return this.manualResult; }
+  async failManualPing() { this.calls.push("fail_manual_ping"); return this.manualResult; }
 }
 class FakeTraffic implements TrafficRepository {
   calls: string[] = [];
@@ -91,6 +91,49 @@ test("valid list and publish contracts dispatch to the matching subsystem only",
   await server.close();
 });
 
+test("Manual Ping claim accepts the runner payload and no queued job is a successful empty response", async () => {
+  const health = new FakeHealth();
+  const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health, now: () => NOW } });
+  const response = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "claim_manual_ping", runner_id: "it-lt8" } });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { data: null });
+  assert.deepEqual(health.calls, ["claim_manual_ping"]);
+  await server.close();
+});
+
+test("Manual Ping claim returns a valid queued job claimed by the local repository", async () => {
+  const health = new FakeHealth();
+  health.claimResult = { id: SESSION, runner_id: "it-lt8", status: "running" };
+  const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health, now: () => NOW } });
+  const response = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "claim_manual_ping", runner_id: "it-lt8" } });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { data: health.claimResult });
+  assert.deepEqual(health.calls, ["claim_manual_ping"]);
+  await server.close();
+});
+
+test("Manual Ping complete and fail contracts bind a bounded job id and result", async () => {
+  const health = new FakeHealth();
+  health.manualResult = { id: SESSION };
+  const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health, now: () => NOW } });
+  const complete = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "complete_manual_ping", runner_id: "it-lt8", ping_id: SESSION,
+      result: { ok: true, latency_ms: 4.2 } } });
+  const fail = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "fail_manual_ping", runner_id: "it-lt8", ping_id: SESSION,
+      error_code: "MANUAL_PING_FAILED" } });
+  const unbounded = await server.inject({ method: "POST", url: "/api/runner/network-health", headers: AUTH,
+    payload: { action: "complete_manual_ping", runner_id: "it-lt8", ping_id: SESSION,
+      result: { ok: true, latency_ms: 4.2, raw: "forbidden" } } });
+  assert.equal(complete.statusCode, 200);
+  assert.equal(fail.statusCode, 200);
+  assert.equal(unbounded.statusCode, 400);
+  assert.deepEqual(health.calls, ["complete_manual_ping", "fail_manual_ping"]);
+  await server.close();
+});
+
 test("malformed, unknown, oversized and secret-shaped recurring payloads fail before persistence", async () => {
   const health = new FakeHealth(), traffic = new FakeTraffic(), telemetry = new FakeTelemetry();
   const server = buildServer({ logger: false, networkHealth: { token: TOKEN, repository: health }, traffic: { token: TOKEN, repository: traffic }, managedTelemetry: { token: TOKEN, repository: telemetry, now: () => NOW } });
@@ -117,6 +160,9 @@ test("bounded persistence deadline and repository failures return sanitized cate
       return { targets: [] };
     },
     async publish() { return { states: 0, events: 0 }; },
+    async claimManualPing() { return null; },
+    async completeManualPing() { return null; },
+    async failManualPing() { return null; },
   };
   const telemetry: ManagedTelemetryRepository = {
     async listTargets() { throw new Error("authorization=Bearer leaked-token community=private"); },
@@ -129,35 +175,6 @@ test("bounded persistence deadline and repository failures return sanitized cate
   assert.equal(failure.statusCode, 500);
   assert.doesNotMatch(`${timeout.body}${failure.body}`, /leaked-token|community|authorization|private/i);
   await server.close();
-});
-
-test("Supabase repositories retain the existing tables, RPCs, bulk behavior and no credential payloads", async (t) => {
-  const requests: Array<{ url: string; options: RequestInit }> = [];
-  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
-    const url = String(input), method = options?.method ?? "GET";
-    requests.push({ url, options: options ?? {} });
-    if (url.includes("network_targets") && method === "GET") return json([{ id: TARGET, critical: false, network_nodes: { name: "Lab", ip_address: "192.168.1.2" } }]);
-    if (url.includes("managed_telemetry_targets") && method === "GET") return json([{ id: TARGET }]);
-    if (url.includes("traffic_live_sessions") && method === "PATCH") return json([{ status: "running" }]);
-    if (url.includes("traffic_live_sessions") && method === "GET") return json([{ id: SESSION }]);
-    if (url.includes("managed_observed_hosts_latest") && method === "GET") return json([]);
-    if (url.includes("network_nodes") && method === "GET") return json([]);
-    if (url.includes("events") && method === "GET") return json([]);
-    if (url.includes("traffic_storage_status")) return json([{ status: "healthy", storage_mb: 1 }]);
-    return new Response(null, { status: 204 });
-  });
-  const signal = AbortSignal.timeout(10_000);
-  await new SupabaseNetworkHealthRepository("https://project.invalid", "service-role-private").publish("runner-test", validHealthPublish().states, [{ event_id: EVENT, target_id: TARGET, previous_status: "offline", new_status: "online", occurred_at: NOW.toISOString(), latency_ms: 1, packet_loss_percent: 0, consecutive_failures: 0 }], NOW.toISOString(), signal);
-  const trafficRepository = new SupabaseTrafficRepository("https://project.invalid", "service-role-private");
-  await trafficRepository.updateSnapshot({ action: "update_snapshot", runner_id: "runner-test", session_id: SESSION, snapshot: validSnapshot() }, NOW.toISOString(), signal);
-  await trafficRepository.persistFlows({ action: "persist_flow_batch", runner_id: "runner-test", session_id: SESSION, flows: [{ flow_key: "a".repeat(64), src_ip: "192.168.1.2", dst_ip: "192.168.1.3", src_port: 1234, dst_port: 443, protocol: "tcp", first_seen: NOW.toISOString(), last_seen: NOW.toISOString(), total_bytes: 100, packet_count: 1, peak_rate_mbps: 0.1 }] }, signal);
-  const telemetry = validTelemetryPublish();
-  await new SupabaseManagedTelemetryRepository("https://project.invalid", "service-role-private").publish("runner-test", telemetry.device, [], [], [], NOW.toISOString(), signal);
-  const urls = requests.map(({ url }) => url).join("\n");
-  for (const name of ["network_health_latest", "network_health_samples", "events", "traffic_live_sessions", "traffic_live_snapshots", "traffic_storage_status", "flows", "managed_device_latest", "managed_interface_latest", "managed_observed_hosts_latest"]) assert.match(urls, new RegExp(name));
-  assert.doesNotMatch(JSON.stringify(requests.map(({ options }) => options.body ?? "")), /service-role-private|community|auth_password|priv_password/i);
-  const observedMutations = requests.filter(({ url, options }) => url.includes("managed_observed_hosts_latest") && (options.method === "PATCH" || options.method === "POST"));
-  assert.ok(observedMutations.length <= 2, "observed hosts stay bounded to one stale update and one current upsert");
 });
 
 test("Observed LAN Host normalization preserves bounds, first-seen, resolved names and node correlation", () => {
@@ -181,14 +198,3 @@ test("Observed LAN Host normalization preserves bounds, first-seen, resolved nam
   });
   assert.equal(rows.stale[0]?.ip_address, "192.168.1.9");
 });
-
-test("local contracts retain the Edge tables, RPCs and event coupling", () => {
-  const source = [
-    readFileSync(new URL("../../supabase/functions/network-health/index.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../../supabase/functions/traffic-live/index.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../../supabase/functions/managed-telemetry/index.ts", import.meta.url), "utf8"),
-  ].join("\n");
-  for (const coupling of ["network_health_samples", "expire_stale_traffic_sessions", "traffic_storage_status", "managed_observed_hosts_latest", "raw_context->>kind"]) assert.match(source, new RegExp(coupling));
-});
-
-function json(value: unknown) { return new Response(JSON.stringify(value), { status: 200 }); }

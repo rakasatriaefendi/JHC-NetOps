@@ -1,5 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { applicationAuthority } from "./application-persistence.ts";
+import { localRunners } from "./application-persistence.ts";
 
 import type { RunnerCapabilities } from "./diagnostic-jobs.ts";
 import { managedTelemetryFixture } from "./managed-telemetry-fixtures.ts";
@@ -7,17 +6,17 @@ import {
   loadManagedObservedHostsPage,
   loadManagedTelemetryWorkspace,
 } from "./managed-telemetry.ts";
-import { loadNetworkNodes } from "./network-nodes.ts";
+import { loadAuthoritativeNetworkNodes } from "./network-nodes-source.ts";
 import {
   portableDevConfig,
   type PortableEnvironment,
 } from "./portable-dev-mode.ts";
 
 type ProductionLoaders = {
-  loadNodes: typeof loadNetworkNodes;
+  loadNodes: typeof loadAuthoritativeNetworkNodes;
   loadTelemetry: typeof loadManagedTelemetryWorkspace;
   loadObservedHosts: typeof loadManagedObservedHostsPage;
-  loadRunners: (supabase: SupabaseClient) => Promise<{
+  loadRunners: () => Promise<{
     data: { id: string; display_name: string; capabilities: RunnerCapabilities }[] | null;
     error: unknown;
   }>;
@@ -26,27 +25,18 @@ type ProductionLoaders = {
 type RunnerRow = NonNullable<Awaited<ReturnType<ProductionLoaders["loadRunners"]>>["data"]>[number];
 
 async function loadRunnersLocal(): Promise<{ data: RunnerRow[] | null; error: unknown }> {
-  // In local mode, we don't have a list-all-runners endpoint yet
-  return { data: null, error: null };
+  const rows = await localRunners();
+  return { data: rows as RunnerRow[] | null, error: rows ? null : new Error("LOCAL_APPLICATION_UNAVAILABLE") };
 }
 
 const PRODUCTION_LOADERS: ProductionLoaders = {
-  loadNodes: loadNetworkNodes,
+  loadNodes: loadAuthoritativeNetworkNodes,
   loadTelemetry: loadManagedTelemetryWorkspace,
   loadObservedHosts: loadManagedObservedHostsPage,
-  loadRunners: async (supabase) => {
-    if (applicationAuthority() === "local_postgres") {
-      return loadRunnersLocal();
-    }
-    const { data, error } = await supabase.from("diagnostic_runners")
-      .select("id,display_name,capabilities")
-      .order("display_name");
-    return { data: data as RunnerRow[] | null, error };
-  },
+  loadRunners: loadRunnersLocal,
 };
 
 export async function loadSnmpWorkspaceData(
-  supabase: SupabaseClient,
   environment: PortableEnvironment = process.env,
   loaders: ProductionLoaders = PRODUCTION_LOADERS,
 ) {
@@ -68,9 +58,9 @@ export async function loadSnmpWorkspaceData(
   }
 
   const [inventory, runnersResult, telemetry] = await Promise.all([
-    loaders.loadNodes(supabase),
-    loaders.loadRunners(supabase),
-    loaders.loadTelemetry(supabase),
+    loaders.loadNodes(),
+    loaders.loadRunners(),
+    loaders.loadTelemetry(),
   ]);
   return {
     inventory,
@@ -81,7 +71,6 @@ export async function loadSnmpWorkspaceData(
 }
 
 export async function loadObservedHostsData(
-  supabase: SupabaseClient,
   targetId: string,
   environment: PortableEnvironment = process.env,
   loader: ProductionLoaders["loadObservedHosts"] = PRODUCTION_LOADERS.loadObservedHosts,
@@ -97,5 +86,5 @@ export async function loadObservedHostsData(
       portable,
     };
   }
-  return { ...await loader(supabase, targetId), portable };
+  return { ...await loader(targetId), portable };
 }

@@ -21,13 +21,11 @@ fail() {
 [[ -r "$FRONTEND_ENV" ]] || fail "frontend environment file is unavailable"
 
 set -a
-# NEXT_PUBLIC values are compiled into the client bundle and must exist at build time.
 . "$FRONTEND_ENV"
 set +a
 
-for variable_name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY NEXT_PUBLIC_SITE_URL; do
-  [[ -n "${!variable_name:-}" ]] || fail "frontend environment is missing ${variable_name}"
-done
+[[ -n "${NEXT_PUBLIC_SITE_URL:-}" ]] || fail "frontend environment is missing NEXT_PUBLIC_SITE_URL"
+[[ "${PERSISTENCE_AUTHORITY:-}" = "local_postgres" ]] || fail "frontend PERSISTENCE_AUTHORITY must be local_postgres"
 
 export NODE_ENV=production
 export PATH="${NODE_DIR}:${PATH}"

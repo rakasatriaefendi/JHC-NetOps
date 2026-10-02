@@ -9,6 +9,29 @@ type Row = Record<string, unknown>;
 export class PostgresTrafficRepository implements TrafficRepository {
   constructor(private readonly database: PostgresTransactionalQuery) {}
 
+  async readState(signal: AbortSignal): Promise<Readonly<{
+    sessions: readonly Row[];
+    snapshots: readonly Row[];
+    storage_status: Row;
+  }>> {
+    const [sessions, snapshots, storageStatus] = await Promise.all([
+      this.database.rows(`
+        SELECT * FROM public.traffic_live_sessions
+        ORDER BY created_at DESC LIMIT 20
+      `, [], signal),
+      this.database.rows(`
+        SELECT * FROM public.traffic_live_snapshots
+        ORDER BY captured_at DESC LIMIT 50
+      `, [], signal),
+      this.#storageStatus(signal),
+    ]);
+    return {
+      sessions,
+      snapshots,
+      storage_status: storageStatus ?? { storage_mb: 0, status: "healthy" },
+    };
+  }
+
   async claim(runnerId: string, now: Date, signal: AbortSignal): Promise<Row | null> {
     await new PostgresRunnerHeartbeatRepository(this.database).expireStaleTrafficSessions(runnerId, signal);
     const rows = await this.database.rows(`

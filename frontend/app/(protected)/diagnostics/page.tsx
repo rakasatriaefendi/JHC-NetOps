@@ -1,9 +1,8 @@
 import { NetworkNodesProvider } from "@/components/diagnostics/network-nodes-provider";
 import { DeviceProfileProvider } from "@/components/device-profile/device-profile-provider";
 import { DiagnosticsWorkspace } from "@/components/diagnostics/diagnostics-workspace";
-import { loadDiagnosticJobState } from "@/lib/diagnostic-jobs";
-import { loadDiagnostics } from "@/lib/diagnostics";
-import { loadNetworkNodes } from "@/lib/network-nodes";
+import { getDiagnosticJobStateAction, getDiagnosticsAction } from "@/app/actions/diagnostics";
+import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { requireApprovedProfile } from "@/lib/auth";
 import { getServerTranslation } from "@/i18n/server";
 
@@ -12,11 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function DiagnosticsPage({searchParams}:{searchParams:Promise<{target?:string}>}) {
   const { t } = await getServerTranslation("diagnostics");
   const {target}=await searchParams;
-  const {supabase,profile} = await requireApprovedProfile();
+  const {profile} = await requireApprovedProfile();
   const [jobState, diagnostics, networkNodes] = await Promise.all([
-    loadDiagnosticJobState(supabase),
-    loadDiagnostics(supabase),
-    loadNetworkNodes(supabase),
+    getDiagnosticJobStateAction(),
+    getDiagnosticsAction(),
+    loadAuthoritativeNetworkNodes(),
   ]);
   return (
     <main className="min-w-0 max-w-full p-4 md:p-6">
@@ -26,7 +25,7 @@ export default async function DiagnosticsPage({searchParams}:{searchParams:Promi
       <div className="mt-6 min-w-0">
         <NetworkNodesProvider initialNodes={networkNodes.data} loadError={networkNodes.error} role={profile.role}>
           <DeviceProfileProvider role={profile.role} runners={jobState.data.runners}>
-          <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={jobState.error || diagnostics.error} diagnosticsLoadError={diagnostics.error} prefillTarget={target} role={profile.role} />
+          <DiagnosticsWorkspace initialState={jobState.data} initialDiagnostics={diagnostics.data} loadError={!jobState.ok || !diagnostics.ok} diagnosticsLoadError={!diagnostics.ok} initialAuthority={jobState.authority} prefillTarget={target} role={profile.role} />
           </DeviceProfileProvider>
         </NetworkNodesProvider>
       </div>

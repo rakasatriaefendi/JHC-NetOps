@@ -1,5 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import type { ConnectionType, DiagnosticEnvironment } from "@/lib/diagnostics";
 
 export type DiagnosticTarget = {
@@ -147,24 +145,6 @@ export type DiagnosticJobState = {
   jobs: DiagnosticJob[];
   server_time: string;
 };
-
-type JobStateResponse = { data: DiagnosticJobState };
-
-export async function loadDiagnosticJobState(
-  supabase: SupabaseClient,
-): Promise<{ data: DiagnosticJobState; error: boolean }> {
-  const { data, error } = await supabase.functions.invoke<JobStateResponse>(
-    "diagnostic-jobs",
-    { method: "GET" },
-  );
-  if (error || !data?.data) {
-    return {
-      data: { runners: [], jobs: [], server_time: new Date().toISOString() },
-      error: true,
-    };
-  }
-  return { data: data.data, error: false };
-}
 
 export function isRunnerFresh(runner: DiagnosticRunner, now = Date.now()) {
   return now - Date.parse(runner.last_seen_at) <= 30_000;

@@ -2,7 +2,7 @@ import { BackendConfigurationError, loadBackendConfig } from "./config.js";
 import { Pool } from "pg";
 import { PostgresAssetRepository, ASSET_QUERY_TIMEOUT_MS } from "./assets/repository.js";
 import { PostgresAssetChangeRepository } from "./assets/change-repository.js";
-import { SupabaseAssetEvidenceSource } from "./assets/evidence.js";
+import { PostgresAssetEvidenceSource } from "./assets/evidence.js";
 import { BoundedAssetSynchronizer } from "./assets/ingestion.js";
 import { AssetScanController } from "./assets/scan-controller.js";
 import { PrivilegedNmapExecutor } from "./assets/scan-executor.js";
@@ -11,15 +11,11 @@ import { PostgresAssetReportRepository } from "./assets/report-repository.js";
 import { LinuxIpRouteAdapter } from "./assets/scan-network-adapter.js";
 import { ScanNetworkManager } from "./assets/scan-network-manager.js";
 import { PostgresScanNetworkRepository } from "./assets/scan-network-repository.js";
-import { SupabaseManagedTelemetryRepository } from "./managed-telemetry/repository.js";
-import { SupabaseNetworkHealthRepository } from "./network-health/repository.js";
-import { SupabaseTrafficRepository } from "./traffic/repository.js";
-import { SupabaseRunnerHeartbeatRepository } from "./runner-heartbeat/repository.js";
 import { buildServer, createGracefulShutdown } from "./server.js";
 import { FileReportBrandingStore } from "./report-branding/storage.js";
 import { PostgresMedicalEquipmentRepository } from "./medical-equipment/repository.js";
 import { selectApplicationPersistence } from "./persistence/authority.js";
-import { type ApplicationRepositories, type SupabaseApplicationRepositories } from "./persistence/application-repositories.js";
+import { type ApplicationRepositories } from "./persistence/application-repositories.js";
 import { PoolPostgresQuery } from "./persistence/postgres-query.js";
 import { PostgresProfilesRepository } from "./persistence/profiles.js";
 import { PostgresNetworkInventoryRepository } from "./persistence/inventory.js";
@@ -37,19 +33,15 @@ import { PostgresTrafficMetricsRepository } from "./persistence/traffic-metrics.
 import { PostgresEventsRepository } from "./persistence/events.js";
 import { PostgresOutboxRepository } from "./persistence/outbox.js";
 import { PostgresCutoverCanaryRepository } from "./persistence/cutover-canary.js";
-import { SupabaseShadowProjector } from "./persistence/shadow-projector.js";
+import { LocalRealtimeBroker } from "./realtime/broker.js";
+import { PostgresRealtimeListener, postgresRealtimeConnectionFactory } from "./realtime/listener.js";
+import { PostgresLocalAuthRepository } from "./local-auth/repository.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
-  const shadowProjector: { current: SupabaseShadowProjector | null } = { current: null };
-  const applicationRepositories = selectApplicationPersistence<ApplicationRepositories | SupabaseApplicationRepositories>(config.persistenceAuthority, {
-    supabase: () => ({
-      heartbeat: new SupabaseRunnerHeartbeatRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-      health: new SupabaseNetworkHealthRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-      traffic: new SupabaseTrafficRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-      telemetry: new SupabaseManagedTelemetryRepository(config.supabaseUrl, config.supabaseServiceRoleKey),
-    }),
-    localPostgres: () => {
+  const realtimeBroker = new LocalRealtimeBroker();
+  const realtimeListener: { current: PostgresRealtimeListener | null } = { current: null };
+  const applicationRepositories = selectApplicationPersistence<ApplicationRepositories & { _pool: Pool }>(config.persistenceAuthority, () => {
       const appPool = new Pool({
         connectionString: config.applicationDatabaseUrl,
         max: 10,
@@ -79,12 +71,16 @@ async function main(): Promise<void> {
         inventory: new PostgresNetworkInventoryRepository(query),
         outbox,
         cutoverCanary,
+        localAuth: new PostgresLocalAuthRepository(query),
         _pool: appPool,
       };
-      shadowProjector.current = new SupabaseShadowProjector(outbox, config.supabaseUrl, config.supabaseServiceRoleKey);
+      realtimeListener.current = new PostgresRealtimeListener(
+        postgresRealtimeConnectionFactory(config.applicationDatabaseUrl),
+        realtimeBroker,
+      );
       return repos;
-    },
   });
+  const localRepos: ApplicationRepositories = applicationRepositories;
   const assetPool = config.assets ? new Pool({
     connectionString: config.assets.databaseUrl,
     max: 5,
@@ -97,10 +93,7 @@ async function main(): Promise<void> {
   const assetRepository = assetPool ? new PostgresAssetRepository(assetPool) : null;
   const reportBranding = config.assets ? new FileReportBrandingStore(config.assets.reportBrandingDir) : null;
   const assetSynchronizer = assetRepository && !config.candidateReadOnly
-    ? new BoundedAssetSynchronizer(
-      new SupabaseAssetEvidenceSource(config.supabaseUrl, config.supabaseServiceRoleKey),
-      assetRepository,
-    )
+    ? new BoundedAssetSynchronizer(new PostgresAssetEvidenceSource(localRepos.inventory), assetRepository)
     : null;
   const scanNetworkManager = assetPool && config.assets
     ? new ScanNetworkManager(new PostgresScanNetworkRepository(assetPool), new LinuxIpRouteAdapter())
@@ -119,11 +112,7 @@ async function main(): Promise<void> {
     )
     : null;
   if (!config.candidateReadOnly && assetScanController) await assetScanController.initialize();
-  const appPool = config.persistenceAuthority === "local_postgres" && "_pool" in applicationRepositories
-    ? (applicationRepositories as Record<string, unknown>)._pool as Pool
-    : null;
-  const localRepos = config.persistenceAuthority === "local_postgres" ? applicationRepositories as ApplicationRepositories : null;
-
+  const appPool = applicationRepositories._pool;
   const buildServerOptions: Record<string, unknown> = {
     candidateReadOnly: config.candidateReadOnly,
     runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },
@@ -163,6 +152,14 @@ async function main(): Promise<void> {
     buildServerOptions.reportBranding = { token: config.assets.frontendApiToken, store: reportBranding };
   }
   if (localRepos) {
+    buildServerOptions.networkDiscovery = {
+      token: config.runnerApiToken,
+      repository: localRepos.networkDiscovery,
+    };
+    buildServerOptions.deviceInspection = {
+      token: config.runnerApiToken,
+      repository: localRepos.deviceInspection,
+    };
     buildServerOptions.application = {
       token: config.frontendApiToken,
       profiles: localRepos.profiles,
@@ -179,6 +176,8 @@ async function main(): Promise<void> {
       outbox: localRepos.outbox,
       cutoverCanary: localRepos.cutoverCanary,
     };
+    buildServerOptions.realtime = { token: config.frontendApiToken, broker: realtimeBroker };
+    buildServerOptions.localAuth = { token: config.frontendApiToken, repository: localRepos.localAuth };
   }
 
   const server = buildServer(buildServerOptions as Parameters<typeof buildServer>[0]);
@@ -186,8 +185,10 @@ async function main(): Promise<void> {
     try { if (assetScanController) await assetScanController.shutdown(); } finally { await assetPool.end(); }
   });
   if (appPool) server.addHook("onClose", async () => {
-    await shadowProjector.current?.stop();
-    await appPool.end();
+    try {
+      await realtimeListener.current?.stop();
+      realtimeBroker.close();
+    } finally { await appPool.end(); }
   });
   const shutdown = createGracefulShutdown(server);
   const handleSignal = (signal: string) => {
@@ -198,7 +199,7 @@ async function main(): Promise<void> {
   };
   process.once("SIGINT", () => handleSignal("SIGINT"));
   process.once("SIGTERM", () => handleSignal("SIGTERM"));
-  shadowProjector.current?.start();
+  realtimeListener.current?.start();
   try { await server.listen({ host: config.host, port: config.port }); }
   catch (error) { await server.close().catch(() => undefined); throw error; }
 }

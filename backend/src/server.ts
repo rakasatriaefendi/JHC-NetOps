@@ -6,11 +6,15 @@ import { registerScanNetworkRoutes, type ScanNetworkRouteOptions } from "./asset
 import { registerAssetReportRoute, type AssetReportRouteOptions } from "./assets/report-route.js";
 import { registerManagedTelemetryRoute, type ManagedTelemetryRouteOptions } from "./managed-telemetry/route.js";
 import { registerNetworkHealthRoute, type NetworkHealthRouteOptions } from "./network-health/route.js";
+import { registerNetworkDiscoveryRoute, type NetworkDiscoveryRouteOptions } from "./network-discovery/route.js";
+import { registerDeviceInspectionRoute, type DeviceInspectionRouteOptions } from "./device-inspector/route.js";
 import { registerRunnerHeartbeatRoute, type RunnerHeartbeatRouteOptions } from "./runner-heartbeat/route.js";
 import { registerTrafficRoute, type TrafficRouteOptions } from "./traffic/route.js";
 import { registerReportBrandingRoutes, type ReportBrandingRouteOptions } from "./report-branding/route.js";
 import { registerMedicalEquipmentRoutes, type MedicalEquipmentRouteOptions } from "./medical-equipment/route.js";
 import { registerApplicationRoutes, type ApplicationRouteOptions } from "./persistence/route.js";
+import { registerLocalRealtimeRoute, type LocalRealtimeRouteOptions } from "./realtime/route.js";
+import { registerLocalAuthRoutes, type LocalAuthRouteOptions } from "./local-auth/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -25,11 +29,15 @@ type BuildServerOptions = Readonly<{
   logger?: boolean;
   managedTelemetry?: ManagedTelemetryRouteOptions;
   networkHealth?: NetworkHealthRouteOptions;
+  networkDiscovery?: NetworkDiscoveryRouteOptions;
+  deviceInspection?: DeviceInspectionRouteOptions;
   runnerHeartbeat?: RunnerHeartbeatRouteOptions;
   traffic?: TrafficRouteOptions;
   reportBranding?: ReportBrandingRouteOptions;
   medicalEquipment?: MedicalEquipmentRouteOptions;
   application?: ApplicationRouteOptions;
+  realtime?: LocalRealtimeRouteOptions;
+  localAuth?: LocalAuthRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -86,6 +94,8 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     registerRunnerHeartbeatRoute(server, options.runnerHeartbeat);
   }
   if (options.networkHealth) registerNetworkHealthRoute(server, options.networkHealth);
+  if (options.networkDiscovery) registerNetworkDiscoveryRoute(server, options.networkDiscovery);
+  if (options.deviceInspection) registerDeviceInspectionRoute(server, options.deviceInspection);
   if (options.traffic) registerTrafficRoute(server, options.traffic);
   if (options.managedTelemetry) registerManagedTelemetryRoute(server, options.managedTelemetry);
   if (options.assets) registerAssetRoutes(server, options.assets);
@@ -96,6 +106,8 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.reportBranding) registerReportBrandingRoutes(server, options.reportBranding);
   if (options.medicalEquipment) registerMedicalEquipmentRoutes(server, options.medicalEquipment);
   if (options.application) registerApplicationRoutes(server, options.application);
+  if (options.realtime) registerLocalRealtimeRoute(server, options.realtime);
+  if (options.localAuth) registerLocalAuthRoutes(server, options.localAuth);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {

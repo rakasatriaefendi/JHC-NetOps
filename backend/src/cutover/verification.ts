@@ -23,6 +23,14 @@ export const P13_NETOPS_PM2_PROCESSES = Object.freeze([
   "jhc-netops-runner",
 ] as const);
 
+export const P13_FOREGROUND_WORKFLOWS = Object.freeze([
+  "diagnostic_jobs",
+  "traffic_live_sessions",
+  "network_health_ping_jobs",
+  "network_discovery_sessions",
+  "device_inspection_sessions",
+] as const);
+
 export type P13VerificationStatus = "PASS" | "FAIL" | "UNKNOWN";
 export type P13FinalDataCheck = (typeof P13_FINAL_DATA_CHECKS)[number];
 
@@ -89,8 +97,24 @@ export type P13PostCutoverEvidence = Readonly<{
   source_checkpoint_identity: string;
   cutover_record: P13CutoverRecord;
   persistence_authority?: "supabase" | "local_postgres";
+  database_identity?: Readonly<{
+    cluster?: string;
+    port?: number;
+    database?: string;
+    endpoint?: string;
+    runtime_role?: string;
+  }>;
   local_backend_health?: P13VerificationStatus;
   local_control_plane_health?: P13VerificationStatus;
+  runner?: Readonly<{
+    persistence_authority?: "supabase" | "local_postgres";
+    health_status?: "online" | "degraded";
+    last_seen_at?: string;
+  }>;
+  foreground_work?: Readonly<{
+    active_count?: number;
+    workflows?: Readonly<Record<(typeof P13_FOREGROUND_WORKFLOWS)[number], number>>;
+  }>;
   write_canary?: Readonly<{
     status?: P13VerificationStatus;
     kind?: "internal_cutover_canary";
@@ -111,8 +135,17 @@ export type P13PostCutoverEvidence = Readonly<{
     processes?: readonly Readonly<{ name?: string; status?: "online" | "stopped" | "errored"; stable?: boolean }>[];
   }>;
   projection_outbox?: Readonly<{
-    status?: P13VerificationStatus;
+    total_count?: number;
+    delivered_count?: number;
+    pending_count?: number;
     failed_count?: number;
+    oldest_pending_age_ms?: number | null;
+    projector_status?: "healthy" | "degraded";
+    consecutive_batch_failures?: number;
+    persistent_batch_failure?: boolean;
+    last_success_at?: string | null;
+    last_failure_at?: string | null;
+    last_failure_code?: string | null;
   }>;
 }>;
 
@@ -204,8 +237,11 @@ export function verifyP13PostCutover(evidence: P13PostCutoverEvidence): P13Verif
     check("local_authority", evidence.persistence_authority === undefined ? "UNKNOWN" :
       evidence.persistence_authority === "local_postgres" ? "PASS" : "FAIL"),
     check("checkpoint_3_armed", postCutoverRecordStatus(evidence.cutover_record, evidence.source_checkpoint_identity)),
+    check("dedicated_database_identity", databaseIdentityStatus(evidence.database_identity)),
     check("local_backend_health", statusValue(evidence.local_backend_health)),
     check("local_control_plane_health", statusValue(evidence.local_control_plane_health)),
+    check("runner_local_authority_and_fresh_heartbeat", runnerStatus(evidence.runner, evidence.captured_at)),
+    check("no_active_foreground_work", foregroundWorkStatus(evidence.foreground_work)),
     check("approved_path_write_canary", writeCanaryStatus(evidence.write_canary)),
     check("legacy_supabase_writes_disabled", legacyWriterStatus(evidence.legacy_supabase_application_writes)),
     check("supabase_auth_external", externalStatus(evidence.auth, "supabase")),
@@ -213,7 +249,7 @@ export function verifyP13PostCutover(evidence: P13PostCutoverEvidence): P13Verif
     check("no_split_brain", splitBrainStatus(evidence.split_brain)),
     check("intended_release", releaseStatus(evidence.release)),
     check("netops_pm2_stable", pm2Status(evidence.pm2)),
-    check("projection_outbox_healthy", outboxStatus(evidence.projection_outbox)),
+    check("projection_outbox_healthy", outboxStatus(evidence.projection_outbox, evidence.captured_at)),
   ];
   return report("post_cutover", evidence.source_checkpoint_identity, evidence, checks);
 }
@@ -351,7 +387,7 @@ function splitBrainStatus(value: P13PostCutoverEvidence["split_brain"]): P13Veri
 
 function releaseStatus(value: P13PostCutoverEvidence["release"]): P13VerificationStatus {
   if (!value || value.status === undefined || !value.expected_sha || !value.current_sha) return "UNKNOWN";
-  if (!hash(value.expected_sha) || !hash(value.current_sha)) return "FAIL";
+  if (!gitCommit(value.expected_sha) || !gitCommit(value.current_sha)) return "FAIL";
   return value.status === "PASS" && value.expected_sha === value.current_sha ? "PASS" : "FAIL";
 }
 
@@ -363,10 +399,52 @@ function pm2Status(value: P13PostCutoverEvidence["pm2"]): P13VerificationStatus 
   return value.processes.every(({ status, stable }) => status === "online" && stable === true) ? "PASS" : "FAIL";
 }
 
-function outboxStatus(value: P13PostCutoverEvidence["projection_outbox"]): P13VerificationStatus {
-  if (!value || value.status === undefined || value.failed_count === undefined) return "UNKNOWN";
-  if (!Number.isSafeInteger(value.failed_count) || value.failed_count < 0) return "FAIL";
-  return value.status === "PASS" && value.failed_count === 0 ? "PASS" : "FAIL";
+function runnerStatus(value: P13PostCutoverEvidence["runner"], capturedAt: string): P13VerificationStatus {
+  if (!value || value.persistence_authority === undefined || value.health_status === undefined ||
+      value.last_seen_at === undefined) return "UNKNOWN";
+  const captured = Date.parse(capturedAt);
+  const lastSeen = Date.parse(value.last_seen_at);
+  if (!Number.isFinite(captured) || !Number.isFinite(lastSeen)) return "FAIL";
+  const ageMs = captured - lastSeen;
+  return value.persistence_authority === "local_postgres" && value.health_status === "online" &&
+    ageMs >= -5_000 && ageMs <= 30_000 ? "PASS" : "FAIL";
+}
+
+function foregroundWorkStatus(value: P13PostCutoverEvidence["foreground_work"]): P13VerificationStatus {
+  if (!value || value.active_count === undefined || !value.workflows) return "UNKNOWN";
+  const names = Object.keys(value.workflows);
+  if (names.length !== P13_FOREGROUND_WORKFLOWS.length ||
+      !P13_FOREGROUND_WORKFLOWS.every((name) => names.includes(name)) ||
+      !Number.isSafeInteger(value.active_count) || value.active_count < 0) return "FAIL";
+  const counts = P13_FOREGROUND_WORKFLOWS.map((name) => value.workflows![name]);
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0) ||
+      counts.reduce((sum, count) => sum + count, 0) !== value.active_count) return "FAIL";
+  return value.active_count === 0 ? "PASS" : "FAIL";
+}
+
+function outboxStatus(value: P13PostCutoverEvidence["projection_outbox"], capturedAt: string): P13VerificationStatus {
+  if (!value || value.total_count === undefined || value.delivered_count === undefined ||
+      value.pending_count === undefined || value.failed_count === undefined ||
+      value.oldest_pending_age_ms === undefined || value.projector_status === undefined ||
+      value.consecutive_batch_failures === undefined || value.persistent_batch_failure === undefined ||
+      value.last_success_at === undefined || value.last_failure_at === undefined || value.last_failure_code === undefined) {
+    return "UNKNOWN";
+  }
+  const counts = [value.total_count, value.delivered_count, value.pending_count, value.failed_count,
+    value.consecutive_batch_failures];
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0) ||
+      value.total_count !== value.delivered_count + value.pending_count + value.failed_count ||
+      value.pending_count > 1_000 || value.failed_count !== 0 || value.persistent_batch_failure ||
+      value.projector_status !== "healthy" || value.consecutive_batch_failures !== 0 ||
+      (value.pending_count === 0 ? value.oldest_pending_age_ms !== null :
+        typeof value.oldest_pending_age_ms !== "number" || !Number.isFinite(value.oldest_pending_age_ms) ||
+        value.oldest_pending_age_ms < 0 || value.oldest_pending_age_ms > 300_000) ||
+      (value.last_failure_at !== null && !Number.isFinite(Date.parse(value.last_failure_at))) ||
+      (value.last_failure_code !== null && !/^[A-Z0-9_]{1,64}$/.test(value.last_failure_code))) return "FAIL";
+  if (value.last_success_at === null) return "FAIL";
+  const successAgeMs = Date.parse(capturedAt) - Date.parse(value.last_success_at);
+  if (!Number.isFinite(successAgeMs) || successAgeMs < -5_000 || successAgeMs > 30_000) return "FAIL";
+  return "PASS";
 }
 
 function report(
@@ -413,6 +491,10 @@ function validateHeader(value: { version: number; captured_at: string; source_ch
 
 function hash(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+function gitCommit(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
 }
 
 function boundedText(value: string, maximum: number): boolean {

@@ -1,10 +1,9 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { logAuthFailure } from "@/lib/auth-logging";
-import { createClient } from "@/lib/supabase/server";
+import { localAuthLogin, localAuthLogout, localAuthRegister } from "@/lib/local-auth";
 import { getServerTranslation } from "@/i18n/server";
 
 export type AuthActionState = {
@@ -12,10 +11,14 @@ export type AuthActionState = {
   message: string | null;
 };
 
+export type LoginActionState = AuthActionState & {
+  authenticated: boolean;
+};
+
 export async function loginAction(
-  _previousState: AuthActionState,
+  _previousState: LoginActionState,
   formData: FormData,
-): Promise<AuthActionState> {
+): Promise<LoginActionState> {
   const { t } = await getServerTranslation("auth");
   const email = String(formData.get("email") ?? "")
     .trim()
@@ -23,24 +26,22 @@ export async function loginAction(
   const password = String(formData.get("password") ?? "");
 
   if (!email || !password) {
-    return { error: t("errors.required"), message: null };
+    return { error: t("errors.required"), message: null, authenticated: false };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    logAuthFailure("login", error);
-    return { error: t("errors.invalid"), message: null };
+  const result = await localAuthLogin(email, password);
+  if (!result.ok) {
+    logAuthFailure("login", { code: result.code });
+    return { error: t("errors.invalid"), message: null, authenticated: false };
   }
 
-  redirect("/auth/resolve");
+  return { error: null, message: null, authenticated: true };
 }
 
 export async function registerAction(
-  _previousState: AuthActionState,
+  _previousState: LoginActionState,
   formData: FormData,
-): Promise<AuthActionState> {
+): Promise<LoginActionState> {
   const { t } = await getServerTranslation("auth");
   const fullName = String(formData.get("full_name") ?? "").trim();
   const email = String(formData.get("email") ?? "")
@@ -52,45 +53,28 @@ export async function registerAction(
     return {
       error: t("errors.registerValidation"),
       message: null,
+      authenticated: false,
     };
   }
 
-  const supabase = await createClient();
-  const requestHeaders = await headers();
-  const origin =
-    requestHeaders.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL?.trim();
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: fullName },
-      ...(origin
-        ? { emailRedirectTo: `${origin}/auth/callback?next=/pending` }
-        : {}),
-    },
-  });
-
-  if (error) {
-    logAuthFailure("register", error);
+  const result = await localAuthRegister(email, password, fullName);
+  if (!result.ok) {
+    logAuthFailure("register", { code: result.code });
     return {
       error: t("errors.registerFailed"),
       message: null,
+      authenticated: false,
     };
-  }
-
-  if (data.session) {
-    redirect("/pending");
   }
 
   return {
     error: null,
     message: t("messages.registered"),
+    authenticated: true,
   };
 }
 
 export async function logoutAction() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  await localAuthLogout();
   redirect("/login");
 }

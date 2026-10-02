@@ -5,7 +5,7 @@ import test from "node:test";
 import type { AssetListQuery, AssetListResponse, AssetRecord } from "../src/assets/contract.js";
 import { validateAssetListQuery } from "../src/assets/contract.js";
 import { diffAssetSnapshots, normalizeAssetChangeSnapshot } from "../src/assets/change.js";
-import { buildAssetObservations, classifyAsset, type AssetEvidenceSnapshot, type AssetObservation } from "../src/assets/evidence.js";
+import { buildAssetObservations, classifyAsset, PostgresAssetEvidenceSource, type AssetEvidenceSnapshot, type AssetObservation } from "../src/assets/evidence.js";
 import { mergeAssetEvidence } from "../src/assets/evidence-merge.js";
 import { BoundedAssetSynchronizer } from "../src/assets/ingestion.js";
 import type { AssetRepository } from "../src/assets/repository.js";
@@ -244,6 +244,30 @@ test("bounded synchronizer coalesces concurrent evidence loads and throttles rep
   await synchronizer.synchronize();
   assert.equal(loads, 2);
   assert.equal(repository.ingestCalls.length, 2);
+});
+
+test("local asset evidence source reuses bounded authoritative PostgreSQL inventory without Supabase REST", async () => {
+  const nodeId = "22222222-2222-4222-8222-222222222222";
+  const healthId = "33333333-3333-4333-8333-333333333333";
+  const managedId = "44444444-4444-4444-8444-444444444444";
+  const repository = {
+    async listNodes() { return [{ id: nodeId, ip_address: "192.168.1.8", name: "Core" }]; },
+    async listHealthTargets() {
+      return [{ id: healthId, node_id: nodeId, latest: { status: "online", latency_ms: 1 } }];
+    },
+    async listManagedTargets() {
+      return [{ id: managedId, node_id: nodeId, latest: { status: "connected", sys_name: "core" } }];
+    },
+    async listManagedObservedHosts(targetId: string | undefined) {
+      assert.equal(targetId, undefined);
+      return [{ target_id: managedId, node_id: nodeId, ip_address: "192.168.1.8", status: "current" }];
+    },
+  };
+  const snapshot = await new PostgresAssetEvidenceSource(repository).load(new AbortController().signal);
+  assert.equal(snapshot.nodes.length, 1);
+  assert.deepEqual(snapshot.healthTargets[0]?.network_health_latest, { status: "online", latency_ms: 1 });
+  assert.deepEqual(snapshot.managedTargets[0]?.managed_device_latest, { status: "connected", sys_name: "core" });
+  assert.equal(snapshot.observedHosts.length, 1);
 });
 
 test("asset evidence remains bounded and cannot start a network operation", () => {

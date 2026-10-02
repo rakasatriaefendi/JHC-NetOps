@@ -1,5 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import type {
   BandwidthMeasurement,
   ConnectionType,
@@ -85,34 +83,6 @@ export type ComparableDiagnosticGroup = {
   label: string;
   tests: DiagnosticTest[];
 };
-
-type DiagnosticHistoryResponse = {
-  data: DiagnosticHistoryData;
-};
-
-export async function loadDiagnosticHistory(
-  supabase: SupabaseClient,
-  query: DiagnosticHistoryQuery,
-): Promise<{ data: DiagnosticHistoryData; error: boolean }> {
-  const params = new URLSearchParams({
-    view: "history",
-    from: query.from,
-    to: query.to,
-    source: query.source,
-    target: query.target,
-    connection_type: query.connectionType,
-    include_development: String(query.includeDevelopment),
-  });
-  const { data, error } = await supabase.functions.invoke<DiagnosticHistoryResponse>(
-    `diagnostics?${params.toString()}`,
-    { method: "GET" },
-  );
-
-  if (error || !data?.data) {
-    return { data: emptyHistoryData(), error: true };
-  }
-  return { data: data.data, error: false };
-}
 
 export function resolveHistoryRange(
   period: HistoryPeriod,

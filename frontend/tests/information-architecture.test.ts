@@ -36,9 +36,9 @@ test("manual onboarding is operator-authorized, server-validated, duplicate-safe
   assert.match(action, /requireOperatorProfile/);
   assert.match(action, /validateManualNetworkNodeInput/);
   assert.match(action, /hasUnexpectedFormFields/);
-  assert.match(action, /\.eq\("ip_address", normalizedIp\)/);
+  assert.match(action, /nodes\.some\(\(node\) => node\.ip_address === normalizedIp\)/);
   assert.match(action, /device_notice=existing/);
-  assert.match(action, /network_targets/);
+  assert.match(action, /\/api\/application\/network-nodes/);
   assert.match(action, /node_id: nodeId/);
   assert.doesNotMatch(action, /device-inspect|managed-telemetry-poll|discovery_sessions|manual_ping_requests|wsl\.exe|child_process/);
 });
@@ -48,9 +48,9 @@ test("SNMP onboarding stores only an authorized node and non-secret runner profi
   const component = source("../components/admin/managed-telemetry-targets.tsx");
   assert.match(action, /requireOperatorProfile/);
   assert.match(action, /hasUnexpectedFormFields/);
-  assert.match(action, /network_nodes/);
-  assert.match(action, /node_id: values\.node_id/);
-  assert.match(action, /runnerCredentialProfiles[\s\S]*profiles\.includes/);
+  assert.match(action, /localNetworkNode\(values\.node_id\)/);
+  assert.match(action, /input: \{ \.\.\.values, enabled \}/);
+  assert.match(action, /runnerCredentialProfiles\(runner\.capabilities\)\.includes\(values\.credential_profile_ref\)/);
   assert.match(component, /credentialProfileStatus/);
   assert.doesNotMatch(action, /auth_password|priv_password|community\s*:/);
   assert.doesNotMatch(action, /arbitrary|snmpwalk|snmpget|managed-telemetry-poll|child_process/);

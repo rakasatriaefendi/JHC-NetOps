@@ -1,5 +1,10 @@
 # Ubuntu Desktop 24.x Mini-PC Deployment Readiness
 
+> **Historical pre-P16 audit:** this file captures the earlier hybrid deployment.
+> It is retained as evidence only. Use the repository root README, `HANDOVER.md`,
+> and current deploy launchers for the local-only runtime.
+
+
 P8A implements the application-level adapters needed for native Ubuntu, while
 preserving the Windows + Ubuntu WSL path. The native runtime has been validated
 on the Ubuntu 24.04 Mini PC staging host. P8B supplies repository-owned systemd
@@ -196,4 +201,3 @@ routing, firewall policy, device ACLs, and explicit authorization.
 8. Validate bounded Traffic privileges and graceful capture stop.
 9. Validate boot, crash restart, power-loss recovery, logs, updates, and rollback.
 10. Only then label native Ubuntu and always-on deployment supported.
-

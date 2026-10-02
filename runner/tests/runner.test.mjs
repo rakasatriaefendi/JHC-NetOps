@@ -190,9 +190,3 @@ test("WSL preflight preserves existing command-specific missing-tool classificat
     (error) => error.code === "IPERF3_MISSING",
   );
 });
-
-test("heartbeat backend accepts the narrow WSL preflight classifications", () => {
-  const source = readFileSync(new URL("../../supabase/functions/diagnostic-jobs/index.ts", import.meta.url), "utf8");
-  assert.match(source, /"WSL_INVOCATION_TIMEOUT"/);
-  assert.match(source, /"WSL_RUNTIME_FAILED"/);
-});

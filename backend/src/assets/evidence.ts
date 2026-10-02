@@ -1,4 +1,4 @@
-import { SupabaseRestClient } from "../supabase-rest.js";
+import type { PostgresNetworkInventoryRepository } from "../persistence/inventory.js";
 
 export const ASSET_EVIDENCE_ROW_LIMIT = 1_000;
 export const ASSET_EVIDENCE_LIMIT = 32;
@@ -60,49 +60,29 @@ export interface AssetEvidenceSource {
   load(signal: AbortSignal): Promise<AssetEvidenceSnapshot>;
 }
 
-export class SupabaseAssetEvidenceSource implements AssetEvidenceSource {
-  readonly #client: SupabaseRestClient;
-
-  constructor(supabaseUrl: string, serviceRoleKey: string) {
-    this.#client = new SupabaseRestClient(supabaseUrl, serviceRoleKey);
-  }
+export class PostgresAssetEvidenceSource implements AssetEvidenceSource {
+  constructor(private readonly inventory: Pick<PostgresNetworkInventoryRepository,
+    "listNodes" | "listHealthTargets" | "listManagedTargets" | "listManagedObservedHosts">) {}
 
   async load(signal: AbortSignal): Promise<AssetEvidenceSnapshot> {
     const [nodes, healthTargets, managedTargets, observedHosts] = await Promise.all([
-      this.#client.table<Record<string, unknown>[]>("network_nodes", {
-        query: {
-          select: "id,ip_address,name,device_type,created_at,updated_at,detected_fingerprint,last_inspected_at",
-          order: "updated_at.desc",
-          limit: ASSET_EVIDENCE_ROW_LIMIT,
-        },
-        signal,
-      }),
-      this.#client.table<Record<string, unknown>[]>("network_targets", {
-        query: {
-          select: "id,node_id,enabled,updated_at,network_health_latest(status,latency_ms,last_checked_at,last_success_at)",
-          order: "updated_at.desc",
-          limit: ASSET_EVIDENCE_ROW_LIMIT,
-        },
-        signal,
-      }),
-      this.#client.table<Record<string, unknown>[]>("managed_telemetry_targets", {
-        query: {
-          select: "id,node_id,enabled,updated_at,managed_device_latest(status,sys_name,sys_descr,manufacturer,model,last_polled_at,last_success_at)",
-          order: "updated_at.desc",
-          limit: ASSET_EVIDENCE_ROW_LIMIT,
-        },
-        signal,
-      }),
-      this.#client.table<Record<string, unknown>[]>("managed_observed_hosts_latest", {
-        query: {
-          select: "target_id,node_id,ip_address,mac_address,netbios_name,observation_source,enrichment_status,first_seen_at,last_seen_at,status,updated_at",
-          order: "updated_at.desc",
-          limit: ASSET_EVIDENCE_ROW_LIMIT,
-        },
-        signal,
-      }),
+      this.inventory.listNodes(signal),
+      this.inventory.listHealthTargets(signal),
+      this.inventory.listManagedTargets(signal),
+      this.inventory.listManagedObservedHosts(undefined, signal),
     ]);
-    return { nodes, healthTargets, managedTargets, observedHosts };
+    return {
+      nodes: nodes.slice(0, ASSET_EVIDENCE_ROW_LIMIT),
+      healthTargets: healthTargets.slice(0, ASSET_EVIDENCE_ROW_LIMIT).map((row) => ({
+        ...row,
+        network_health_latest: row.latest,
+      })),
+      managedTargets: managedTargets.slice(0, ASSET_EVIDENCE_ROW_LIMIT).map((row) => ({
+        ...row,
+        managed_device_latest: row.latest,
+      })),
+      observedHosts: observedHosts.slice(0, ASSET_EVIDENCE_ROW_LIMIT),
+    };
   }
 }
 

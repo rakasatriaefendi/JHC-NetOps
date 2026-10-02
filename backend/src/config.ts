@@ -14,8 +14,6 @@ export type BackendConfig = Readonly<{
   frontendApiToken: string;
   persistenceAuthority: PersistenceAuthority;
   candidateReadOnly: boolean;
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
   applicationDatabaseUrl: string;
   assets: Readonly<{
     databaseUrl: string;
@@ -55,18 +53,11 @@ export function loadBackendConfig(
   const frontendApiToken = requiredSecret(environment.FRONTEND_API_TOKEN, "FRONTEND_API_TOKEN", 32, 512);
   const persistenceAuthority = parsePersistenceAuthority(environment.PERSISTENCE_AUTHORITY);
   const candidateReadOnly = parseCandidateReadOnly(environment.P13_CANDIDATE_READ_ONLY);
-  if (candidateReadOnly && persistenceAuthority === "local_postgres") {
+  if (candidateReadOnly) {
     throw new BackendConfigurationError(
-      "P13_CANDIDATE_READ_ONLY cannot be enabled with local_postgres authority",
+      "P13_CANDIDATE_READ_ONLY is not available in the local-only runtime",
     );
   }
-  const supabaseUrl = parseSupabaseUrl(environment.SUPABASE_URL);
-  const supabaseServiceRoleKey = requiredSecret(
-    environment.SUPABASE_SERVICE_ROLE_KEY,
-    "SUPABASE_SERVICE_ROLE_KEY",
-    32,
-    4096,
-  );
   const applicationDatabaseUrl = parseDedicatedPostgresUrl(environment.APPLICATION_DATABASE_URL?.trim() ?? "");
   const databaseUrl = environment.DATABASE_URL?.trim();
   const assetsFrontendApiToken = environment.FRONTEND_API_TOKEN?.trim();
@@ -83,7 +74,7 @@ export function loadBackendConfig(
     })
     : null;
   return Object.freeze({ host, port, runnerApiToken, frontendApiToken, persistenceAuthority, candidateReadOnly,
-    supabaseUrl, supabaseServiceRoleKey, applicationDatabaseUrl, assets });
+    applicationDatabaseUrl, assets });
 }
 
 function parseCandidateReadOnly(value: string | undefined): boolean {
@@ -153,23 +144,6 @@ function requiredSecret(value: string | undefined, name: string, minimum: number
     throw new BackendConfigurationError(`${name} is missing or invalid`);
   }
   return value;
-}
-
-function parseSupabaseUrl(value: string | undefined): string {
-  if (typeof value !== "string" || value.length > 2048) {
-    throw new BackendConfigurationError("SUPABASE_URL is missing or invalid");
-  }
-  try {
-    const url = new URL(value);
-    const loopbackHttp = url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
-    if ((url.protocol !== "https:" && !loopbackHttp) || url.username || url.password ||
-        url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-      throw new Error("invalid");
-    }
-    return url.origin;
-  } catch {
-    throw new BackendConfigurationError("SUPABASE_URL is missing or invalid");
-  }
 }
 
 function parsePort(value: string): number {

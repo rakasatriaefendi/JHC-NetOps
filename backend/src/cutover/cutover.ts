@@ -1,5 +1,4 @@
 import { P12_TABLES } from "../data-migration/contract.js";
-import type { PersistenceAuthority } from "../persistence/authority.js";
 import {
   assertP13CheckpointTransition,
   P13_CHECKPOINTS,
@@ -14,7 +13,7 @@ import type { P13VerificationReport } from "./verification.js";
 export type P13CutoverRecord = Readonly<{
   version: 1;
   checkpoint: P13Checkpoint;
-  persistence_authority: PersistenceAuthority;
+  persistence_authority: "supabase" | "local_postgres";
   source_checkpoint_identity: string;
   target: Readonly<{
     cluster: "16/jhcnetops";

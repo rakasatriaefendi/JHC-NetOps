@@ -31,8 +31,8 @@ test("auth logging normalizes arbitrary values instead of surfacing payloads or 
 
 test("auth actions keep generic user messages and never pass request payloads to the logger", () => {
   const action = readFileSync(new URL("../app/actions/auth.ts", import.meta.url), "utf8");
-  assert.match(action, /logAuthFailure\("login", error\)/);
-  assert.match(action, /logAuthFailure\("register", error\)/);
+  assert.match(action, /logAuthFailure\("login", \{ code: result\.code \}\)/);
+  assert.match(action, /logAuthFailure\("register", \{ code: result\.code \}\)/);
   assert.match(action, /t\("errors\.invalid"\)/);
   assert.match(action, /t\("errors\.registerFailed"\)/);
   assert.doesNotMatch(action, /logAuthFailure\([^,]+,\s*(?:formData|password|email|data)\)/);

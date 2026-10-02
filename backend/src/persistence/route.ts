@@ -86,6 +86,42 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
     catch (error) { return persistenceFailure(reply, error); }
   });
 
+  server.get("/api/application/runners", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    try { return reply.code(200).send({ data: await options.inventory.listRunners(AbortSignal.timeout(7_000)) }); }
+    catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/network-targets", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    try { return reply.code(200).send({ data: await options.inventory.listHealthTargets(AbortSignal.timeout(7_000)) }); }
+    catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/managed-targets", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    try { return reply.code(200).send({ data: await options.inventory.listManagedTargets(AbortSignal.timeout(7_000)) }); }
+    catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/managed-interfaces", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const query = request.query as Record<string, string | undefined>;
+    try {
+      return reply.code(200).send({ data: await options.inventory.listManagedInterfaces(
+        query.target_id, AbortSignal.timeout(7_000)) });
+    } catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.get("/api/application/managed-observed-hosts", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const query = request.query as Record<string, string | undefined>;
+    try {
+      return reply.code(200).send({ data: await options.inventory.listManagedObservedHosts(
+        query.target_id, AbortSignal.timeout(7_000)) });
+    } catch (error) { return persistenceFailure(reply, error); }
+  });
+
   server.get<{ Params: { id: string } }>("/api/application/network-nodes/:id", async (request, reply) => {
     if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
     try {
@@ -312,6 +348,13 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
   }
 
   if (options.traffic) {
+    server.get("/api/application/traffic-state", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      try {
+        return reply.code(200).send({ data: await options.traffic!.readState(AbortSignal.timeout(7_000)) });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+
     server.post("/api/application/traffic-live-sessions", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
       const body = actorInput(request.body);
@@ -395,6 +438,14 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
   }
 
   if (options.hopMeasurements) {
+    server.get("/api/application/hop-measurements", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const query = request.query as Record<string, string>;
+      const limit = query.limit ? Math.max(1, Math.min(4096, parseInt(query.limit, 10))) : 512;
+      try { return reply.code(200).send({ data: await options.hopMeasurements!.listRecent(limit, AbortSignal.timeout(7_000)) }); }
+      catch (error) { return persistenceFailure(reply, error); }
+    });
+
     server.get<{ Params: { sessionId: string } }>("/api/application/hop-measurements/session/:sessionId", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
       try { return reply.code(200).send({ data: await options.hopMeasurements!.listBySession(request.params.sessionId, AbortSignal.timeout(7_000)) }); }
@@ -431,7 +482,16 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
       const limit = query.limit ? Math.max(1, Math.min(500, parseInt(query.limit, 10))) : 50;
       const source = query.source;
       const sourceRef = query.source_ref;
+      if (query.unresolved !== undefined && query.unresolved !== "true") {
+        return reply.code(400).send(invalid);
+      }
+      if (query.unresolved === "true" && (!source || sourceRef !== undefined)) {
+        return reply.code(400).send(invalid);
+      }
       try {
+        if (source && query.unresolved === "true") {
+          return reply.code(200).send({ data: await options.events!.listOpenBySource(source, limit, AbortSignal.timeout(7_000)) });
+        }
         if (source) return reply.code(200).send({ data: await options.events!.listBySource(source, sourceRef ?? null, limit, AbortSignal.timeout(7_000)) });
         return reply.code(200).send({ data: await options.events!.listRecent(limit, AbortSignal.timeout(7_000)) });
       } catch (error) { return persistenceFailure(reply, error); }
@@ -449,7 +509,12 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
   if (options.outbox) {
     server.get("/api/application/outbox/health", async (request, reply) => {
       if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
-      try { return reply.code(200).send({ data: await options.outbox!.getHealth(AbortSignal.timeout(7_000)) }); }
+      try {
+        return reply.code(200).send({ data: {
+          ...await options.outbox!.getHealth(AbortSignal.timeout(7_000)),
+          projector: { status: "retired", active: false },
+        } });
+      }
       catch (error) { return persistenceFailure(reply, error); }
     });
   }

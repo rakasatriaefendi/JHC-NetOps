@@ -5,6 +5,7 @@ type Row = Record<string, unknown>;
 export interface EventsRepository {
   insert(event: EventInput, signal: AbortSignal): Promise<Row | null>;
   listBySource(source: string, sourceRef: string | null, limit: number, signal: AbortSignal): Promise<readonly Row[]>;
+  listOpenBySource(source: string, limit: number, signal: AbortSignal): Promise<readonly Row[]>;
   listRecent(limit: number, signal: AbortSignal): Promise<readonly Row[]>;
   resolveOpenEvents(source: string, sourceRef: string, resolvedAt: string, signal: AbortSignal): Promise<number>;
 }
@@ -75,6 +76,16 @@ export class PostgresEventsRepository implements EventsRepository {
     return this.database.rows(`
       SELECT * FROM public.events ORDER BY created_at DESC LIMIT $1
     `, [boundedLimit], signal);
+  }
+
+  async listOpenBySource(source: string, limit: number, signal: AbortSignal): Promise<readonly Row[]> {
+    const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    return this.database.rows(`
+      SELECT id,created_at,severity,title,description,source_ref,resolved_at,raw_context
+      FROM public.events
+      WHERE source=$1 AND resolved_at IS NULL
+      ORDER BY created_at DESC LIMIT $2
+    `, [source, boundedLimit], signal);
   }
 
   async resolveOpenEvents(source: string, sourceRef: string, resolvedAt: string, signal: AbortSignal): Promise<number> {

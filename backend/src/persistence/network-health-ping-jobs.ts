@@ -62,6 +62,16 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
           throw new ControlPlanePersistenceError("TARGET_NOT_AUTHORIZED");
         }
         await requireFreshRunner(query, target.runner_id, "manual_ping", signal);
+        const busy = await query.rows(`
+          SELECT
+            EXISTS(SELECT 1 FROM public.diagnostic_jobs WHERE runner_id=$1 AND status IN ('queued','running')) AS diagnostic,
+            EXISTS(SELECT 1 FROM public.traffic_live_sessions WHERE runner_id=$1 AND status IN ('queued','running','stopping')) AS traffic,
+            EXISTS(SELECT 1 FROM public.network_discovery_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS discovery,
+            EXISTS(SELECT 1 FROM public.device_inspection_sessions WHERE runner_id=$1 AND status IN ('queued','running')) AS inspection
+        `, [target.runner_id], signal);
+        if (busy[0]?.diagnostic === true || busy[0]?.traffic === true || busy[0]?.discovery === true || busy[0]?.inspection === true) {
+          throw new ControlPlanePersistenceError("RUNNER_BUSY");
+        }
         const rows = await query.rows(`
           INSERT INTO public.network_health_ping_jobs
             (target_id,runner_id,requested_by,status,result,error_code,expires_at,updated_at)
@@ -79,14 +89,15 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
 
   async claim(runnerId: string, signal: AbortSignal): Promise<Row | null> {
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(runnerId)) return null;
+    await this.expireStale(signal);
     const rows = await this.database.rows(`
       UPDATE public.network_health_ping_jobs SET
         status='running', started_at=now(), updated_at=now()
       WHERE id = (
         SELECT id FROM public.network_health_ping_jobs
-        WHERE runner_id=$1 AND status='queued'
+        WHERE runner_id=$1 AND status='queued' AND expires_at >= now()
         ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
-      ) AND status='queued'
+      ) AND status='queued' AND expires_at >= now()
       RETURNING *
     `, [runnerId], signal);
     return rows[0] ?? null;
@@ -100,7 +111,7 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
       UPDATE public.network_health_ping_jobs SET
         status='completed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
         result=$4::jsonb
-      WHERE id=$1::uuid AND runner_id=$2 AND status IN ('queued','running') RETURNING *
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' AND expires_at >= $3::timestamptz RETURNING *
     `, [jobId, runnerId, now, JSON.stringify(result)], signal);
     return rows[0] ?? null;
   }
@@ -114,7 +125,7 @@ export class PostgresNetworkHealthPingJobsRepository implements NetworkHealthPin
       UPDATE public.network_health_ping_jobs SET
         status='failed', completed_at=$3::timestamptz, updated_at=$3::timestamptz,
         error_code=$4
-      WHERE id=$1::uuid AND runner_id=$2 AND status IN ('queued','running') RETURNING *
+      WHERE id=$1::uuid AND runner_id=$2 AND status='running' RETURNING *
     `, [jobId, runnerId, now, errorCode], signal);
     return rows[0] ?? null;
   }

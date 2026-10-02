@@ -4,29 +4,38 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { createClient } from "@/lib/supabase/client";
-import type { TrafficSnapshot, TrafficState } from "@/lib/traffic";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
+import type { TrafficState } from "@/lib/traffic";
+import { getTrafficStateAction } from "@/app/actions/traffic";
 
-export function LocalTrafficSummary({ initialState, loadError }: { initialState: TrafficState; loadError: boolean }) {
+export function LocalTrafficSummary({ initialState, loadError }: {
+  initialState: TrafficState;
+  loadError: boolean;
+  initialAuthority: "local_postgres";
+}) {
   const { t, i18n } = useTranslation("dashboard");
   const [state, setState] = useState(initialState);
   const active = state.sessions.some((session) => ["queued", "running", "stopping"].includes(session.status));
   const snapshot = useMemo(() => [...state.snapshots].sort((left, right) => Date.parse(right.captured_at) - Date.parse(left.captured_at))[0], [state.snapshots]);
 
   useEffect(() => {
-    const supabase = createClient();
-    const channel = supabase.channel("dashboard-local-traffic")
-      .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_snapshots" }, (payload) => {
-        const next = payload.new as TrafficSnapshot;
-        if (!next.runner_id) return;
-        setState((current) => ({ ...current, snapshots: [next, ...current.snapshots.filter((item) => item.runner_id !== next.runner_id)] }));
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "traffic_live_sessions" }, () => {
-        void supabase.functions.invoke<{ data: TrafficState }>("traffic-live", { method: "GET" }).then(({ data }) => {
-          if (data?.data) setState(data.data);
-        });
-      }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    let disposed = false;
+    const refresh = () => void getTrafficStateAction().then((result) => {
+      if (disposed) return;
+      if (result.ok && result.data) setState(result.data);
+    }).catch(() => {
+      // Retain the last authoritative snapshot on a transient refresh failure.
+    });
+    refresh();
+
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["traffic"],
+      refresh,
+      onStatus: () => {},
+      debounceMs: 250,
+      fallbackIntervalMs: 60_000,
+    });
+    return () => { disposed = true; stopRealtime(); };
   }, []);
 
   return (

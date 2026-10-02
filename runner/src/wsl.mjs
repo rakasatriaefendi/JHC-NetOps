@@ -46,7 +46,6 @@ export function runPreflight(config, spawnSyncProcess = spawnSync) {
     throw safeError("INSPECTION_AGENT_UNAVAILABLE");
   }
   const deviceInspector = validateInspectorCapabilities(deviceInspectorPayload);
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw safeError("RUNNER_INTERNAL_ERROR", "Runner backend credentials are unavailable");
   return { platform: "win32", python: pythonVersion[0], iperf3: `3.${iperfVersion[1]}`, mtr: true, ping: true,
     linux_network_context: false, traffic: true, diagnostics: true, device_inspector: deviceInspector,
     operations: ["bandwidth_and_path", "traffic_live", "network_discovery", "device_inspect", ...(config.enable_manual_ping === true ? ["manual_ping"] : [])] };
@@ -529,7 +528,6 @@ function runLinuxPreflight(config, spawnSyncProcess) {
   const iperf = iperfResult.available && iperfMatch && Number(iperfMatch[1]) >= 7;
   const scapy = nativeTool(config.python_path, ["-c", "import scapy"], spawnSyncProcess);
   const traffic = scapy && nativeTool(config.agent_path, ["traffic-interface-check", "--interface", config.traffic_interface], spawnSyncProcess);
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw safeError("RUNNER_INTERNAL_ERROR", "Runner backend credentials are unavailable");
   const operations = [
     ...(iperf && mtr && ip ? ["bandwidth_and_path"] : []),
     ...(traffic ? ["traffic_live"] : []),

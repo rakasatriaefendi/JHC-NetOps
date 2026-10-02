@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { ObservedLanHostsSummary } from "@/components/snmp/observed-lan-hosts";
+import { loadManagedTelemetryForNodeAction } from "@/app/actions/snmp";
 import {
   MANAGED_TELEMETRY_STATUS_LABELS,
   credentialProfileStatus,
@@ -22,7 +23,7 @@ import {
   type ManagedTelemetryTarget,
   type ManagedTelemetryThresholds,
 } from "@/lib/managed-telemetry-client";
-import { createClient } from "@/lib/supabase/client";
+import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
 
 const STATUS_STYLE: Record<string, string> = {
   connected: "bg-severity-low/10 text-severity-low",
@@ -47,39 +48,37 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const pending = useRef<Record<number, ManagedInterfaceLatest>>({});
-  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [authority, setAuthority] = useState<"local_postgres" | null>(null);
+
+  const applyTelemetry = useCallback((result: Awaited<ReturnType<typeof loadManagedTelemetryForNodeAction>>) => {
+    setAuthority(result.authority);
+    setLoading(false);
+    if (result.error) {
+      setError(true);
+      return;
+    }
+    setError(false);
+    setTarget(result.target);
+    setDevice(result.target?.latest ?? null);
+    setRows(result.interfaces);
+    setObservedHosts(result.observedHosts);
+    setEvents(result.events);
+  }, []);
 
   useEffect(() => {
     if (!nodeId) return;
     let cancelled = false;
-    const supabase = createClient();
     void (async () => {
       try {
-        const { data, error: targetError } = await supabase.from("managed_telemetry_targets")
-          .select("id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,util_critical_percent,util_sustained_seconds")
-          .eq("node_id", nodeId).eq("enabled", true).limit(1).maybeSingle();
+        const result = await loadManagedTelemetryForNodeAction(nodeId);
         if (cancelled) return;
-        if (targetError || !data) { setLoading(false); return; }
-        setTarget(data as ManagedTelemetryTarget);
-        const [{ data: latest }, { data: interfaceRows }, { data: observedHostRows }, { data: eventRows }] = await Promise.all([
-          supabase.from("managed_device_latest").select("*").eq("target_id", data.id).maybeSingle(),
-          supabase.from("managed_interface_latest").select("*").eq("target_id", data.id),
-          supabase.from("managed_observed_hosts_latest").select("*,network_nodes(name)").eq("target_id", data.id),
-          supabase.from("events").select("id,created_at,severity,title,description,source_ref,resolved_at,raw_context").eq("source", "managed_telemetry").eq("source_ref", data.id).order("created_at", { ascending: false }).limit(20),
-        ]);
-        if (cancelled) return;
-        setDevice((latest as ManagedDeviceLatest) ?? null);
-        setRows((interfaceRows as ManagedInterfaceLatest[]) ?? []);
-        setObservedHosts((observedHostRows as ManagedObservedHostLatest[]) ?? []);
-        setEvents((eventRows as ManagedTelemetryEvent[]) ?? []);
-        setLoading(false);
+        applyTelemetry(result);
       } catch {
         if (!cancelled) { setError(true); setLoading(false); }
       }
     })();
     return () => { cancelled = true; };
-  }, [nodeId]);
+  }, [applyTelemetry, nodeId]);
 
   const thresholds = useMemo<ManagedTelemetryThresholds | null>(() => target ? {
     oper_error_threshold: target.oper_error_threshold,
@@ -90,60 +89,26 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
   } : null, [target]);
 
   const summarized = useMemo(() => interfaceSummary(rows), [rows]);
+  const targetId = target?.id ?? null;
 
   useEffect(() => {
-    if (!target) return;
-    const supabase = createClient();
-    const mergeInterfaces = () => {
-      const keys = Object.keys(pending.current).map(Number);
-      if (!keys.length) return;
-      const snapshot = { ...pending.current };
-      pending.current = {};
-      setRows((current) => {
-        const byIndex = new Map(current.map((row) => [row.if_index, row]));
-        for (const key of keys) byIndex.set(key, snapshot[key]);
-        return [...byIndex.values()].sort((a, b) => a.if_index - b.if_index);
-      });
-    };
-    const scheduleFlush = () => {
-      if (flushTimer.current) clearTimeout(flushTimer.current);
-      flushTimer.current = setTimeout(mergeInterfaces, 50);
-    };
-    const mergeObservedHost = (next: ManagedObservedHostLatest) => setObservedHosts((current) => {
-      const previous = current.find((row) => row.ip_address === next.ip_address);
-      return [...current.filter((row) => row.ip_address !== next.ip_address), {
-        ...previous,
-        ...next,
-        network_nodes: previous?.network_nodes ?? next.network_nodes,
-      }];
+    if (!targetId || !authority) return;
+
+    let cancelled = false;
+    const refresh = () => void loadManagedTelemetryForNodeAction(nodeId).then((result) => {
+      if (!cancelled && !result.error) applyTelemetry(result);
+    }).catch(() => {
+      // Retain the last authoritative telemetry state on a transient refresh failure.
     });
-    const channel = supabase.channel(`managed-telemetry:${target.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "managed_device_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
-        setDevice(payload.new as ManagedDeviceLatest);
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "managed_device_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
-        setDevice(payload.new as ManagedDeviceLatest);
-      })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "managed_interface_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
-        pending.current[(payload.new as ManagedInterfaceLatest).if_index] = payload.new as ManagedInterfaceLatest;
-        scheduleFlush();
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "managed_interface_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
-        pending.current[(payload.new as ManagedInterfaceLatest).if_index] = payload.new as ManagedInterfaceLatest;
-        scheduleFlush();
-      })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "managed_observed_hosts_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
-        mergeObservedHost(payload.new as ManagedObservedHostLatest);
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "managed_observed_hosts_latest", filter: `target_id=eq.${target.id}` }, (payload) => {
-        mergeObservedHost(payload.new as ManagedObservedHostLatest);
-      })
-      .subscribe();
-    return () => {
-      if (flushTimer.current) clearTimeout(flushTimer.current);
-      void supabase.removeChannel(channel);
-    };
-  }, [target, thresholds]);
+    const stopRealtime = startLocalRealtimeInvalidation({
+      topics: ["managed_telemetry"],
+      refresh,
+      onStatus: () => {},
+      debounceMs: 250,
+      fallbackIntervalMs: 60_000,
+    });
+    return () => { cancelled = true; stopRealtime(); };
+  }, [applyTelemetry, authority, nodeId, targetId]);
 
   if (!nodeId) return null;
   if (loading) return <Section><p className="text-text-secondary">{t("profile.loading")}</p></Section>;

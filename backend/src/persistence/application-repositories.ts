@@ -1,6 +1,5 @@
 import type { RunnerHeartbeatRepository } from "../runner-heartbeat/repository.js";
 import type { NetworkHealthRepository } from "../network-health/repository.js";
-import type { TrafficRepository } from "../traffic/repository.js";
 import type { PostgresTrafficRepository } from "./traffic.js";
 import type { ManagedTelemetryRepository } from "../managed-telemetry/repository.js";
 import type { PostgresProfilesRepository } from "./profiles.js";
@@ -15,6 +14,7 @@ import type { PostgresTrafficMetricsRepository } from "./traffic-metrics.js";
 import type { PostgresEventsRepository } from "./events.js";
 import type { PostgresOutboxRepository } from "./outbox.js";
 import type { PostgresCutoverCanaryRepository } from "./cutover-canary.js";
+import type { PostgresLocalAuthRepository } from "../local-auth/repository.js";
 
 export interface ApplicationRepositories {
   heartbeat: RunnerHeartbeatRepository;
@@ -33,11 +33,5 @@ export interface ApplicationRepositories {
   inventory: PostgresNetworkInventoryRepository;
   outbox: PostgresOutboxRepository;
   cutoverCanary: PostgresCutoverCanaryRepository;
-}
-
-export interface SupabaseApplicationRepositories {
-  heartbeat: RunnerHeartbeatRepository;
-  health: NetworkHealthRepository;
-  traffic: TrafficRepository;
-  telemetry: ManagedTelemetryRepository;
+  localAuth: PostgresLocalAuthRepository;
 }

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { createRequire } from "node:module";
 
 // Properly typed server-only mock for Node Module
@@ -23,8 +22,6 @@ require.cache[require.resolve("server-only")] = mockModule;
 const { managedTelemetryFixture, PORTABLE_TARGET_ID } = await import("../lib/managed-telemetry-fixtures.ts");
 const { loadObservedHostsData, loadSnmpWorkspaceData } = await import("../lib/managed-telemetry-source.ts");
 const { portableDevConfig, portableDevMode } = await import("../lib/portable-dev-mode.ts");
-
-const fakeSupabase = {} as SupabaseClient;
 
 test("portable fixture mode is off by default and cannot activate in production", () => {
   assert.deepEqual(portableDevConfig({}), { enabled: false, scenario: null });
@@ -52,7 +49,7 @@ test("portable fixture mode requires explicit development opt-in and an allowlis
 
 test("default workspace path remains the existing production loaders", async () => {
   const calls: string[] = [];
-  const result = await loadSnmpWorkspaceData(fakeSupabase, { NODE_ENV: "development" }, {
+  const result = await loadSnmpWorkspaceData({ NODE_ENV: "development" }, {
     loadNodes: async () => {
       calls.push("nodes");
       return { data: [], error: false };
@@ -80,7 +77,7 @@ test("fixture workspace bypasses every production loader and cannot publish", as
     calls += 1;
     throw new Error("production loader must not run");
   };
-  const result = await loadSnmpWorkspaceData(fakeSupabase, {
+  const result = await loadSnmpWorkspaceData({
     NODE_ENV: "development",
     PORTABLE_DEV_MODE: "true",
     PORTABLE_DEV_SCENARIO: "healthy",
@@ -101,14 +98,14 @@ test("fixture workspace bypasses every production loader and cannot publish", as
   assert.match(action, /portable-read-only/);
 });
 
-test("fixture observed-host route bypasses Supabase and exposes only its deterministic target", async () => {
+test("fixture observed-host route bypasses production persistence and exposes only its deterministic target", async () => {
   let calls = 0;
   const environment = { NODE_ENV: "development", PORTABLE_DEV_MODE: "true", PORTABLE_DEV_SCENARIO: "healthy" };
-  const found = await loadObservedHostsData(fakeSupabase, PORTABLE_TARGET_ID, environment, async () => {
+  const found = await loadObservedHostsData(PORTABLE_TARGET_ID, environment, async () => {
     calls += 1;
     throw new Error("production loader must not run");
   });
-  const missing = await loadObservedHostsData(fakeSupabase, "65000000-0000-4000-8000-000000000099", environment, async () => {
+  const missing = await loadObservedHostsData("65000000-0000-4000-8000-000000000099", environment, async () => {
     calls += 1;
     throw new Error("production loader must not run");
   });

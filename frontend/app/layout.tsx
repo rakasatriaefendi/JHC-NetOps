@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 
 import { AppI18nProvider } from "@/i18n/provider";
+import { AppAuthorityProvider } from "@/lib/application-authority-client";
 import { getRequestLanguage } from "@/i18n/server";
+import { getApplicationAuthority } from "@/lib/application-authority";
 
 import "./globals.css";
 
@@ -28,11 +30,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const language = await getRequestLanguage();
+  const authority = getApplicationAuthority();
 
   return (
     <html lang={language}>
       <body className={`${inter.variable} ${jetBrainsMono.variable}`}>
-        <AppI18nProvider language={language}>{children}</AppI18nProvider>
+        <AppAuthorityProvider authority={authority}>
+          <AppI18nProvider language={language}>{children}</AppI18nProvider>
+        </AppAuthorityProvider>
       </body>
     </html>
   );
