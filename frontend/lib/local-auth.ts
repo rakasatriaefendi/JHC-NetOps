@@ -92,7 +92,7 @@ async function request(path: "/api/auth/login" | "/api/auth/register" | "/api/au
 function safeCode(value: unknown): string {
   const code = record(value) && record(value.error) && typeof value.error.code === "string" ? value.error.code : "AUTH_UNAVAILABLE";
   return ["INVALID_AUTH_REQUEST", "INVALID_CREDENTIALS", "ACCOUNT_EXISTS", "ACCOUNT_ENROLLMENT_REQUIRED",
-    "SESSION_INVALID"].includes(code) ? code : "AUTH_UNAVAILABLE";
+    "SESSION_INVALID", "ACCOUNT_DISABLED"].includes(code) ? code : "AUTH_UNAVAILABLE";
 }
 
 function validToken(value: unknown): value is string {

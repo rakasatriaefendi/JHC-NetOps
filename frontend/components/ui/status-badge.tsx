@@ -7,6 +7,7 @@ const statusStyles: Record<ProfileStatus, string> = {
   pending: "bg-severity-medium/10 text-severity-medium",
   approved: "bg-severity-low/10 text-severity-low",
   rejected: "bg-severity-critical/10 text-severity-critical",
+  disabled: "border border-border bg-bg-base text-text-muted",
 };
 
 export function StatusBadge({ status }: { status: ProfileStatus }) {

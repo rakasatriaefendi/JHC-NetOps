@@ -80,6 +80,32 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
     } catch (error) { return persistenceFailure(reply, error); }
   });
 
+  for (const operation of ["disable", "reenable"] as const) {
+    server.post<{ Params: { id: string } }>(`/api/application/profiles/:id/${operation}`, { bodyLimit: 1_024 }, async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const body = record(request.body);
+      if (!validUuid(request.params.id) || !body || !onlyKeys(body, ["actor_id"]) ||
+        typeof body.actor_id !== "string" || !validUuid(body.actor_id)) return reply.code(400).send(invalid);
+      try {
+        const id = await options.profiles[operation](body.actor_id, request.params.id, AbortSignal.timeout(7_000));
+        return reply.code(200).send({ data: { id } });
+      } catch (error) { return persistenceFailure(reply, error); }
+    });
+  }
+
+  server.delete<{ Params: { id: string } }>("/api/application/profiles/:id", { bodyLimit: 1_024 }, async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const body = record(request.body);
+    if (!validUuid(request.params.id) || !body || !onlyKeys(body, ["actor_id", "confirmation"]) ||
+      typeof body.actor_id !== "string" || !validUuid(body.actor_id) || body.confirmation !== "DELETE USER") {
+      return reply.code(400).send(invalid);
+    }
+    try {
+      const id = await options.profiles.delete(body.actor_id, request.params.id, AbortSignal.timeout(7_000));
+      return reply.code(200).send({ data: { id, deleted: true } });
+    } catch (error) { return persistenceFailure(reply, error); }
+  });
+
   server.get("/api/application/network-nodes", async (request, reply) => {
     if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
     try { return reply.code(200).send({ data: await options.inventory.listNodes(AbortSignal.timeout(7_000)) }); }
@@ -684,7 +710,12 @@ function persistenceFailure(reply: import("fastify").FastifyReply, error: unknow
   if (failure?.code === "23505") {
     return reply.code(409).send({ error: { code: "INVENTORY_DUPLICATE", message: "Inventory entry already exists" } });
   }
-  if (error instanceof InventoryPersistenceError || error instanceof ProfilePersistenceError) {
+  if (error instanceof ProfilePersistenceError) {
+    const status = error.code === "INVALID_PROFILE" ? 400 : error.code === "PROFILE_NOT_FOUND" ? 404 :
+      error.code === "ADMIN_ACCESS_REQUIRED" || error.code === "SELF_DEMOTION_BLOCKED" ? 403 : 409;
+    return reply.code(status).send({ error: { code: error.code, message: "Account lifecycle request rejected" } });
+  }
+  if (error instanceof InventoryPersistenceError) {
     const forbidden = ["OPERATOR_ACCESS_REQUIRED", "ADMIN_ACCESS_REQUIRED", "SELF_DEMOTION_BLOCKED", "LAST_ADMIN_BLOCKED"].includes(error.code);
     return reply.code(forbidden ? 403 : 400).send({ error: { code: error.code, message: "Application persistence request rejected" } });
   }

@@ -90,7 +90,7 @@ test("login verifies the scrypt record and creates a fresh opaque session", asyn
     async rows() { return [profile]; },
     async transaction(_signal, action) {
       transactions += 1;
-      return action({ async rows() { return []; } });
+      return action({ async rows(sql) { return sql.includes("FROM public.profiles") ? [profile] : []; } });
     },
   };
   const repository = new PostgresLocalAuthRepository(database);

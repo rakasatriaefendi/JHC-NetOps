@@ -57,10 +57,11 @@ test("protected routes and realtime use authoritative local session resolution",
   for (const value of [auth, resolve, realtime]) assert.doesNotMatch(value, /supabase\.auth\./);
 });
 
-test("approved, pending, and rejected profiles retain their destinations", () => {
+test("approved, pending, and rejected profiles retain their destinations while disabled returns to login", () => {
   assert.equal(authDestination("approved"), "/dashboard");
   assert.equal(authDestination("pending"), "/pending");
   assert.equal(authDestination("rejected"), "/pending");
+  assert.equal(authDestination("disabled"), "/login");
 });
 
 test("registration and login retain GET navigation to auth resolve", () => {

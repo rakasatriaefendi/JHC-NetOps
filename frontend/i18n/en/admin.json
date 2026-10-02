@@ -1,4 +1,25 @@
 {
+  "lifecycle": {
+    "disable": "Disable Account", "reenable": "Re-enable Account", "delete": "Permanent Delete",
+    "working": "Processing…", "disabledCount": "{{count}} disabled",
+    "saved": "Account changes were saved.", "failed": "The account could not be updated. Check its current status and your permissions, then try again.",
+    "disabledHelp": "Disabled accounts cannot be edited here. Re-enable the account first.",
+    "disableHelp": "Disables login and revokes all sessions. Role and approval history are retained.",
+    "reenableHelp": "Restores approved access. The user must log in again; no session is created.",
+    "deleteWarning": "Permanent deletion cannot be undone. Only pending accounts with no operational history can be deleted.",
+    "confirmation": "Type DELETE USER exactly to confirm permanent deletion.",
+    "errors": {
+      "ADMIN_ACCESS_REQUIRED": "An approved Admin with a local login credential is required.",
+      "SELF_DELETE_BLOCKED": "You cannot delete your own account.",
+      "SELF_DISABLE_BLOCKED": "You cannot disable your own account.",
+      "LAST_LOGIN_CAPABLE_ADMIN_BLOCKED": "The last approved Admin capable of logging in must be retained.",
+      "ACCOUNT_HAS_HISTORY": "This account has operational history and cannot be permanently deleted.",
+      "ACCOUNT_NOT_DISABLEABLE": "Only approved accounts can be disabled.",
+      "ACCOUNT_NOT_REENABLEABLE": "Use Re-enable Account for a disabled account; other accounts cannot be re-enabled.",
+      "ACCOUNT_NOT_DELETABLE": "Only pending accounts can be permanently deleted.",
+      "PROFILE_NOT_FOUND": "The account no longer exists. Refresh the page."
+    }
+  },
   "page": { "eyebrow": "Access control", "title": "User access", "description": "Manage roles and access status separately. Only Active accounts can use the permissions granted by their role.", "activeCount": "{{count}} active", "pendingCount": "{{count}} pending", "suspendedCount": "{{count}} suspended", "userCount": "{{count}} users", "saved": "Role and access status changes were saved.", "saveError": "The status could not be updated. Try again or check the RLS policy.", "empty": "There are no user accounts yet.", "unnamed": "Unnamed" },
   "access": { "role": "Role", "status": "Access status", "currentAccount": "The Admin account currently in use cannot lower its own access.", "save": "Save", "saving": "Saving…" },
   "branding": { "eyebrow": "Report branding", "title": "Asset report identity", "description": "Set the institution identity used by generated Excel reports. Files remain on the local NetOps host.", "institution": "Institution name", "division": "Division / unit (optional)", "save": "Save identity", "saving": "Saving…", "logo": "Institution logo", "logoPreview": "Institution logo preview", "noLogo": "No logo configured", "logoHelp": "PNG or JPEG, maximum 10 MiB.", "uploadLogo": "Upload logo", "replaceLogo": "Replace logo", "uploading": "Uploading…", "removeLogo": "Remove logo", "removing": "Removing…", "saved": "Report branding was saved.", "error": "Report branding could not be saved. Check the file and try again." },

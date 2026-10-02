@@ -1,4 +1,25 @@
 {
+  "lifecycle": {
+    "disable": "Nonaktifkan Akun", "reenable": "Aktifkan Kembali Akun", "delete": "Hapus Permanen",
+    "working": "Memproses…", "disabledCount": "{{count}} nonaktif",
+    "saved": "Perubahan akun berhasil disimpan.", "failed": "Akun gagal diperbarui. Periksa status akun dan izin Anda, lalu coba lagi.",
+    "disabledHelp": "Akun nonaktif tidak dapat diedit di sini. Aktifkan kembali akun terlebih dahulu.",
+    "disableHelp": "Menonaktifkan login dan mencabut seluruh sesi. Role dan riwayat persetujuan tetap disimpan.",
+    "reenableHelp": "Memulihkan akses yang disetujui. Pengguna harus login kembali; tidak ada sesi yang dibuat.",
+    "deleteWarning": "Penghapusan permanen tidak dapat dibatalkan. Hanya akun menunggu persetujuan tanpa riwayat operasional yang dapat dihapus.",
+    "confirmation": "Ketik DELETE USER persis untuk mengonfirmasi penghapusan permanen.",
+    "errors": {
+      "ADMIN_ACCESS_REQUIRED": "Diperlukan Admin yang disetujui dengan credential login lokal.",
+      "SELF_DELETE_BLOCKED": "Anda tidak dapat menghapus akun sendiri.",
+      "SELF_DISABLE_BLOCKED": "Anda tidak dapat menonaktifkan akun sendiri.",
+      "LAST_LOGIN_CAPABLE_ADMIN_BLOCKED": "Admin terakhir yang disetujui dan dapat login harus tetap tersedia.",
+      "ACCOUNT_HAS_HISTORY": "Akun ini memiliki riwayat operasional dan tidak dapat dihapus permanen.",
+      "ACCOUNT_NOT_DISABLEABLE": "Hanya akun yang disetujui yang dapat dinonaktifkan.",
+      "ACCOUNT_NOT_REENABLEABLE": "Gunakan Aktifkan Kembali Akun untuk akun nonaktif; akun lain tidak dapat diaktifkan kembali.",
+      "ACCOUNT_NOT_DELETABLE": "Hanya akun menunggu persetujuan yang dapat dihapus permanen.",
+      "PROFILE_NOT_FOUND": "Akun sudah tidak ada. Muat ulang halaman."
+    }
+  },
   "page": { "eyebrow": "Kontrol akses", "title": "Akses pengguna", "description": "Kelola role dan status akses secara terpisah. Hanya akun Aktif yang dapat memakai izin dari role-nya.", "activeCount": "{{count}} aktif", "pendingCount": "{{count}} menunggu", "suspendedCount": "{{count}} ditangguhkan", "userCount": "{{count}} pengguna", "saved": "Perubahan role dan status akses berhasil disimpan.", "saveError": "Status gagal diperbarui. Coba lagi atau periksa policy RLS.", "empty": "Belum ada akun pengguna.", "unnamed": "Tanpa nama" },
   "access": { "role": "Role", "status": "Status akses", "currentAccount": "Akun Admin yang sedang digunakan tidak dapat menurunkan aksesnya sendiri.", "save": "Simpan", "saving": "Menyimpan…" },
   "branding": { "eyebrow": "Branding laporan", "title": "Identitas laporan aset", "description": "Atur identitas institusi yang digunakan pada laporan Excel. File tetap berada di host NetOps lokal.", "institution": "Nama institusi", "division": "Divisi / unit (opsional)", "save": "Simpan identitas", "saving": "Menyimpan…", "logo": "Logo institusi", "logoPreview": "Pratinjau logo institusi", "noLogo": "Logo belum dikonfigurasi", "logoHelp": "PNG atau JPEG, maksimal 10 MiB.", "uploadLogo": "Unggah logo", "replaceLogo": "Ganti logo", "uploading": "Mengunggah…", "removeLogo": "Hapus logo", "removing": "Menghapus…", "saved": "Branding laporan berhasil disimpan.", "error": "Branding laporan gagal disimpan. Periksa file lalu coba lagi." },

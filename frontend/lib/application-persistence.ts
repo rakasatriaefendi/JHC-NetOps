@@ -60,6 +60,25 @@ export async function localProfiles(): Promise<Record<string, unknown>[] | null>
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
+export type AccountLifecycleResult = Readonly<{ ok: boolean; data: unknown; code: string }>;
+
+export async function disableAccountLocal(actorId: string, targetId: string): Promise<AccountLifecycleResult> {
+  if (!uuid(actorId) || !uuid(targetId)) return { ok: false, data: null, code: "INVALID_PROFILE" };
+  return localApplicationRequest("POST", `/api/application/profiles/${targetId}/disable`, { actor_id: actorId });
+}
+
+export async function reenableAccountLocal(actorId: string, targetId: string): Promise<AccountLifecycleResult> {
+  if (!uuid(actorId) || !uuid(targetId)) return { ok: false, data: null, code: "INVALID_PROFILE" };
+  return localApplicationRequest("POST", `/api/application/profiles/${targetId}/reenable`, { actor_id: actorId });
+}
+
+export async function deleteAccountLocal(actorId: string, targetId: string, confirmation: string): Promise<AccountLifecycleResult> {
+  if (!uuid(actorId) || !uuid(targetId) || confirmation !== "DELETE USER") {
+    return { ok: false, data: null, code: "INVALID_PROFILE" };
+  }
+  return localApplicationRequest("DELETE", `/api/application/profiles/${targetId}`, { actor_id: actorId, confirmation });
+}
+
 export async function bootstrapLocalProfile(userId: string, email: string, fullName: string | null): Promise<Record<string, unknown> | null> {
   if (!uuid(userId)) return null;
   const response = await localApplicationRequest("POST", "/api/application/profiles/bootstrap",
@@ -296,7 +315,9 @@ function safeCode(value: Record<string, unknown>): string {
   if (!record(value.error) || typeof value.error.code !== "string") return "LOCAL_APPLICATION_UNAVAILABLE";
   return new Set(["INVALID_APPLICATION_REQUEST", "INVALID_INVENTORY_INPUT", "OPERATOR_ACCESS_REQUIRED",
     "ADMIN_ACCESS_REQUIRED", "PROFILE_NOT_FOUND", "DEPENDENT_TARGETS_PRESENT", "RUNNER_PROFILE_UNAVAILABLE",
-    "SELF_DEMOTION_BLOCKED", "LAST_ADMIN_BLOCKED", "NODE_NOT_FOUND", "TARGET_NOT_FOUND",
+    "SELF_DEMOTION_BLOCKED", "LAST_ADMIN_BLOCKED", "INVALID_PROFILE", "SELF_DELETE_BLOCKED", "SELF_DISABLE_BLOCKED",
+    "LAST_LOGIN_CAPABLE_ADMIN_BLOCKED", "ACCOUNT_HAS_HISTORY", "ACCOUNT_NOT_DISABLEABLE",
+    "ACCOUNT_NOT_REENABLEABLE", "ACCOUNT_NOT_DELETABLE", "NODE_NOT_FOUND", "TARGET_NOT_FOUND",
     "RUNNER_NOT_FOUND", "CONFIRMATION_MISMATCH", "INVENTORY_DUPLICATE"]).has(value.error.code)
     ? value.error.code : "LOCAL_APPLICATION_UNAVAILABLE";
 }

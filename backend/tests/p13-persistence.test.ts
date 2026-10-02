@@ -223,6 +223,7 @@ test("local profile access denies pending admin and retains approval metadata on
           created_at: "2026-09-15T00:00:00Z", approved_at: "2026-09-15T00:00:00Z", approved_by: actorId,
         }];
         if (sql.includes("count(*)")) return [{ count: 2 }];
+        if (sql.includes("FROM public.local_auth_credentials")) return [{ user_id: actorId }];
         return [];
       } });
     },

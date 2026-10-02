@@ -59,6 +59,9 @@ function authFailure(reply: import("fastify").FastifyReply, error: unknown) {
   if (error.code === "INVALID_CREDENTIALS" || error.code === "SESSION_INVALID") {
     return reply.code(401).send({ error: { code: error.code, message: "Authentication failed" } });
   }
+  if (error.code === "ACCOUNT_DISABLED") {
+    return reply.code(403).send({ error: { code: error.code, message: "Account is disabled" } });
+  }
   if (error.code === "ACCOUNT_EXISTS" || error.code === "ACCOUNT_ENROLLMENT_REQUIRED") {
     return reply.code(409).send({ error: { code: error.code, message: "Account cannot be registered" } });
   }

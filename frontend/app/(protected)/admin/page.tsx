@@ -30,6 +30,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const suspendedCount = profiles.filter(
     (profile) => profile.status === "rejected",
   ).length;
+  const disabledCount = profiles.filter((profile) => profile.status === "disabled").length;
+  const lifecycleErrors = new Set(["ADMIN_ACCESS_REQUIRED", "SELF_DELETE_BLOCKED", "SELF_DISABLE_BLOCKED",
+    "LAST_LOGIN_CAPABLE_ADMIN_BLOCKED", "ACCOUNT_HAS_HISTORY", "ACCOUNT_NOT_DISABLEABLE",
+    "ACCOUNT_NOT_REENABLEABLE", "ACCOUNT_NOT_DELETABLE", "PROFILE_NOT_FOUND"]);
 
   return (
     <main className="p-4 md:p-6">
@@ -43,22 +47,23 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             {t("page.description")}
           </p>
         </div>
-        <div className="flex gap-4 font-data text-meta text-text-muted">
+        <div className="flex flex-wrap gap-4 font-data text-meta text-text-muted">
           <span>{t("page.activeCount", { count: approvedCount })}</span>
           <span>{t("page.pendingCount", { count: pendingCount })}</span>
           <span>{t("page.suspendedCount", { count: suspendedCount })}</span>
+          <span>{t("lifecycle.disabledCount", { count: disabledCount })}</span>
           <span>{t("page.userCount", { count: profiles.length })}</span>
         </div>
       </div>
 
       {params.notice ? (
         <p role="status" className="mt-4 text-body text-severity-low">
-          {t("page.saved")}
+          {t("lifecycle.saved")}
         </p>
       ) : null}
       {params.error ? (
         <p role="alert" className="mt-4 text-body text-severity-critical">
-          {t("page.saveError")}
+          {lifecycleErrors.has(params.error) ? t(`lifecycle.errors.${params.error}`) : t("lifecycle.failed")}
         </p>
       ) : null}
 

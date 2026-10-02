@@ -26,7 +26,7 @@ test("migration 012 replaces only the realtime control function with table-safe 
   assert.doesNotMatch(jobs, /runner_id/);
 
   const inspector = migration012.match(
-    /ELSIF TG_TABLE_NAME = 'device_inspection_sessions' THEN([\s\S]*?)\n  ELSE\n    RAISE EXCEPTION 'local realtime control trigger table is invalid'/,
+    /ELSIF TG_TABLE_NAME = 'device_inspection_sessions' THEN([\s\S]*?)\r?\n  ELSE\r?\n    RAISE EXCEPTION 'local realtime control trigger table is invalid'/,
   )?.[1];
   assert.ok(inspector);
   assert.match(inspector, /topic_value <> 'device_inspector'/);

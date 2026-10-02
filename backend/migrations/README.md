@@ -70,7 +70,15 @@ domain tables, and all migration 009-014 local `pg_notify` triggers remain
 unchanged. The local backend no longer runs a Supabase shadow projector after
 this migration; no backlog drain or cosmetic delivery update is performed.
 
-Apply migrations through the reviewed
+`016_admin_user_lifecycle.sql`
+requires recorded version 15 and the exact dedicated cluster guards. It adds
+explicit Disabled profile metadata, preserves Discovery/Inspector history with
+nullable `requested_by` SET NULL FKs, and adds append-only account lifecycle audit
+identities (no profile FKs; runtime SELECT/INSERT only). It does not disable,
+delete, approve, or enroll any existing account. Apply 016 explicitly before
+starting the P17.1 application release; migrations 001-015 remain unchanged.
+
+Apply Asset migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.
 

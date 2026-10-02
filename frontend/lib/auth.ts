@@ -14,6 +14,8 @@ export type Profile = {
   created_at: string;
   approved_at: string | null;
   approved_by: string | null;
+  disabled_at: string | null;
+  disabled_by: string | null;
 };
 
 type AuthenticatedProfile = {
@@ -32,7 +34,7 @@ export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile> {
 export function normalizedProfile(value: Record<string, unknown> | null): Profile | null {
   if (!value || typeof value.id !== "string" || typeof value.email !== "string" ||
     !["admin", "operator", "viewer"].includes(String(value.role)) ||
-    !["pending", "approved", "rejected"].includes(String(value.status)) ||
+    !["pending", "approved", "rejected", "disabled"].includes(String(value.status)) ||
     typeof value.created_at !== "string") return null;
   return {
     id: value.id, email: value.email,
@@ -41,6 +43,8 @@ export function normalizedProfile(value: Record<string, unknown> | null): Profil
     created_at: value.created_at,
     approved_at: typeof value.approved_at === "string" ? value.approved_at : null,
     approved_by: typeof value.approved_by === "string" ? value.approved_by : null,
+    disabled_at: typeof value.disabled_at === "string" ? value.disabled_at : null,
+    disabled_by: typeof value.disabled_by === "string" ? value.disabled_by : null,
   };
 }
 

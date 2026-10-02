@@ -12,10 +12,12 @@ export type LocalAuthProfile = Readonly<{
   email: string;
   full_name: string | null;
   role: "admin" | "operator" | "viewer";
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "disabled";
   created_at: string;
   approved_at: string | null;
   approved_by: string | null;
+  disabled_at: string | null;
+  disabled_by: string | null;
 }>;
 
 export type LocalAuthSession = Readonly<{
@@ -27,7 +29,7 @@ export type LocalAuthSession = Readonly<{
 export class LocalAuthError extends Error {
   constructor(readonly code: "INVALID_AUTH_REQUEST" | "INVALID_CREDENTIALS" |
     "ACCOUNT_EXISTS" | "ACCOUNT_ENROLLMENT_REQUIRED" | "SESSION_INVALID" |
-    "PROFILE_NOT_FOUND" | "PROFILE_EMAIL_MISMATCH" | "CREDENTIAL_EXISTS") {
+    "PROFILE_NOT_FOUND" | "PROFILE_EMAIL_MISMATCH" | "CREDENTIAL_EXISTS" | "ACCOUNT_DISABLED") {
     super("Local authentication request failed");
     this.name = "LocalAuthError";
   }
@@ -101,7 +103,7 @@ export class PostgresLocalAuthRepository {
       const rows = await query.rows(`
         INSERT INTO public.profiles(id,email,full_name,role,status)
         VALUES ($1::uuid,$2,$3,'viewer','pending')
-        RETURNING id,email,full_name,role,status,created_at,approved_at,approved_by
+        RETURNING id,email,full_name,role,status,created_at,approved_at,approved_by,disabled_at,disabled_by
       `, [userId, email, fullName], signal);
       await query.rows(`
         INSERT INTO public.local_auth_credentials(user_id,email,password_record)
@@ -119,7 +121,7 @@ export class PostgresLocalAuthRepository {
     if (!email || !validLocalPassword(password)) throw new LocalAuthError("INVALID_CREDENTIALS");
     const rows = await this.database.rows(`
       SELECT c.user_id,c.password_record,p.id,p.email,p.full_name,p.role,p.status,
-             p.created_at,p.approved_at,p.approved_by
+             p.created_at,p.approved_at,p.approved_by,p.disabled_at,p.disabled_by
       FROM public.local_auth_credentials c
       JOIN public.profiles p ON p.id=c.user_id
       WHERE c.email=$1
@@ -129,26 +131,37 @@ export class PostgresLocalAuthRepository {
     const valid = typeof row?.password_record === "string" && await verifyPasswordRecord(password, row.password_record);
     const profile = valid ? localProfile(row) : null;
     if (!profile) throw new LocalAuthError("INVALID_CREDENTIALS");
+    if (profile.status === "disabled") throw new LocalAuthError("ACCOUNT_DISABLED");
     const session = newSession();
-    await this.database.transaction(signal, async (query) => {
+    const currentProfile = await this.database.transaction(signal, async (query) => {
+      // Serialize session creation with lifecycle UPDATE/DELETE on this profile.
+      // A login verified just before disable must not recreate a revoked session.
+      const profiles = await query.rows(`
+        SELECT id,email,full_name,role,status,created_at,approved_at,approved_by,disabled_at,disabled_by
+        FROM public.profiles WHERE id=$1::uuid FOR SHARE
+      `, [profile.id], signal);
+      const current = localProfile(profiles[0]);
+      if (!current) throw new LocalAuthError("INVALID_CREDENTIALS");
+      if (current.status === "disabled") throw new LocalAuthError("ACCOUNT_DISABLED");
       await query.rows("DELETE FROM public.local_auth_sessions WHERE expires_at <= now()", [], signal);
       await insertSession(query, profile.id, session, signal);
+      return current;
     });
-    return { token: session.token, expires_at: session.expires_at, profile };
+    return { token: session.token, expires_at: session.expires_at, profile: currentProfile };
   }
 
   async resolve(token: string, signal: AbortSignal): Promise<LocalAuthProfile> {
     const digest = sessionDigest(token);
     if (!digest) throw new LocalAuthError("SESSION_INVALID");
     const rows = await this.database.rows(`
-      SELECT p.id,p.email,p.full_name,p.role,p.status,p.created_at,p.approved_at,p.approved_by
+      SELECT p.id,p.email,p.full_name,p.role,p.status,p.created_at,p.approved_at,p.approved_by,p.disabled_at,p.disabled_by
       FROM public.local_auth_sessions s
       JOIN public.profiles p ON p.id=s.user_id
       WHERE s.token_digest=$1 AND s.expires_at > now()
       LIMIT 1
     `, [digest], signal);
     const profile = localProfile(rows[0]);
-    if (!profile) throw new LocalAuthError("SESSION_INVALID");
+    if (!profile || profile.status === "disabled") throw new LocalAuthError("SESSION_INVALID");
     return profile;
   }
 
@@ -199,7 +212,7 @@ function control(value: string): boolean { return /[\u0000-\u001f\u007f]/.test(v
 function localProfile(value: Record<string, unknown> | undefined): LocalAuthProfile | null {
   if (!value || typeof value.id !== "string" || typeof value.email !== "string" ||
       !["admin", "operator", "viewer"].includes(String(value.role)) ||
-      !["pending", "approved", "rejected"].includes(String(value.status))) return null;
+      !["pending", "approved", "rejected", "disabled"].includes(String(value.status))) return null;
   return {
     id: value.id,
     email: value.email,
@@ -209,6 +222,8 @@ function localProfile(value: Record<string, unknown> | undefined): LocalAuthProf
     created_at: iso(value.created_at),
     approved_at: value.approved_at ? iso(value.approved_at) : null,
     approved_by: typeof value.approved_by === "string" ? value.approved_by : null,
+    disabled_at: value.disabled_at ? iso(value.disabled_at) : null,
+    disabled_by: typeof value.disabled_by === "string" ? value.disabled_by : null,
   };
 }
 
