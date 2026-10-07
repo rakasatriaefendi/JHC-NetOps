@@ -5,6 +5,7 @@ import { AppI18nProvider } from "@/i18n/provider";
 import { AppAuthorityProvider } from "@/lib/application-authority-client";
 import { getRequestLanguage } from "@/i18n/server";
 import { getApplicationAuthority } from "@/lib/application-authority";
+import { ActionFeedbackProvider } from "@/components/ui/action-feedback";
 
 import "./globals.css";
 
@@ -36,7 +37,7 @@ export default async function RootLayout({
     <html lang={language}>
       <body className={`${inter.variable} ${jetBrainsMono.variable}`}>
         <AppAuthorityProvider authority={authority}>
-          <AppI18nProvider language={language}>{children}</AppI18nProvider>
+          <AppI18nProvider language={language}><ActionFeedbackProvider>{children}</ActionFeedbackProvider></AppI18nProvider>
         </AppAuthorityProvider>
       </body>
     </html>

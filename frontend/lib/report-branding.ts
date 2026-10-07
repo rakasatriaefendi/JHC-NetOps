@@ -8,7 +8,7 @@ import {
   validReportBranding,
 } from "@/lib/report-branding-contract";
 
-export type ReportBrandingResult = Readonly<{ data: ReportBranding; error: string | null }>;
+export type ReportBrandingResult = Readonly<{ data: ReportBranding; error: string | null; changed?: boolean }>;
 
 export async function loadReportBranding(): Promise<ReportBrandingResult> {
   const result = await request("GET", "/api/report-branding");
@@ -17,30 +17,30 @@ export async function loadReportBranding(): Promise<ReportBrandingResult> {
     : { data: DEFAULT_REPORT_BRANDING, error: result.error ?? "REPORT_BRANDING_UNAVAILABLE" };
 }
 
-export async function saveReportBranding(value: unknown): Promise<ReportBrandingResult> {
-  const result = await request("PUT", "/api/report-branding", value);
+export async function saveReportBranding(actorId: string, value: unknown): Promise<ReportBrandingResult> {
+  const result = await request("PUT", "/api/report-branding", { actor_id: actorId, input: value });
   return result.ok && validEnvelope(result.payload)
-    ? { data: result.payload.data, error: null }
+    ? { data: result.payload.data, error: null, changed: result.payload.changed === true }
     : { data: DEFAULT_REPORT_BRANDING, error: result.error ?? "INVALID_REPORT_BRANDING" };
 }
 
-export async function saveReportLogo(file: File): Promise<ReportBrandingResult> {
+export async function saveReportLogo(actorId: string, file: File): Promise<ReportBrandingResult> {
   if (!file.size || file.size > REPORT_BRANDING_LOGO_MAX_BYTES) return { data: DEFAULT_REPORT_BRANDING, error: "INVALID_REPORT_LOGO" };
   const bytes = Buffer.from(await file.arrayBuffer());
-  const result = await request("PUT", "/api/report-branding/logo", {
+  const result = await request("PUT", "/api/report-branding/logo", { actor_id: actorId, input: {
     filename: file.name,
     mime_type: file.type,
     base64: bytes.toString("base64"),
-  });
+  } });
   return result.ok && validEnvelope(result.payload)
-    ? { data: result.payload.data, error: null }
+    ? { data: result.payload.data, error: null, changed: result.payload.changed === true }
     : { data: DEFAULT_REPORT_BRANDING, error: result.error ?? "INVALID_REPORT_LOGO" };
 }
 
-export async function removeReportLogo(): Promise<ReportBrandingResult> {
-  const result = await request("DELETE", "/api/report-branding/logo");
+export async function removeReportLogo(actorId: string): Promise<ReportBrandingResult> {
+  const result = await request("DELETE", "/api/report-branding/logo", { actor_id: actorId });
   return result.ok && validEnvelope(result.payload)
-    ? { data: result.payload.data, error: null }
+    ? { data: result.payload.data, error: null, changed: result.payload.changed === true }
     : { data: DEFAULT_REPORT_BRANDING, error: result.error ?? "REPORT_BRANDING_UNAVAILABLE" };
 }
 
@@ -74,10 +74,11 @@ async function request(method: "GET" | "PUT" | "DELETE", path: string, body?: un
   } catch { return { ok: false, payload: null as unknown, error: "REPORT_BRANDING_UNAVAILABLE" }; }
 }
 
-function validEnvelope(value: unknown): value is { data: ReportBranding } {
+function validEnvelope(value: unknown): value is { data: ReportBranding; changed?: boolean } {
   return record(value) && validReportBranding(value.data);
 }
 function safeErrorCode(value: unknown): string | null {
-  return record(value) && record(value.error) && typeof value.error.code === "string" && /^[A-Z0-9_]{1,80}$/.test(value.error.code) ? value.error.code : null;
+  return record(value) && record(value.error) && typeof value.error.code === "string" &&
+    ["INVALID_REPORT_BRANDING", "INVALID_REPORT_LOGO", "REPORT_BRANDING_UNAVAILABLE", "ADMIN_ACCESS_REQUIRED"].includes(value.error.code) ? value.error.code : null;
 }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

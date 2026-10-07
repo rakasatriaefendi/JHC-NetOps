@@ -1,4 +1,5 @@
 {
+  "audit": { "title": "Administrative audit trail", "description": "Account lifecycle and administrative configuration changes. Newest first, 50 entries per page.", "empty": "No administrative changes recorded.", "error": "Audit history is temporarily unavailable. Try again.", "actor": "Actor", "resource": "Resource", "before": "Before", "after": "After", "unavailable": "Deleted or unavailable account", "logoPresent": "Logo configured", "logoAbsent": "No logo", "pagination": "Audit pagination", "page": "Page {{page}}", "actions": { "access_changed": "Account access updated", "account_disabled": "Account disabled", "account_reenabled": "Account re-enabled", "account_deleted": "Pending account permanently deleted", "branding_identity_updated": "Report identity updated", "branding_logo_updated": "Report logo uploaded or replaced", "branding_logo_removed": "Report logo removed" } },
   "lifecycle": {
     "disable": "Disable Account", "reenable": "Re-enable Account", "delete": "Permanent Delete",
     "working": "Processing…", "disabledCount": "{{count}} disabled",

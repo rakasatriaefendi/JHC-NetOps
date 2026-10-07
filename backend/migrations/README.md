@@ -78,6 +78,14 @@ identities (no profile FKs; runtime SELECT/INSERT only). It does not disable,
 delete, approve, or enroll any existing account. Apply 016 explicitly before
 starting the P17.1 application release; migrations 001-015 remain unchanged.
 
+`017_administrative_audit.sql` requires version 16 as the latest prerequisite on
+the exact dedicated cluster. It adds append-only, fixed-schema Report Branding
+audit summaries (Admin actor UUID, allowlisted action/resource and safe before/
+after identity/logo availability). Runtime can SELECT/INSERT, never UPDATE/DELETE;
+there are no profile/resource FKs. Existing lifecycle audit remains separate.
+Apply 017 explicitly before enabling this source release; startup never migrates.
+Migrations 001-016 remain immutable.
+
 Apply Asset migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

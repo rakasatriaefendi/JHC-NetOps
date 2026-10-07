@@ -32,9 +32,9 @@ test("current account never exposes destructive actions; other accounts follow t
   const ui = source("../components/admin/user-access-control.tsx");
   assert.match(ui, /const lifecycle = accountLifecycleAction\(status, isCurrentUser\)/);
   for (const [kind, action] of [["disable", "disableUserAction"], ["reenable", "reenableUserAction"], ["delete", "deleteUserAction"]]) {
-    assert.match(ui, new RegExp(`lifecycle === "${kind}"[\\s\\S]*?<form action=\\{${action}\\}`));
+    assert.match(ui, new RegExp(`lifecycle === "${kind}"[\\s\\S]*?<MutationForm action=\\{${action}\\} kind="${kind}"`));
   }
-  assert.match(ui, /status === "disabled"[\s\S]*?lifecycle\.disabledHelp[\s\S]*?: \([\s\S]*?form action=\{setUserAccessAction\}/);
+  assert.match(ui, /status === "disabled"[\s\S]*?lifecycle\.disabledHelp[\s\S]*?: \([\s\S]*?MutationForm action=\{setUserAccessAction\}/);
 });
 
 test("permanent delete uses explicit accessible confirmation, exact DELETE USER and a separate destructive submit", () => {

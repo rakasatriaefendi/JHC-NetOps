@@ -25,6 +25,7 @@ import "@xyflow/react/dist/style.css";
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useManualPing } from "./manual-ping-provider";
+import { LoadingSpinner } from "@/components/ui/action-feedback";
 import type { NetworkHealthTarget, NetworkHealthSample, NetworkHealthEvent, HealthStatus } from "@/lib/network-health";
 
 function formatLatency(value: number | null | undefined) {
@@ -137,13 +138,14 @@ function TargetNode({ data }: { data: TargetNodeData }) {
               variant="secondary"
               className="nodrag nopan px-3 py-1.5 text-meta"
               disabled={!target.manual_ping_available || pingState?.phase === "loading"}
+              aria-busy={pingState?.phase === "loading"}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
                 manualPing.run(target.id);
               }}
             >
-              {t(pingState?.phase === "loading" ? "map.pinging" : "map.ping")}
+              {pingState?.phase === "loading" ? <LoadingSpinner /> : null}{t(pingState?.phase === "loading" ? "map.pinging" : "map.ping")}
             </Button>
             {!target.manual_ping_available ? (
               <span className="text-meta text-text-muted">{t("map.pingUnavailable")}</span>

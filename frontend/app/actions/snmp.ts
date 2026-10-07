@@ -1,14 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
 import { requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
 import { loadManagedTelemetry, validateManagedTelemetryForm } from "@/lib/managed-telemetry";
 import { portableDevMode } from "@/lib/portable-dev-mode";
 import { applicationDeleted, localApplicationRequest, localManagedTarget, localNetworkNode,
-  localRunner } from "@/lib/application-persistence";
+  localManagedTargets, localRunner } from "@/lib/application-persistence";
 
 const TELEMETRY_FIELDS = new Set([
   "node_id", "runner_id", "credential_profile_ref", "snmp_version",
@@ -41,10 +40,10 @@ export async function loadManagedTelemetryForNodeAction(nodeId: string) {
 
 export async function saveManagedTelemetryTargetAction(formData: FormData) {
   if (portableDevMode()) {
-    redirect("/snmp?telemetry_error=portable-read-only#managed-telemetry");
+    return { ok: false, code: "portable-read-only" };
   }
   if (hasUnexpectedFormFields(formData, TELEMETRY_FIELDS)) {
-    redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
+    return { ok: false, code: "invalid-request" };
   }
   const values = {
     node_id: String(formData.get("node_id") ?? ""),
@@ -60,53 +59,57 @@ export async function saveManagedTelemetryTargetAction(formData: FormData) {
     util_sustained_seconds: Number(formData.get("util_sustained_seconds")),
   };
   const validationError = validateManagedTelemetryForm(values);
-  if (validationError) redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
+  if (validationError) return { ok: false, code: "invalid-request" };
 
   const { userId } = await requireOperatorProfile();
   const [node, runner] = await Promise.all([localNetworkNode(values.node_id), localRunner(values.runner_id)]);
-  if (!node || !runner) redirect("/snmp?telemetry_error=unknown-target#managed-telemetry");
+  if (!node || !runner) return { ok: false, code: "unknown-target" };
 
   const enabled = formData.get("enabled") === "on";
   if (enabled && !runnerCredentialProfiles(runner.capabilities).includes(values.credential_profile_ref)) {
-    redirect("/snmp?telemetry_error=profile-unavailable#managed-telemetry");
+    return { ok: false, code: "profile-unavailable" };
   }
 
   const saved = await localApplicationRequest("POST", "/api/application/managed-targets", {
     actor_id: userId, input: { ...values, enabled },
   });
-  if (!saved.ok) redirect("/snmp?telemetry_error=save-failed#managed-telemetry");
+  if (!saved.ok) return { ok: false, code: "save-failed" };
+  const refreshed = await localManagedTargets();
+  const current = refreshed?.find((row) => row.node_id === values.node_id && row.runner_id === values.runner_id);
+  if (!current || current.enabled !== enabled || Object.entries(values).some(([key, value]) =>
+    typeof value === "number" ? Number(current[key]) !== value : current[key] !== value)) return { ok: false, code: "refresh-failed" };
   revalidatePath("/snmp");
   revalidatePath("/dashboard");
-  redirect("/snmp?telemetry_notice=saved#managed-telemetry");
+  return { ok: true };
 }
 
 export async function deleteManagedTelemetryTargetAction(formData: FormData) {
   if (portableDevMode()) {
-    redirect("/snmp?telemetry_error=portable-read-only#managed-telemetry");
+    return { ok: false, code: "portable-read-only" };
   }
   if (hasUnexpectedFormFields(formData, DELETE_TELEMETRY_FIELDS)) {
-    redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
+    return { ok: false, code: "invalid-request" };
   }
   const targetId = String(formData.get("target_id") ?? "");
   const confirmation = String(formData.get("confirmation") ?? "");
   if (!UUID_PATTERN.test(targetId) || !confirmation || confirmation.length > 500) {
-    redirect("/snmp?telemetry_error=invalid-request#managed-telemetry");
+    return { ok: false, code: "invalid-request" };
   }
 
   const { userId } = await requireOperatorProfile();
   const target = await localManagedTarget(targetId);
   if (!target || typeof target.node_name !== "string" || typeof target.ip_address !== "string" ||
     confirmation !== `${target.node_name} (${target.ip_address})`) {
-    redirect("/snmp?telemetry_error=unknown-target#managed-telemetry");
+    return { ok: false, code: "unknown-target" };
   }
 
   const deleted = await localApplicationRequest("DELETE", `/api/application/managed-targets/${targetId}`,
     { actor_id: userId, confirmation });
-  if (!applicationDeleted(deleted)) redirect("/snmp?telemetry_error=delete-failed#managed-telemetry");
+  if (!applicationDeleted(deleted)) return { ok: false, code: "delete-failed" };
   revalidatePath("/snmp");
   revalidatePath("/devices");
   revalidatePath("/dashboard");
-  redirect("/snmp?telemetry_notice=deleted#managed-telemetry");
+  return verifiedTelemetryMutation(targetId, "id", true);
 }
 
 function runnerCredentialProfiles(capabilities: unknown): string[] {
@@ -117,4 +120,10 @@ function runnerCredentialProfiles(capabilities: unknown): string[] {
   return Array.isArray(profiles) && profiles.every((value) => typeof value === "string")
     ? profiles
     : [];
+}
+
+async function verifiedTelemetryMutation(value: string, field: string, deleted = false) {
+  const rows = await localManagedTargets();
+  if (!rows || rows.some((row) => row[field] === value) === deleted) return { ok: false, code: "refresh-failed" };
+  return { ok: true };
 }

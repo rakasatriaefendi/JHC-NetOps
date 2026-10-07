@@ -5,11 +5,14 @@ import { localProfiles } from "@/lib/application-persistence";
 import { getServerTranslation } from "@/i18n/server";
 import { ReportBrandingSettings } from "@/components/admin/report-branding-settings";
 import { loadReportBranding } from "@/lib/report-branding";
+import { loadAdministrativeAudit } from "@/lib/administrative-audit";
+import { AdministrativeAudit } from "@/components/admin/administrative-audit";
 
 type AdminPageProps = {
   searchParams: Promise<{
     error?: string;
     notice?: string;
+    audit_page?: string;
   }>;
 };
 
@@ -17,9 +20,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const { t, locale } = await getServerTranslation("admin");
   const { userId } = await requireAdminProfile();
   const params = await searchParams;
-  const [profiles, branding] = await Promise.all([
+  const auditPage = typeof params.audit_page === "string" && /^\d{1,3}$/.test(params.audit_page) ? Math.min(200, Number(params.audit_page)) : 0;
+  const [profiles, branding, audit] = await Promise.all([
     localProfiles().then((rows) => (rows ?? []).map(normalizedProfile).filter((row): row is Profile => row !== null)),
     loadReportBranding(),
+    loadAdministrativeAudit(userId, auditPage),
   ]);
   const approvedCount = profiles.filter(
     (profile) => profile.status === "approved",
@@ -56,7 +61,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         </div>
       </div>
 
-      {params.notice ? (
+      {params.notice === "saved" && !params.error ? (
         <p role="status" className="mt-4 text-body text-severity-low">
           {t("lifecycle.saved")}
         </p>
@@ -68,6 +73,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       ) : null}
 
       <ReportBrandingSettings initial={branding.data} />
+      <AdministrativeAudit result={audit} page={auditPage} />
 
       <section className="mt-6 grid gap-4">
         {profiles.length === 0 ? (

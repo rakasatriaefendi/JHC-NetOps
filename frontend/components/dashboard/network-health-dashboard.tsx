@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { ManualPingProvider, useManualPing } from "./manual-ping-provider";
+import { LoadingSpinner } from "@/components/ui/action-feedback";
 import { ReachabilityMap } from "./reachability-map";
 import { NetworkHealthTrends } from "./network-health-trends";
 import { NetworkDiscoveryDrawer } from "@/components/dashboard/network-discovery-drawer";
@@ -166,12 +167,13 @@ function ManualPingAction({ target }: { target: NetworkHealthTarget }) {
         variant="secondary"
         className="px-3 py-1.5 text-meta"
         disabled={!target.manual_ping_available || state?.phase === "loading"}
+        aria-busy={state?.phase === "loading"}
         onClick={(event) => {
           event.stopPropagation();
           manualPing.run(target.id);
         }}
       >
-        {t(state?.phase === "loading" ? "health.pinging" : "health.ping")}
+        {state?.phase === "loading" ? <LoadingSpinner /> : null}{t(state?.phase === "loading" ? "health.pinging" : "health.ping")}
       </Button>
       {!target.manual_ping_available ? <span className="text-meta text-text-muted">{t("health.pingUnavailable")}</span> : state ? (
         <span className={`font-data text-meta ${state.phase === "error" ? "text-severity-critical" : state.phase === "success" ? "text-severity-low" : "text-accent"}`}>{state.message}</span>

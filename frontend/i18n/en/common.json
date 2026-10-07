@@ -1,4 +1,6 @@
 {
+  "manualPing": { "failed": "Ping failed", "result": "Ping {{latency}} ms", "timeout": "Ping timeout", "unreachable": "Unreachable" },
+  "mutation": { "failed": "The action or its confirmation refresh failed. Check the current state before trying again.", "pending": { "save": "Saving...", "create": "Adding...", "update": "Updating...", "disable": "Disabling...", "reenable": "Re-enabling...", "delete": "Deleting...", "upload": "Uploading...", "remove": "Removing...", "start": "Starting...", "stop": "Stopping...", "ping": "Pinging..." }, "success": { "save": "Changes saved.", "create": "Configuration added.", "update": "Changes updated.", "disable": "Account disabled.", "reenable": "Account re-enabled. A new login is required.", "delete": "Deletion completed.", "upload": "Logo uploaded.", "remove": "Logo removed.", "start": "Start request accepted.", "stop": "Stop request accepted.", "ping": "Ping completed." } },
   "appName": "NetOps Monitor",
   "networkVisibility": "Network visibility",
   "language": { "label": "Language" },

@@ -74,7 +74,19 @@ test("Admin UI exposes independent role and access selectors", () => {
   assert.match(control, /t\("common:status\.pending"\)/);
   assert.match(control, /t\("common:status\.approved"\)/);
   assert.match(control, /t\("common:status\.rejected"\)/);
-  assert.match(control, /t\("access\.saving"\)/);
+  assert.match(control, /<select[^>]*defaultValue=\{role\}[^>]*disabled=\{isCurrentUser\}[^>]*name="role"/);
+  assert.match(control, /<select[^>]*defaultValue=\{accessStatusFromProfile\(status\)\}[^>]*disabled=\{isCurrentUser\}[^>]*name="access_status"/);
+  assert.match(control, /<MutationForm action=\{setUserAccessAction\}/);
+  assert.match(control, /<SaveButton disabled=\{isCurrentUser\}/);
+  assert.match(control, /<PendingSubmit disabled=\{disabled\}>\{t\("access\.save"\)\}<\/PendingSubmit>/);
+  const mutationForm = source("../components/ui/mutation-form.tsx");
+  assert.match(mutationForm, /kind = "save"/);
+  assert.match(mutationForm, /if \(submitting\.current\)/);
+  assert.match(mutationForm, /gate\.current\.run\(\(\) => action\(data\)/);
+  assert.match(mutationForm, /<form[^>]*aria-busy=\{pending\}/);
+  assert.match(mutationForm, /disabled=\{disabled \|\| pending\} aria-disabled=\{disabled \|\| pending\} aria-busy=\{pending\}/);
+  assert.match(mutationForm, /useTranslation\("common"\)/);
+  assert.match(mutationForm, /pending \? <><LoadingSpinner \/>\{t\(`mutation\.pending\.\$\{kind\}`\)\}/);
   assert.doesNotMatch(control, /Menyimpan…/);
 });
 

@@ -12,6 +12,7 @@ import {
   updateNetworkNodeAction,
 } from "@/app/actions/devices";
 import { Button } from "@/components/ui/button";
+import { MutationForm, PendingSubmit } from "@/components/ui/mutation-form";
 import {
   NETWORK_NODE_TYPES,
   networkNodeTypeLabel,
@@ -77,14 +78,14 @@ export function DeviceInventory({ nodes, runners, targets, canManage, deviceNoti
       {canManage ? <div className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6" id="add-device">
         <h2 className="text-section font-semibold">{t("add.title")}</h2>
         <p className="mt-1 text-meta text-text-muted">{t("add.description")}</p>
-        <form action={saveManualNetworkNodeAction} className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+        <MutationForm action={saveManualNetworkNodeAction} kind="create" className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
           <Field label={t("add.ip")}><input className={control} inputMode="decimal" maxLength={15} name="ip_address" placeholder="192.168.1.20" required /></Field>
           <Field label={t("add.name")}><input className={control} maxLength={200} name="name" placeholder={t("add.namePlaceholder")} required /></Field>
           <Field label={t("add.type")}><select className={control} defaultValue="" name="device_type"><option value="">{t("add.typeEmpty")}</option>{NETWORK_NODE_TYPES.map((value) => <option key={value} value={value}>{networkNodeTypeLabel(value)}</option>)}</select></Field>
           <Field label={t("add.location")}><input className={control} maxLength={200} name="location" placeholder={t("add.locationPlaceholder")} /></Field>
           <div className="min-w-0 md:col-span-2 xl:col-span-3"><Field label={t("add.notes")}><textarea className={control} maxLength={2000} name="notes" rows={2} /></Field></div>
-          <div className="flex items-end xl:justify-end"><Button className="w-full xl:w-auto" type="submit">{t("add.submit")}</Button></div>
-        </form>
+          <div className="flex items-end xl:justify-end"><PendingSubmit className="w-full xl:w-auto" >{t("add.submit")}</PendingSubmit></div>
+        </MutationForm>
       </div> : null}
 
       <div className="mt-6 rounded-control border border-border bg-bg-surface p-4 text-text-secondary">
@@ -110,13 +111,13 @@ export function DeviceInventory({ nodes, runners, targets, canManage, deviceNoti
                   {canManage ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2">
                     <Button variant="secondary" onClick={() => { setEditingNodeId(node.id); setHealthNodeId(null); }}>{t("list.edit")}</Button>
                     <Button variant="secondary" onClick={() => openHealth(node.id)}>{nodeTargets.length ? t("list.manageHealth") : t("list.configureHealth")}</Button>
-                    <form action={deleteNetworkNodeAction} onSubmit={(event) => {
+                    <MutationForm action={deleteNetworkNodeAction} kind="delete" onSubmit={(event) => {
                       if (!window.confirm(t("list.deleteConfirm", { device: confirmationLabel(node) }))) event.preventDefault();
                     }}>
                       <input name="node_id" type="hidden" value={node.id} />
                       <input name="confirmation" type="hidden" value={confirmationLabel(node)} />
-                      <Button type="submit" variant="destructive">{t("list.delete")}</Button>
-                    </form>
+                      <PendingSubmit  variant="destructive">{t("list.delete")}</PendingSubmit>
+                    </MutationForm>
                   </div></td> : null}
                 </tr>;
               })}</tbody>
@@ -142,14 +143,14 @@ function DeviceEditPanel({ node, onClose }: { node: NetworkNode; onClose: () => 
   const { t } = useTranslation("devices");
   return <div className="mt-6 rounded-panel border border-accent bg-bg-surface p-4 md:p-6">
     <div className="flex items-start justify-between gap-4"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("edit.title")}</p><h3 className="mt-2 text-section font-semibold">{node.name}</h3><p className="mt-1 font-data text-meta text-text-muted">{node.ip_address}</p></div><Button variant="secondary" onClick={onClose}>{t("common:actions.cancel")}</Button></div>
-    <form action={updateNetworkNodeAction} className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+    <MutationForm action={updateNetworkNodeAction} kind="update" className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
       <input name="node_id" type="hidden" value={node.id} />
       <Field label={t("edit.name")}><input className={control} defaultValue={node.name} maxLength={200} name="name" required /></Field>
       <Field label={t("edit.type")}><select className={control} defaultValue={node.device_type ?? ""} name="device_type"><option value="">{t("add.typeEmpty")}</option>{NETWORK_NODE_TYPES.map((value) => <option key={value} value={value}>{networkNodeTypeLabel(value)}</option>)}</select></Field>
       <Field label={t("edit.location")}><input className={control} defaultValue={node.location ?? ""} maxLength={200} name="location" /></Field>
       <Field label={t("edit.notes")}><textarea className={control} defaultValue={node.notes ?? ""} maxLength={2000} name="notes" rows={2} /></Field>
-      <div className="md:col-span-2 xl:col-span-4 xl:text-right"><Button type="submit">{t("edit.save")}</Button></div>
-    </form>
+      <div className="md:col-span-2 xl:col-span-4 xl:text-right"><PendingSubmit >{t("edit.save")}</PendingSubmit></div>
+    </MutationForm>
   </div>;
 }
 
@@ -160,9 +161,9 @@ function HealthWatchPanel({ node, runners, targets, editingTarget, onEdit, onClo
     <p className="mt-3 max-w-3xl text-text-secondary">{t("health.description")}</p>
     {targets.length ? <div className="mt-5 grid gap-3">{targets.map((target) => <div className="flex flex-col gap-3 rounded-control border border-border bg-bg-base p-4 lg:flex-row lg:items-center lg:justify-between" key={target.id}>
       <HealthSummary targets={[target]} runners={runners} />
-      <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => onEdit(target.id)}>{t("health.edit")}</Button><form action={deleteNetworkTargetAction} onSubmit={(event) => {
+      <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => onEdit(target.id)}>{t("health.edit")}</Button><MutationForm action={deleteNetworkTargetAction} kind="delete" onSubmit={(event) => {
         if (!window.confirm(t("health.removeConfirm", { device: confirmationLabel(node) }))) event.preventDefault();
-      }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={confirmationLabel(node)} /><Button type="submit" variant="destructive">{t("health.remove")}</Button></form></div>
+      }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={confirmationLabel(node)} /><PendingSubmit  variant="destructive">{t("health.remove")}</PendingSubmit></MutationForm></div>
     </div>)}</div> : <p className="mt-5 rounded-control border border-border bg-bg-base p-4 text-text-muted">{t("health.notMonitored")}</p>}
     {runners.length ? <div className="mt-6 border-t border-border pt-5"><h4 className="font-medium">{editingTarget ? t("health.editTitle") : targets.length ? t("health.addRunner") : t("health.configure")}</h4><TargetForm key={editingTarget?.id ?? `create-${targets.length}`} node={node} runners={runners} target={editingTarget} />{editingTarget ? <Button className="mt-3" variant="secondary" onClick={() => onEdit(null)}>{t("health.cancelEdit")}</Button> : null}</div> : <p className="mt-5 text-severity-medium">{t("health.runnerUnavailable")}</p>}
   </section>;
@@ -185,7 +186,7 @@ function MonitoringState({ target }: { target: DeviceHealthTarget }) {
 
 function TargetForm({ node, runners, target }: { node: NetworkNode; runners: Runner[]; target?: DeviceHealthTarget }) {
   const { t } = useTranslation("devices");
-  return <form action={saveNetworkTargetAction} className="mt-4 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+  return <MutationForm action={saveNetworkTargetAction} kind="save" className="mt-4 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
     <input name="node_id" type="hidden" value={node.id} />
     <Field label={t("health.inventoryNode")}><div className="min-w-0 truncate rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" title={`${node.name} — ${node.ip_address}`}>{node.name} — {node.ip_address}</div></Field>
     <Field label={t("health.runner")}><select className={control} defaultValue={target?.runner_id ?? ""} disabled={Boolean(target)} name="runner_id" required><option disabled value="">{t("health.selectRunner")}</option>{runners.map((runner) => <option key={runner.id} value={runner.id}>{runner.display_name}</option>)}</select>{target ? <input name="runner_id" type="hidden" value={target.runner_id} /> : null}</Field>
@@ -197,13 +198,13 @@ function TargetForm({ node, runners, target }: { node: NetworkNode; runners: Run
     <NumberField label={t("health.loss")} name="loss_warning_percent" value={target?.loss_warning_percent ?? 40} min={0} max={100} />
     <label className="flex items-center gap-2"><input defaultChecked={target?.enabled ?? true} name="enabled" type="checkbox" /> {t("health.enabled")}</label>
     <label className="flex items-center gap-2"><input defaultChecked={target?.critical ?? false} name="critical" type="checkbox" /> {t("health.criticalTarget")}</label>
-    <div className="md:col-span-2 md:text-right"><Button type="submit">{target ? t("health.save") : t("health.add")}</Button></div>
-  </form>;
+    <div className="md:col-span-2 md:text-right"><PendingSubmit >{target ? t("health.save") : t("health.add")}</PendingSubmit></div>
+  </MutationForm>;
 }
 
 function DeviceFeedback({ notice, error }: { notice?: string; error?: string }) {
   const { t } = useTranslation("devices");
-  const message = notice === "existing" ? t("feedback.existing") : notice === "updated" ? t("feedback.updated") : notice === "deleted" ? t("feedback.deleted") : notice ? t("feedback.added") : null;
+  const message = error ? null : notice === "existing" ? t("feedback.existing") : notice === "updated" ? t("feedback.updated") : notice === "deleted" ? t("feedback.deleted") : notice === "added" ? t("feedback.added") : null;
   const failure = ({
     "invalid-request": t("feedback.invalid"),
     "unknown-device": t("feedback.unknown"),
@@ -218,7 +219,7 @@ function DeviceFeedback({ notice, error }: { notice?: string; error?: string }) 
 
 function HealthFeedback({ notice, error }: { notice?: string; error?: string }) {
   const { t } = useTranslation("devices");
-  const success = notice === "deleted" ? t("feedback.healthDeleted") : notice ? t("feedback.healthSaved") : null;
+  const success = error ? null : notice === "deleted" ? t("feedback.healthDeleted") : notice === "saved" ? t("feedback.healthSaved") : null;
   const failure = ({
     "invalid-request": t("feedback.healthInvalid"),
     "unknown-target": t("feedback.healthUnknown"),

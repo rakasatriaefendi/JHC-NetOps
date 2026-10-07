@@ -1,4 +1,6 @@
 {
+  "manualPing": { "failed": "Ping gagal", "result": "Ping {{latency}} ms", "timeout": "Ping timeout", "unreachable": "Tidak terjangkau" },
+  "mutation": { "failed": "Tindakan atau penyegaran konfirmasinya gagal. Periksa keadaan terkini sebelum mencoba lagi.", "pending": { "save": "Menyimpan...", "create": "Menambahkan...", "update": "Memperbarui...", "disable": "Menonaktifkan...", "reenable": "Mengaktifkan kembali...", "delete": "Menghapus...", "upload": "Mengunggah...", "remove": "Menghapus logo...", "start": "Memulai...", "stop": "Menghentikan...", "ping": "Melakukan ping..." }, "success": { "save": "Perubahan disimpan.", "create": "Konfigurasi ditambahkan.", "update": "Perubahan diperbarui.", "disable": "Akun dinonaktifkan.", "reenable": "Akun diaktifkan kembali. Login baru diperlukan.", "delete": "Penghapusan selesai.", "upload": "Logo diunggah.", "remove": "Logo dihapus.", "start": "Permintaan mulai diterima.", "stop": "Permintaan berhenti diterima.", "ping": "Ping selesai." } },
   "appName": "NetOps Monitor",
   "networkVisibility": "Visibilitas jaringan",
   "language": { "label": "Bahasa" },

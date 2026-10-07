@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner, useActionFeedback } from "@/components/ui/action-feedback";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { findNetworkNode } from "@/lib/network-nodes";
@@ -49,6 +50,8 @@ export function TrafficLivePage({
   const [status, setStatus] = useState("all");
   const [detail, setDetail] = useState<TrafficFlow | null>(null);
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const notify = useActionFeedback();
   const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
   const [runnerAuthority, setRunnerAuthority] = useState<"local_postgres">(initialAuthority);
@@ -139,20 +142,23 @@ export function TrafficLivePage({
   }, [initialAuthority]);
 
   async function runAction(actionName: "create_session" | "stop_session") {
-    if (!runner) return;
+    if (!runner || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
-    const result = await mutateTrafficSessionAction(actionName === "create_session"
-      ? { action: actionName, runnerId: runner.id, durationSeconds: duration }
-      : { action: actionName, sessionId: active?.id });
-    if (!result.ok) setError(t("requestFailed"));
-    const latest = await getTrafficStateAction().catch(() => null);
-    const latestState = latest?.ok ? latest.data : null;
-    if (latest && latestState) {
+    const kind = actionName === "create_session" ? "start" : "stop";
+    try {
+      const result = await mutateTrafficSessionAction(actionName === "create_session"
+        ? { action: actionName, runnerId: runner.id, durationSeconds: duration }
+        : { action: actionName, sessionId: active?.id });
+      if (!result.ok) throw new Error("Traffic mutation failed");
+      const latest = await getTrafficStateAction();
+      if (!latest.ok || !latest.data) throw new Error("Traffic refresh failed");
       setRunnerAuthority(latest.authority);
-      setState(latestState);
-    }
-    setBusy(false);
+      setState(latest.data);
+      notify(kind, true);
+    } catch { notify(kind, false); }
+    finally { inFlight.current = false; setBusy(false); }
   }
 
   return (
@@ -218,18 +224,20 @@ export function TrafficLivePage({
               <Button
                 variant="destructive"
                 disabled={busy || active.status === "stopping"}
+                aria-busy={busy}
                 onClick={() => void runAction("stop_session")}
               >
-                {t(active.status === "stopping" ? "capture.stoppingAction" : "capture.stop")}
+                {busy ? <LoadingSpinner /> : null}{t(busy || active.status === "stopping" ? "capture.stoppingAction" : "capture.stop")}
               </Button>
             ) : (
               <Button
                 className="w-full sm:w-auto"
                 data-testid="start-traffic-capture"
                 disabled={busy || !online || state.storage_status.status === "critical"}
+                aria-busy={busy}
                 onClick={() => void runAction("create_session")}
               >
-                {t(busy ? "capture.preparing" : "capture.start")}
+                {busy ? <LoadingSpinner /> : null}{t(busy ? "capture.preparing" : "capture.start")}
               </Button>
             )}
           </div>

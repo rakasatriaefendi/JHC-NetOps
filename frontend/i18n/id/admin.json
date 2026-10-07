@@ -1,4 +1,5 @@
 {
+  "audit": { "title": "Riwayat audit administrasi", "description": "Perubahan siklus akun dan konfigurasi administrasi. Terbaru dahulu, 50 entri per halaman.", "empty": "Belum ada perubahan administrasi tercatat.", "error": "Riwayat audit sementara tidak tersedia. Coba lagi.", "actor": "Pelaku", "resource": "Sumber daya", "before": "Sebelum", "after": "Sesudah", "unavailable": "Akun dihapus atau tidak tersedia", "logoPresent": "Logo tersedia", "logoAbsent": "Tanpa logo", "pagination": "Halaman audit", "page": "Halaman {{page}}", "actions": { "access_changed": "Akses akun diperbarui", "account_disabled": "Akun dinonaktifkan", "account_reenabled": "Akun diaktifkan kembali", "account_deleted": "Akun tertunda dihapus permanen", "branding_identity_updated": "Identitas laporan diperbarui", "branding_logo_updated": "Logo laporan diunggah atau diganti", "branding_logo_removed": "Logo laporan dihapus" } },
   "lifecycle": {
     "disable": "Nonaktifkan Akun", "reenable": "Aktifkan Kembali Akun", "delete": "Hapus Permanen",
     "working": "Memproses…", "disabledCount": "{{count}} nonaktif",

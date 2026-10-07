@@ -1,6 +1,7 @@
 "use server";
 
 import { requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 import { localApplicationRequest, localHealthTargets, uuid } from "@/lib/application-persistence";
 
 export async function healthTargetMonitoringStateAction(runnerId: string, nodeId: string): Promise<boolean> {
@@ -20,5 +21,10 @@ export async function promoteHealthTargetsAction(runnerId: string, nodeIds: stri
   const result = await localApplicationRequest("POST", "/api/application/network-targets/promote", {
     actor_id: userId, runner_id: runnerId, node_ids: nodeIds,
   });
-  return { ok: result.ok };
+  if (!result.ok) return { ok: false };
+  const latest = await localHealthTargets();
+  if (!latest || !nodeIds.every((id) => latest.some((target) => target.runner_id === runnerId && target.node_id === id && target.enabled === true))) return { ok: false };
+  revalidatePath("/dashboard");
+  revalidatePath("/devices");
+  return { ok: true };
 }

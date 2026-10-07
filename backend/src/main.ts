@@ -36,6 +36,8 @@ import { PostgresCutoverCanaryRepository } from "./persistence/cutover-canary.js
 import { LocalRealtimeBroker } from "./realtime/broker.js";
 import { PostgresRealtimeListener, postgresRealtimeConnectionFactory } from "./realtime/listener.js";
 import { PostgresLocalAuthRepository } from "./local-auth/repository.js";
+import { PostgresAdministrativeAuditRepository } from "./persistence/administrative-audit.js";
+import { AuditedReportBranding } from "./report-branding/audited-mutations.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
@@ -113,12 +115,14 @@ async function main(): Promise<void> {
     : null;
   if (!config.candidateReadOnly && assetScanController) await assetScanController.initialize();
   const appPool = applicationRepositories._pool;
+  const administrativeAudit = new PostgresAdministrativeAuditRepository(new PoolPostgresQuery(appPool));
   const buildServerOptions: Record<string, unknown> = {
     candidateReadOnly: config.candidateReadOnly,
     runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },
     networkHealth: { token: config.runnerApiToken, repository: applicationRepositories.health },
     traffic: { token: config.runnerApiToken, repository: applicationRepositories.traffic },
     managedTelemetry: { token: config.runnerApiToken, repository: applicationRepositories.telemetry },
+    administrativeAudit: { token: config.frontendApiToken, repository: administrativeAudit },
   };
 
   if (config.assets && assetRepository) {
@@ -149,7 +153,8 @@ async function main(): Promise<void> {
     buildServerOptions.scanNetworks = { token: config.assets.frontendApiToken, manager: scanNetworkManager };
   }
   if (config.assets && reportBranding) {
-    buildServerOptions.reportBranding = { token: config.assets.frontendApiToken, store: reportBranding };
+    buildServerOptions.reportBranding = { token: config.assets.frontendApiToken, store: reportBranding,
+      mutations: new AuditedReportBranding(reportBranding, administrativeAudit) };
   }
   if (localRepos) {
     buildServerOptions.networkDiscovery = {

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner, useActionFeedback } from "@/components/ui/action-feedback";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
 import { DISCOVERY_RUNNER_FRESHNESS_MS, isDiscoveryRunnerAvailable, observedTrafficIps, type DiscoveryHost, type DiscoveryRunner, type DiscoverySession } from "@/lib/network-discovery-client";
@@ -40,6 +41,8 @@ export function NetworkDiscoveryDrawer({
   const [runnerId, setRunnerId] = useState(() => runners.find((runner) => runner.capabilities.operations?.includes("network_discovery"))?.id ?? "");
   const [sessions, setSessions] = useState(initialSessions);
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const notify = useActionFeedback();
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingIp, setEditingIp] = useState<string | null>(null);
@@ -158,21 +161,25 @@ export function NetworkDiscoveryDrawer({
   }, [open, runnerOnline, runner?.id, session?.session_id]);
 
   async function invoke(action: "prepare_session" | "start_session", targetRunnerId = runner?.id) {
-    if (!targetRunnerId) return;
+    if (!targetRunnerId || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
-    const result = await mutateDiscoverySessionAction({
-      action, runnerId: targetRunnerId, ...(session?.session_id ? { sessionId: session.session_id } : {}),
-    });
-    if (!result.ok || !result.data) {
-      prepared.current.delete(targetRunnerId);
-      setError(t("requestFailed"));
-    }
-    else {
-      const updated = result.data;
+    try {
+      const result = await mutateDiscoverySessionAction({
+        action, runnerId: targetRunnerId, ...(session?.session_id ? { sessionId: session.session_id } : {}),
+      });
+      if (!result.ok || !result.data) throw new Error("Discovery mutation failed");
+      const refreshed = await getDiscoverySessionAction(targetRunnerId);
+      if (!refreshed.ok || !refreshed.data || refreshed.data.session_id !== result.data.session_id) throw new Error("Discovery refresh failed");
+      const updated = refreshed.data;
       setSessions((current) => [updated, ...current.filter((item) => item.runner_id !== updated.runner_id)]);
-    }
-    setBusy(false);
+      if (action === "start_session") notify("start", true);
+    } catch {
+      prepared.current.delete(targetRunnerId);
+      if (action === "start_session") notify("start", false);
+      else setError(t("requestFailed")); // Automatic preparation must not toast.
+    } finally { inFlight.current = false; setBusy(false); }
   }
 
   const expired = session?.status === "expired" || Boolean(session && Date.parse(session.expires_at) <= Date.now());
@@ -188,31 +195,35 @@ export function NetworkDiscoveryDrawer({
   const invalidSelection = selectedRows.some((row) => !row.node || row.host.is_this_device);
 
   async function addToHealth(node: NetworkNode) {
-    if (!runner) return;
+    if (!runner || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
-    const { ok } = await promoteHealthTargetsAction(runner.id, [node.id]);
-    if (!ok) setError(t("addFailed"));
-    else {
+    try {
+      const { ok } = await promoteHealthTargetsAction(runner.id, [node.id]);
+      if (!ok) throw new Error("Health promotion failed");
       setPromotedNodes((current) => new Set([...current, node.id]));
       router.refresh();
-    }
-    setBusy(false);
+      notify("create", true);
+    } catch { notify("create", false); }
+    finally { inFlight.current = false; setBusy(false); }
   }
 
   async function addSelected() {
-    if (!runner || !selectedRows.length || invalidSelection) return;
+    if (!runner || !selectedRows.length || invalidSelection || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     const nodeIds = selectedRows.map((row) => row.node!.id);
-    const { ok } = await promoteHealthTargetsAction(runner.id, nodeIds);
-    if (!ok) setError(t("addSomeFailed"));
-    else {
+    try {
+      const { ok } = await promoteHealthTargetsAction(runner.id, nodeIds);
+      if (!ok) throw new Error("Health promotion failed");
       setPromotedNodes((current) => new Set([...current, ...nodeIds]));
       setSelected(new Set());
       router.refresh();
-    }
-    setBusy(false);
+      notify("create", true);
+    } catch { notify("create", false); }
+    finally { inFlight.current = false; setBusy(false); }
   }
 
   if (!open) return null;
@@ -233,7 +244,7 @@ export function NetworkDiscoveryDrawer({
 
         {runnerOnline && session?.status === "queued" && session.phase === "prepare" ? <Notice>{t("detectingSubnet")}</Notice> : null}
         {runnerOnline && session?.status === "running" && session.phase === "prepare" ? <Notice>{t("readingContext")}</Notice> : null}
-        {runnerOnline && session?.status === "idle" ? <div className="mt-5"><Button disabled={busy} onClick={() => void invoke("start_session")}>{busy ? t("preparing") : t("start")}</Button></div> : null}
+        {runnerOnline && session?.status === "idle" ? <div className="mt-5"><Button disabled={busy} aria-busy={busy} onClick={() => void invoke("start_session")}>{busy ? <><LoadingSpinner />{t("common:mutation.pending.start")}</> : t("start")}</Button></div> : null}
         {runnerOnline && expired ? <div className="mt-5"><Button disabled={busy} onClick={() => void invoke("prepare_session")}>{t("refresh")}</Button></div> : null}
         {runnerOnline && session?.status === "failed" ? <div className="mt-5"><Notice tone="critical">{discoveryError(session.error_code, t)}</Notice><Button className="mt-3" disabled={busy} onClick={() => void invoke("prepare_session")}>{t("retry")}</Button></div> : null}
 
@@ -243,7 +254,7 @@ export function NetworkDiscoveryDrawer({
 
         {session && session.phase === "scan" && !expired && enriched.length ? (
           <section className="mt-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-section font-semibold">{t("devices")}</h3><p className="mt-1 text-meta text-text-muted">{t("temporary")}</p></div><Button variant="secondary" disabled={busy || !selectedRows.length || invalidSelection} onClick={() => void addSelected()}>{t("addSelected")}</Button></div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-section font-semibold">{t("devices")}</h3><p className="mt-1 text-meta text-text-muted">{t("temporary")}</p></div><Button variant="secondary" disabled={busy || !selectedRows.length || invalidSelection} aria-busy={busy} onClick={() => void addSelected()}>{busy ? <><LoadingSpinner />{t("common:mutation.pending.create")}</> : t("addSelected")}</Button></div>
             {invalidSelection ? <p className="mt-3 text-meta text-severity-medium">{t("invalidSelection")}</p> : null}
             <div className="mt-4 hidden overflow-x-auto rounded-control border border-border md:block">
               <table className="w-full min-w-[900px] text-left"><thead className="bg-bg-base text-meta text-text-secondary"><tr><th className="p-3">{t("columns.select")}</th><th className="p-3">{t("columns.identity")}</th><th className="p-3">{t("columns.discovery")}</th><th className="p-3">{t("columns.inventory")}</th><th className="p-3">{t("columns.monitoring")}</th><th className="p-3">{t("columns.actions")}</th></tr></thead><tbody>{enriched.map((row) => <DiscoveryRow key={row.host.ip_address} {...row} runnerId={runner?.id ?? ""} selected={selected.has(row.host.ip_address)} setSelected={setSelected} busy={busy} onName={setEditingIp} onMonitor={addToHealth} />)}</tbody></table>
@@ -252,7 +263,7 @@ export function NetworkDiscoveryDrawer({
           </section>
         ) : null}
         {session?.status === "completed" && !expired && enriched.length === 0 ? <Notice>{t("none")}</Notice> : null}
-        {session?.status === "completed" && !expired ? <Button className="mt-5" variant="secondary" disabled={busy} onClick={() => void invoke("start_session")}>{t("runAgain")}</Button> : null}
+        {session?.status === "completed" && !expired ? <Button className="mt-5" variant="secondary" disabled={busy} aria-busy={busy} onClick={() => void invoke("start_session")}>{busy ? <><LoadingSpinner />{t("common:mutation.pending.start")}</> : t("runAgain")}</Button> : null}
         {error ? <p className="mt-4 text-severity-critical">{error}</p> : null}
         <div className="mt-6 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">{t("scopeSafety")}</div>
         <div className="mt-3 rounded-control border border-border bg-bg-base p-3 text-meta text-text-secondary">{t("visibility")}</div>
@@ -295,7 +306,7 @@ function Actions({ host, node, monitored, busy, onName, onMonitor, runnerId }: R
   const { openDeviceProfile } = useDeviceProfile();
   const observedStatus = deriveObservedStatus(host);
   if (host.is_this_device) return <span className="text-meta text-text-muted">{t("runnerDevice")}</span>;
-  return <div className="flex flex-wrap gap-2">{!node ? <><Button disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, inspect: true, observedStatus })}>{t("inspect")}</Button><Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>{t("nameAction")}</Button></> : <Button variant="secondary" disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, observedStatus })}>{t("details")}</Button>}{node && !monitored ? <Button disabled={busy} onClick={() => void onMonitor(node)}>{t("addHealth")}</Button> : null}</div>;
+  return <div className="flex flex-wrap gap-2">{!node ? <><Button disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, inspect: true, observedStatus })}>{t("inspect")}</Button><Button variant="secondary" disabled={busy} onClick={() => onName(host.ip_address)}>{t("nameAction")}</Button></> : <Button variant="secondary" disabled={busy} onClick={() => openDeviceProfile({ ipAddress: host.ip_address, runnerId, observedStatus })}>{t("details")}</Button>}{node && !monitored ? <Button disabled={busy} aria-busy={busy} onClick={() => void onMonitor(node)}>{busy ? <LoadingSpinner /> : null}{t("addHealth")}</Button> : null}</div>;
 }
 
 function NameEditor({ ipAddress, current, onClose }: { ipAddress: string; current: NetworkNode | null; onClose: () => void }) {
@@ -307,14 +318,23 @@ function NameEditor({ ipAddress, current, onClose }: { ipAddress: string; curren
   const [notes, setNotes] = useState(current?.notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const notify = useActionFeedback();
   async function save() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
-    const input: NetworkNodeInput = { ip_address: ipAddress, name, device_type: deviceType || null, location, notes };
-    const saveError = await saveNode(current, input);
-    setBusy(false);
-    if (saveError) setError(saveError); else onClose();
+    setError(null);
+    try {
+      const input: NetworkNodeInput = { ip_address: ipAddress, name, device_type: deviceType || null, location, notes };
+      const saveError = await saveNode(current, input);
+      if (saveError) throw new Error("Identity save failed");
+      notify("save", true);
+      onClose();
+    } catch { notify("save", false); }
+    finally { inFlight.current = false; setBusy(false); }
   }
-  return <div className="fixed inset-0 z-[60] grid place-items-center bg-bg-base/80 p-4" role="dialog" aria-modal="true" aria-label={t("selectIp", { ip: ipAddress })} onClick={onClose}><div className="w-full max-w-xl rounded-panel border border-border bg-bg-surface p-5" onClick={(event) => event.stopPropagation()}><div className="flex justify-between gap-3"><div><p className="text-meta uppercase tracking-wide text-accent">{t("identity")}</p><h3 className="mt-2 text-section font-semibold">{t(current ? "editNode" : "nameAction")}</h3></div><Button variant="secondary" onClick={onClose}>{t("close")}</Button></div><div className="mt-5 grid gap-4 sm:grid-cols-2"><ReadOnly label="IP" value={ipAddress} /><Field label={t("name")} value={name} onChange={setName} /><label className="grid gap-2 text-meta text-text-secondary">{t("deviceType")}<select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={deviceType} onChange={(event) => setDeviceType(event.target.value as NetworkNodeType | "")}><option value="">{t("unspecified")}</option>{NETWORK_NODE_TYPES.map((type) => <option key={type} value={type}>{networkNodeTypeLabel(type)}</option>)}</select></label><Field label={t("location")} value={location} onChange={setLocation} /><label className="grid gap-2 text-meta text-text-secondary sm:col-span-2">{t("notes")}<textarea className="min-h-24 rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={notes} onChange={(event) => setNotes(event.target.value)} /></label></div>{error ? <p className="mt-3 text-severity-critical">{error}</p> : null}<Button className="mt-5" disabled={busy || !name.trim()} onClick={() => void save()}>{t(busy ? "saving" : "save")}</Button><p className="mt-3 text-meta text-text-muted">{t("saveHelp")}</p></div></div>;
+  return <div className="fixed inset-0 z-[60] grid place-items-center bg-bg-base/80 p-4" role="dialog" aria-modal="true" aria-label={t("selectIp", { ip: ipAddress })} onClick={onClose}><div className="w-full max-w-xl rounded-panel border border-border bg-bg-surface p-5" onClick={(event) => event.stopPropagation()}><div className="flex justify-between gap-3"><div><p className="text-meta uppercase tracking-wide text-accent">{t("identity")}</p><h3 className="mt-2 text-section font-semibold">{t(current ? "editNode" : "nameAction")}</h3></div><Button variant="secondary" onClick={onClose}>{t("close")}</Button></div><div className="mt-5 grid gap-4 sm:grid-cols-2"><ReadOnly label="IP" value={ipAddress} /><Field label={t("name")} value={name} onChange={setName} /><label className="grid gap-2 text-meta text-text-secondary">{t("deviceType")}<select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={deviceType} onChange={(event) => setDeviceType(event.target.value as NetworkNodeType | "")}><option value="">{t("unspecified")}</option>{NETWORK_NODE_TYPES.map((type) => <option key={type} value={type}>{networkNodeTypeLabel(type)}</option>)}</select></label><Field label={t("location")} value={location} onChange={setLocation} /><label className="grid gap-2 text-meta text-text-secondary sm:col-span-2">{t("notes")}<textarea className="min-h-24 rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" value={notes} onChange={(event) => setNotes(event.target.value)} /></label></div>{error ? <p className="mt-3 text-severity-critical">{error}</p> : null}<Button className="mt-5" disabled={busy || !name.trim()} aria-busy={busy} onClick={() => void save()}>{busy ? <LoadingSpinner /> : null}{t(busy ? "saving" : "save")}</Button><p className="mt-3 text-meta text-text-muted">{t("saveHelp")}</p></div></div>;
 }
 
 function DiscoveryEvidence({ host }: { host: DiscoveryHost }) {

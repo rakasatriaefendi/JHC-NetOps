@@ -30,6 +30,7 @@ export interface ReportBrandingStore {
   saveText(input: ReportBrandingTextInput): Promise<ReportBranding>;
   saveLogo(input: ReportLogoInput): Promise<ReportBranding>;
   removeLogo(): Promise<ReportBranding>;
+  restoreSnapshot(snapshot: ReportBrandingSnapshot): Promise<void>;
 }
 
 export class FileReportBrandingStore implements ReportBrandingStore {
@@ -105,6 +106,23 @@ export class FileReportBrandingStore implements ReportBrandingStore {
       await this.#writeConfig(next);
       await Promise.all([PNG_FILENAME, JPEG_FILENAME].map((filename) => rm(join(this.directory, filename), { force: true }).catch(() => undefined)));
       return this.read();
+    });
+  }
+
+  /** Compensation for a failed audited filesystem mutation; never exposed as an API. */
+  restoreSnapshot(snapshot: ReportBrandingSnapshot): Promise<void> {
+    return this.#serialize(async () => {
+      const filename = snapshot.logo?.mimeType === "image/png" ? PNG_FILENAME : JPEG_FILENAME;
+      if (snapshot.logo) await this.#writeAtomic(filename, snapshot.logo.bytes);
+      if (snapshot.branding.updated_at) {
+        await this.#writeConfig({ version: 1, institution_name: snapshot.branding.institution_name,
+          division_name: snapshot.branding.division_name,
+          logo: snapshot.logo ? { filename, mime_type: snapshot.logo.mimeType } : null,
+          updated_at: snapshot.branding.updated_at });
+      } else await rm(join(this.directory, CONFIG_FILENAME), { force: true });
+      for (const obsolete of [PNG_FILENAME, JPEG_FILENAME]) {
+        if (!snapshot.logo || obsolete !== filename) await rm(join(this.directory, obsolete), { force: true });
+      }
     });
   }
 

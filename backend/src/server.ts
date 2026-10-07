@@ -15,6 +15,7 @@ import { registerMedicalEquipmentRoutes, type MedicalEquipmentRouteOptions } fro
 import { registerApplicationRoutes, type ApplicationRouteOptions } from "./persistence/route.js";
 import { registerLocalRealtimeRoute, type LocalRealtimeRouteOptions } from "./realtime/route.js";
 import { registerLocalAuthRoutes, type LocalAuthRouteOptions } from "./local-auth/route.js";
+import { registerAdministrativeAuditRoute } from "./persistence/administrative-audit-route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -38,6 +39,7 @@ type BuildServerOptions = Readonly<{
   application?: ApplicationRouteOptions;
   realtime?: LocalRealtimeRouteOptions;
   localAuth?: LocalAuthRouteOptions;
+  administrativeAudit?: Parameters<typeof registerAdministrativeAuditRoute>[1];
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -108,6 +110,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   if (options.application) registerApplicationRoutes(server, options.application);
   if (options.realtime) registerLocalRealtimeRoute(server, options.realtime);
   if (options.localAuth) registerLocalAuthRoutes(server, options.localAuth);
+  if (options.administrativeAudit) registerAdministrativeAuditRoute(server, options.administrativeAudit);
 
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({
     error: {

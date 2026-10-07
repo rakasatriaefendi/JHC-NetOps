@@ -37,7 +37,23 @@ test("manual onboarding is operator-authorized, server-validated, duplicate-safe
   assert.match(action, /validateManualNetworkNodeInput/);
   assert.match(action, /hasUnexpectedFormFields/);
   assert.match(action, /nodes\.some\(\(node\) => node\.ip_address === normalizedIp\)/);
-  assert.match(action, /device_notice=existing/);
+  const onboardingStart = action.indexOf("export async function saveManualNetworkNodeAction(");
+  const onboardingEnd = action.indexOf("export async function saveNetworkTargetAction(", onboardingStart);
+  assert.ok(onboardingStart >= 0 && onboardingEnd > onboardingStart);
+  const onboarding = action.slice(onboardingStart, onboardingEnd);
+  const createAt = onboarding.indexOf('localApplicationRequest("POST", "/api/application/network-nodes"');
+  assert.ok(createAt >= 0);
+  assert.match(onboarding, /await requireOperatorProfile\(\)/);
+  assert.match(onboarding, /hasUnexpectedFormFields\(formData, DEVICE_FIELDS\)/);
+  assert.match(onboarding, /if \(validationError \|\| !normalizedIp\)\s*\{\s*return \{ ok: false, code: "invalid-request" \};\s*\}/);
+  assert.match(onboarding, /if \(nodes\.some\(\(node\) => node\.ip_address === normalizedIp\)\)\s*\{\s*return \{ ok: true, changed: false \};\s*\}\s*const created = await localApplicationRequest\("POST", "\/api\/application\/network-nodes"/);
+  for (const prerequisite of ["validateManualNetworkNodeInput(input)", "normalizeNetworkNodeIpv4(input.ip_address)",
+    "await requireOperatorProfile()", "await localNetworkNodes()", "return { ok: true, changed: false }"]) {
+    assert.ok(onboarding.indexOf(prerequisite) >= 0 && onboarding.indexOf(prerequisite) < createAt);
+  }
+  assert.equal((onboarding.match(/localApplicationRequest\("POST"/g) ?? []).length, 1);
+  assert.match(onboarding, /actor_id: userId,[\s\S]*ip_address: normalizedIp/);
+  assert.doesNotMatch(onboarding, /redirect\(|device_notice|queueManualPingAction|mutateDiscoverySessionAction|startDeviceInspectionAction|scan-runs|asset-scan/);
   assert.match(action, /\/api\/application\/network-nodes/);
   assert.match(action, /node_id: nodeId/);
   assert.doesNotMatch(action, /device-inspect|managed-telemetry-poll|discovery_sessions|manual_ping_requests|wsl\.exe|child_process/);

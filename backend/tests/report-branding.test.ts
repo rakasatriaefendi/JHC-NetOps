@@ -11,6 +11,9 @@ import {
 } from "../src/report-branding/contract.js";
 import { FileReportBrandingStore } from "../src/report-branding/storage.js";
 import { buildServer } from "../src/server.js";
+import { AuditedReportBranding } from "../src/report-branding/audited-mutations.js";
+import { PostgresAdministrativeAuditRepository } from "../src/persistence/administrative-audit.js";
+import { AuditDatabase, AUDIT_ACTOR } from "./helpers/audit-database.js";
 
 const TOKEN = "b".repeat(32);
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
@@ -51,18 +54,28 @@ test("logo replacement uses canonical files and removal preserves report identit
 }));
 
 test("branding routes require authentication and never expose paths or arbitrary input", async () => withStore(async (directory, store) => {
-  const server = buildServer({ logger: false, reportBranding: { token: TOKEN, store } });
+  const database = new AuditDatabase();
+  const server = buildServer({ logger: false, reportBranding: { token: TOKEN, store,
+    mutations: new AuditedReportBranding(store, new PostgresAdministrativeAuditRepository(database)) } });
   assert.equal((await server.inject({ method: "GET", url: "/api/report-branding" })).statusCode, 401);
   assert.equal((await server.inject({ method: "PUT", url: "/api/report-branding", headers: auth(), payload: { institution_name: "Hospital", division_name: "IT", secret: "no" } })).statusCode, 400);
-  const saved = await server.inject({ method: "PUT", url: "/api/report-branding", headers: auth(), payload: { institution_name: "Hospital", division_name: "IT" } });
+  for (const payload of [
+    { input: { institution_name: "Hospital", division_name: "IT" } },
+    { actor_id: "invalid", input: { institution_name: "Hospital", division_name: "IT" } },
+    { actor_id: AUDIT_ACTOR, input: { institution_name: "Hospital", division_name: "IT" }, role: "admin" },
+  ]) assert.equal((await server.inject({ method: "PUT", url: "/api/report-branding", headers: auth(), payload })).statusCode, 400);
+  const saved = await server.inject({ method: "PUT", url: "/api/report-branding", headers: auth(), payload: { actor_id: AUDIT_ACTOR, input: { institution_name: "Hospital", division_name: "IT" } } });
   assert.equal(saved.statusCode, 200);
-  const uploaded = await server.inject({ method: "PUT", url: "/api/report-branding/logo", headers: auth(), payload: { filename: "logo.png", mime_type: "image/png", base64: PNG.toString("base64") } });
+  const uploaded = await server.inject({ method: "PUT", url: "/api/report-branding/logo", headers: auth(), payload: { actor_id: AUDIT_ACTOR, input: { filename: "logo.png", mime_type: "image/png", base64: PNG.toString("base64") } } });
   assert.equal(uploaded.statusCode, 200);
   const logo = await server.inject({ method: "GET", url: "/api/report-branding/logo", headers: auth() });
   assert.equal(logo.headers["content-type"], "image/png");
   assert.deepEqual(logo.rawPayload, PNG);
   assert.doesNotMatch(saved.body + uploaded.body, new RegExp(directory.replaceAll("\\", "\\\\"), "i"));
   assert.doesNotMatch(saved.body + uploaded.body, /password|service_role|authorization/i);
+  database.role = "operator";
+  assert.equal((await server.inject({ method: "DELETE", url: "/api/report-branding/logo", headers: auth(), payload: { actor_id: AUDIT_ACTOR } })).statusCode, 403);
+  assert.equal((await store.read()).logo_available, true);
   await server.close();
 }));
 

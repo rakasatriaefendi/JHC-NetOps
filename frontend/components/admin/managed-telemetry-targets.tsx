@@ -7,6 +7,7 @@ import type { TFunction } from "i18next";
 
 import { deleteManagedTelemetryTargetAction, saveManagedTelemetryTargetAction } from "@/app/actions/snmp";
 import { Button } from "@/components/ui/button";
+import { MutationForm, PendingSubmit } from "@/components/ui/mutation-form";
 import type { RunnerCapabilities } from "@/lib/diagnostic-jobs";
 import { credentialProfileStatus, formatDateTime } from "@/lib/managed-telemetry-client";
 
@@ -41,7 +42,7 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
       <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("telemetry.eyebrow")}</p>
       <h2 className="mt-2 text-heading font-semibold">{t("telemetry.title")}</h2>
       <p className="mt-2 max-w-3xl text-text-secondary">{t("telemetry.description")}</p>
-      {notice ? <p className="mt-4 text-severity-low" role="status">{notice === "deleted" ? t("telemetry.deleted") : t("telemetry.saved")}</p> : null}
+      {!error && (notice === "saved" || notice === "deleted") ? <p className="mt-4 text-severity-low" role="status">{notice === "deleted" ? t("telemetry.deleted") : t("telemetry.saved")}</p> : null}
       {error ? <p className="mt-4 text-severity-critical" role="alert">{t("telemetry.failed", { reason: telemetryError(error, t) })}</p> : null}
       <div className="mt-4 rounded-control border border-border bg-bg-base p-4 text-meta text-text-secondary">
         {t("telemetry.secretNotice")}
@@ -79,10 +80,10 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
                   <td className="p-3 font-data text-meta">v{target.snmp_version} · TCP/UDP {target.snmp_port}<br />{t("telemetry.seconds", { count: target.poll_interval_seconds })}</td>
                   <td className="p-3 text-meta"><p className="font-data">{target.credential_profile_ref}</p><ProfileState profile={profile} /></td>
                   <td className="p-3 font-data text-meta">{formatDateTime(target.latest?.last_polled_at ?? null, i18n.language)}</td>
-                  {canManage ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={() => setEditingId(target.id)}>{t("telemetry.edit")}</Button><form action={deleteManagedTelemetryTargetAction} onSubmit={(event) => {
+                  {canManage ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={() => setEditingId(target.id)}>{t("telemetry.edit")}</Button><MutationForm action={deleteManagedTelemetryTargetAction} kind="delete" onSubmit={(event) => {
                     const label = `${node?.name ?? t("telemetry.unknownNode")} (${node?.ip_address ?? "-"})`;
                     if (!window.confirm(t("telemetry.deleteConfirm", { target: label }))) event.preventDefault();
-                  }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={`${node?.name ?? ""} (${node?.ip_address ?? ""})`} /><Button type="submit" variant="destructive">{t("telemetry.delete")}</Button></form></div></td> : null}
+                  }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={`${node?.name ?? ""} (${node?.ip_address ?? ""})`} /><PendingSubmit  variant="destructive">{t("telemetry.delete")}</PendingSubmit></MutationForm></div></td> : null}
                 </tr>;
               })}</tbody>
             </table>
@@ -112,7 +113,7 @@ function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner
   const [profileRef, setProfileRef] = useState(target?.credential_profile_ref ?? "");
   const selectedRunner = runners.find((runner) => runner.id === runnerId);
   const profile = credentialProfileStatus(selectedRunner?.capabilities?.snmp_telemetry?.credential_profiles, profileRef.trim());
-  return <form action={saveManagedTelemetryTargetAction} className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+  return <MutationForm action={saveManagedTelemetryTargetAction} kind="save" className="mt-5 grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
     <Field label={t("telemetry.inventoryNode")}><select className={control} defaultValue={target?.node_id ?? ""} disabled={Boolean(target)} name="node_id" required title={t("telemetry.selectNode")}><option disabled value="">{t("telemetry.selectNode")}</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.name} - {node.ip_address}</option>)}</select>{target ? <input name="node_id" type="hidden" value={target.node_id} /> : null}</Field>
     <Field label={t("telemetry.columns.runner")}><select className={control} value={runnerId} onChange={(event) => setRunnerId(event.target.value)} disabled={Boolean(target)} name="runner_id" required><option disabled value="">{t("telemetry.selectRunner")}</option>{runners.map((runner) => <option key={runner.id} value={runner.id}>{runner.display_name}</option>)}</select>{target ? <input name="runner_id" type="hidden" value={target.runner_id} /> : null}</Field>
     <Field label={t("telemetry.version")}><select className={control} defaultValue={target?.snmp_version ?? "3"} name="snmp_version"><option value="3">SNMPv3</option><option value="2c">SNMPv2c</option></select></Field>
@@ -125,8 +126,8 @@ function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner
     <NumberField label={t("telemetry.utilCritical")} name="util_critical_percent" value={target?.util_critical_percent ?? 95} min={1} max={100} />
     <NumberField label={t("telemetry.sustained")} name="util_sustained_seconds" value={target?.util_sustained_seconds ?? 300} min={60} max={3600} />
     <label className="flex items-center gap-2"><input defaultChecked={target?.enabled ?? true} name="enabled" type="checkbox" /> {t("telemetry.enabled")}</label>
-    <div className="md:col-span-3 md:text-right"><button className="rounded-control border border-accent bg-accent px-4 py-2 font-medium text-bg-base" type="submit">{t(target ? "telemetry.save" : "telemetry.add")}</button></div>
-  </form>;
+    <div className="md:col-span-3 md:text-right"><PendingSubmit>{t(target ? "telemetry.save" : "telemetry.add")}</PendingSubmit></div>
+  </MutationForm>;
 }
 
 function telemetryError(value: string, t: TFunction) {
