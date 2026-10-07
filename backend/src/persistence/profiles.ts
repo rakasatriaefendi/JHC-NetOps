@@ -19,7 +19,7 @@ export type LocalProfile = Readonly<{
 }>;
 
 export class ProfilePersistenceError extends Error {
-  constructor(readonly code: "INVALID_PROFILE" | "ADMIN_ACCESS_REQUIRED" | "PROFILE_NOT_FOUND" |
+  constructor(readonly code: "INVALID_PROFILE" | "ADMIN_ACCESS_REQUIRED" | "PROFILE_ACCESS_REQUIRED" | "PROFILE_NOT_FOUND" |
     "SELF_DEMOTION_BLOCKED" | "LAST_ADMIN_BLOCKED" | "SELF_DELETE_BLOCKED" | "SELF_DISABLE_BLOCKED" |
     "LAST_LOGIN_CAPABLE_ADMIN_BLOCKED" | "ACCOUNT_HAS_HISTORY" | "ACCOUNT_NOT_DISABLEABLE" |
     "ACCOUNT_NOT_REENABLEABLE" | "ACCOUNT_NOT_DELETABLE") {
@@ -30,6 +30,27 @@ export class ProfilePersistenceError extends Error {
 
 export class PostgresProfilesRepository {
   constructor(private readonly database: PostgresTransactionalQuery) {}
+
+  /** Identity comes only from the authenticated Next server, never an editable target field. */
+  async setOwnName(userId: string, fullName: string, signal: AbortSignal): Promise<{ profile: LocalProfile; changed: boolean }> {
+    const name = fullName.trim();
+    if (!UUID.test(userId) || !name || name.length > 200 || /[\p{Cc}<>]/u.test(fullName)) {
+      throw new ProfilePersistenceError("INVALID_PROFILE");
+    }
+    return this.database.transaction(signal, async (query) => {
+      const current = await findProfile(query, userId, signal);
+      if (!current) throw new ProfilePersistenceError("PROFILE_NOT_FOUND");
+      if (current.status !== "approved") throw new ProfilePersistenceError("PROFILE_ACCESS_REQUIRED");
+      if (current.full_name === name) return { profile: current, changed: false };
+      const rows = await query.rows(`UPDATE public.profiles SET full_name=$2
+        WHERE id=$1::uuid AND status='approved'
+        RETURNING id,email,full_name,role,status,created_at,approved_at,approved_by,disabled_at,disabled_by`,
+      [userId, name], signal);
+      const stored = profile(rows[0]);
+      if (!stored || stored.full_name !== name) throw new ProfilePersistenceError("INVALID_PROFILE");
+      return { profile: stored, changed: true };
+    });
+  }
 
   async getByAuthUserId(userId: string, signal: AbortSignal): Promise<LocalProfile | null> {
     if (!UUID.test(userId)) throw new ProfilePersistenceError("INVALID_PROFILE");

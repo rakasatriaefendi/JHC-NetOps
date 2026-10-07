@@ -9,7 +9,8 @@ export type BrandingSummary = Readonly<{
 export type BrandingAuditAction = "branding_identity_updated" | "branding_logo_updated" | "branding_logo_removed";
 export type AdministrativeAuditEntry = Readonly<{
   id: string; source: "account" | "administrative"; actor_id: string | null;
-  actor_name: string | null; target_name: string | null; resource_type: "profile" | "report_branding";
+  actor_name: string | null; actor_email: string | null; target_name: string | null; target_email: string | null;
+  resource_type: "profile" | "report_branding";
   resource_key: string; action: string; before_state: Record<string, unknown>;
   after_state: Record<string, unknown>; occurred_at: string;
 }>;
@@ -42,7 +43,8 @@ export class PostgresAdministrativeAuditRepository {
   async list(actorId: string, offset: number, signal: AbortSignal): Promise<AdministrativeAuditEntry[]> {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10_000) throw new ProfilePersistenceError("INVALID_PROFILE");
     return this.withAdmin(actorId, signal, async (query) => {
-      const rows = await query.rows(`SELECT e.*,a.full_name AS actor_name,t.full_name AS target_name FROM (
+      const rows = await query.rows(`SELECT e.*,a.full_name AS actor_name,a.email AS actor_email,
+        t.full_name AS target_name,t.email AS target_email FROM (
         SELECT id::text,'account'::text AS source,actor_id,'profile'::text AS resource_type,
           target_id::text AS resource_key,action,
           jsonb_build_object('role',previous_role,'status',previous_status) AS before_state,
@@ -58,7 +60,9 @@ export class PostgresAdministrativeAuditRepository {
         id: String(row.id), source: row.source as AdministrativeAuditEntry["source"],
         actor_id: typeof row.actor_id === "string" ? row.actor_id : null,
         actor_name: typeof row.actor_name === "string" ? row.actor_name : null,
+        actor_email: typeof row.actor_email === "string" ? row.actor_email : null,
         target_name: typeof row.target_name === "string" ? row.target_name : null,
+        target_email: typeof row.target_email === "string" ? row.target_email : null,
         resource_type: row.resource_type as AdministrativeAuditEntry["resource_type"],
         resource_key: String(row.resource_key), action: String(row.action),
         before_state: row.before_state as Record<string, unknown>, after_state: row.after_state as Record<string, unknown>,

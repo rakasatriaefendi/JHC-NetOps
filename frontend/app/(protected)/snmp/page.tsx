@@ -42,7 +42,8 @@ export default async function SnmpPage({ searchParams }: SnmpPageProps) {
       nodes={inventory.data}
       runners={runners}
       targets={telemetry.data}
-      canManage={!portable.enabled && canOperateNetwork(profile.role)}
+      canManage={!portable.enabled && profile.role === "admin"}
+      canChangeInterval={!portable.enabled && canOperateNetwork(profile.role)}
       notice={params.telemetry_notice}
       error={params.telemetry_error}
     />

@@ -1,3 +1,5 @@
+import { isRunnerHeartbeatFresh, RUNNER_FRESHNESS_MS } from "./runner-freshness.ts";
+
 export type DiscoveryHost = {
   ip_address: string;
   evidence: ("icmp" | "neighbor")[];
@@ -30,7 +32,7 @@ export type DiscoverySession = {
   updated_at: string;
 };
 
-export const DISCOVERY_RUNNER_FRESHNESS_MS = 30_000;
+export const DISCOVERY_RUNNER_FRESHNESS_MS = RUNNER_FRESHNESS_MS;
 
 export type DiscoveryRunner = {
   id: string;
@@ -64,8 +66,7 @@ export function isDiscoveryRunnerOnline(
   nowMs = Date.now(),
 ) {
   if (!runner || runner.health_status !== "online") return false;
-  const lastSeen = Date.parse(runner.last_seen_at);
-  return Number.isFinite(lastSeen) && nowMs - lastSeen <= DISCOVERY_RUNNER_FRESHNESS_MS;
+  return isRunnerHeartbeatFresh(runner.last_seen_at, nowMs);
 }
 
 export function isDiscoveryRunnerAvailable(

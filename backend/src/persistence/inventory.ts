@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import type { PostgresQuery, PostgresTransactionalQuery } from "./postgres-query.js";
+import { isMonitoringInterval, type MonitoringInterval } from "../monitoring-intervals.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RUNNER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -37,7 +38,7 @@ export type ManagedTargetInput = Readonly<{
   credential_profile_ref: string;
   snmp_version: "3" | "2c";
   snmp_port: number;
-  poll_interval_seconds: 30 | 60;
+  poll_interval_seconds: MonitoringInterval;
   oper_error_threshold: number;
   discard_threshold: number;
   util_warning_percent: number;
@@ -46,7 +47,7 @@ export type ManagedTargetInput = Readonly<{
 }>;
 
 export class InventoryPersistenceError extends Error {
-  constructor(readonly code: "INVALID_INVENTORY_INPUT" | "OPERATOR_ACCESS_REQUIRED" |
+  constructor(readonly code: "INVALID_INVENTORY_INPUT" | "OPERATOR_ACCESS_REQUIRED" | "ADMIN_ACCESS_REQUIRED" |
     "DEPENDENT_TARGETS_PRESENT" | "RUNNER_PROFILE_UNAVAILABLE" | "CONFIRMATION_MISMATCH") {
     super("Network inventory persistence request failed");
     this.name = "InventoryPersistenceError";
@@ -196,7 +197,7 @@ export class PostgresNetworkInventoryRepository {
   async getManagedTarget(targetId: string, signal: AbortSignal): Promise<Record<string, unknown> | null> {
     if (!UUID.test(targetId)) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
     const rows = await this.database.rows(`
-      SELECT t.id,t.node_id,t.runner_id,t.enabled,n.name AS node_name,
+      SELECT t.id,t.node_id,t.runner_id,t.enabled,t.poll_interval_seconds,n.name AS node_name,
         host(n.ip_address) AS ip_address
       FROM public.managed_telemetry_targets t JOIN public.network_nodes n ON n.id=t.node_id
       WHERE t.id=$1::uuid
@@ -288,6 +289,14 @@ export class PostgresNetworkInventoryRepository {
     if (!validHealthTarget(input)) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
     return this.database.transaction(signal, async (query) => {
       await requireOperator(query, actorId, signal);
+      const existing = await query.rows(`SELECT id,node_id,runner_id,enabled,critical,probe_interval_seconds,
+        timeout_ms,failure_threshold,recovery_threshold,latency_warning_ms,loss_warning_percent
+        FROM public.network_targets WHERE node_id=$1::uuid AND runner_id=$2 FOR UPDATE`,
+      [input.node_id, input.runner_id], signal);
+      if (existing[0] && Object.entries(input).every(([key, value]) =>
+        typeof value === "number" ? Number(existing[0]![key]) === value : existing[0]![key] === value)) {
+        return { ...existing[0], changed: false };
+      }
       const rows = await query.rows(`
         INSERT INTO public.network_targets
           (node_id,runner_id,enabled,critical,probe_method,probe_interval_seconds,timeout_ms,
@@ -304,7 +313,7 @@ export class PostgresNetworkInventoryRepository {
         input.timeout_ms,input.failure_threshold,input.recovery_threshold,input.latency_warning_ms,
         input.loss_warning_percent,actorId], signal);
       if (!rows[0]) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
-      return rows[0];
+      return { ...rows[0], changed: true };
     });
   }
 
@@ -317,8 +326,8 @@ export class PostgresNetworkInventoryRepository {
     return this.database.transaction(signal, async (query) => {
       await requireOperator(query, actorId, signal);
       const rows = await query.rows(`
-        INSERT INTO public.network_targets(runner_id,node_id,enabled,created_by)
-        SELECT $1, id, true, $3::uuid FROM unnest($2::uuid[]) AS nodes(id)
+        INSERT INTO public.network_targets(runner_id,node_id,enabled,created_by,probe_interval_seconds)
+        SELECT $1, id, true, $3::uuid, 900 FROM unnest($2::uuid[]) AS nodes(id)
         ON CONFLICT (runner_id,node_id) DO UPDATE SET enabled=true
         RETURNING node_id
       `, [runnerId,nodeIds,actorId], signal);
@@ -346,13 +355,21 @@ export class PostgresNetworkInventoryRepository {
   async upsertManagedTarget(actorId: string, input: ManagedTargetInput, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (!validManagedTarget(input)) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
     return this.database.transaction(signal, async (query) => {
-      await requireOperator(query, actorId, signal);
+      await requireAdmin(query, actorId, signal);
       if (input.enabled) {
         const capability = await query.rows(`
           SELECT id FROM public.diagnostic_runners
           WHERE id=$1 AND capabilities->'snmp_telemetry'->'credential_profiles' ? $2
         `, [input.runner_id,input.credential_profile_ref], signal);
         if (!capability.length) throw new InventoryPersistenceError("RUNNER_PROFILE_UNAVAILABLE");
+      }
+      const existing = await query.rows(`SELECT id,node_id,runner_id,enabled,credential_profile_ref,snmp_version,
+        snmp_port,poll_interval_seconds,oper_error_threshold,discard_threshold,util_warning_percent,
+        util_critical_percent,util_sustained_seconds FROM public.managed_telemetry_targets
+        WHERE node_id=$1::uuid AND runner_id=$2 FOR UPDATE`, [input.node_id, input.runner_id], signal);
+      if (existing[0] && Object.entries(input).every(([key, value]) =>
+        typeof value === "number" ? Number(existing[0]![key]) === value : existing[0]![key] === value)) {
+        return { ...existing[0], changed: false };
       }
       const rows = await query.rows(`
         INSERT INTO public.managed_telemetry_targets
@@ -375,14 +392,14 @@ export class PostgresNetworkInventoryRepository {
         input.snmp_port,input.poll_interval_seconds,input.oper_error_threshold,input.discard_threshold,
         input.util_warning_percent,input.util_critical_percent,input.util_sustained_seconds,actorId], signal);
       if (!rows[0]) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
-      return rows[0];
+      return { ...rows[0], changed: true };
     });
   }
 
   async deleteManagedTarget(actorId: string, targetId: string, confirmation: string, signal: AbortSignal): Promise<boolean> {
     if (!UUID.test(targetId) || !validConfirmation(confirmation)) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
     return this.database.transaction(signal, async (query) => {
-      await requireOperator(query, actorId, signal);
+      await requireAdmin(query, actorId, signal);
       const target = await query.rows(`
         SELECT n.name,host(n.ip_address) AS ip_address FROM public.managed_telemetry_targets t
         JOIN public.network_nodes n ON n.id=t.node_id WHERE t.id=$1::uuid FOR UPDATE OF t
@@ -394,16 +411,38 @@ export class PostgresNetworkInventoryRepository {
       return rows.length === 1;
     });
   }
+
+  async setManagedPollingInterval(actorId: string, targetId: string, interval: MonitoringInterval,
+    signal: AbortSignal): Promise<{ id: string; poll_interval_seconds: MonitoringInterval; changed: boolean }> {
+    if (!UUID.test(targetId) || !isMonitoringInterval(interval)) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
+    return this.database.transaction(signal, async (query) => {
+      await requireOperator(query, actorId, signal);
+      const rows = await query.rows(`SELECT id,poll_interval_seconds FROM public.managed_telemetry_targets
+        WHERE id=$1::uuid FOR UPDATE`, [targetId], signal);
+      if (!rows[0]) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
+      if (Number(rows[0].poll_interval_seconds) === interval) return { id: targetId, poll_interval_seconds: interval, changed: false };
+      const updated = await query.rows(`UPDATE public.managed_telemetry_targets SET poll_interval_seconds=$2
+        WHERE id=$1::uuid RETURNING id,poll_interval_seconds`, [targetId, interval], signal);
+      if (!updated[0] || Number(updated[0].poll_interval_seconds) !== interval) throw new InventoryPersistenceError("INVALID_INVENTORY_INPUT");
+      return { id: targetId, poll_interval_seconds: interval, changed: true };
+    });
+  }
 }
 
 async function requireOperator(query: PostgresQuery, actorId: string, signal: AbortSignal): Promise<void> {
   if (!UUID.test(actorId)) throw new InventoryPersistenceError("OPERATOR_ACCESS_REQUIRED");
   const rows = await query.rows(`
-    SELECT role,status FROM public.profiles WHERE id=$1::uuid
+    SELECT role,status FROM public.profiles WHERE id=$1::uuid FOR SHARE
   `, [actorId], signal);
   if (rows[0]?.status !== "approved" || !["admin", "operator"].includes(String(rows[0].role))) {
     throw new InventoryPersistenceError("OPERATOR_ACCESS_REQUIRED");
   }
+}
+
+async function requireAdmin(query: PostgresQuery, actorId: string, signal: AbortSignal): Promise<void> {
+  if (!UUID.test(actorId)) throw new InventoryPersistenceError("ADMIN_ACCESS_REQUIRED");
+  const rows = await query.rows("SELECT role,status FROM public.profiles WHERE id=$1::uuid FOR SHARE", [actorId], signal);
+  if (rows[0]?.status !== "approved" || rows[0].role !== "admin") throw new InventoryPersistenceError("ADMIN_ACCESS_REQUIRED");
 }
 
 function validateNode(actorId: string, input: InventoryNodeInput): void {
@@ -434,7 +473,7 @@ function validFingerprint(value: Record<string, unknown>, ipAddress: string, ins
 function validHealthTarget(input: HealthTargetInput): boolean {
   return UUID.test(input.node_id) && RUNNER.test(input.runner_id) &&
     typeof input.enabled === "boolean" && typeof input.critical === "boolean" &&
-    boundedInt(input.probe_interval_seconds,15,3600) && boundedInt(input.timeout_ms,250,5000) &&
+    isMonitoringInterval(input.probe_interval_seconds) && boundedInt(input.timeout_ms,250,5000) &&
     boundedInt(input.failure_threshold,2,10) && boundedInt(input.recovery_threshold,1,5) &&
     boundedNumber(input.latency_warning_ms,1,60000) && boundedNumber(input.loss_warning_percent,0,100);
 }
@@ -442,7 +481,7 @@ function validHealthTarget(input: HealthTargetInput): boolean {
 function validManagedTarget(input: ManagedTargetInput): boolean {
   return UUID.test(input.node_id) && RUNNER.test(input.runner_id) && typeof input.enabled === "boolean" &&
     PROFILE_REF.test(input.credential_profile_ref) && ["3","2c"].includes(input.snmp_version) &&
-    boundedInt(input.snmp_port,1,65535) && [30,60].includes(input.poll_interval_seconds) &&
+    boundedInt(input.snmp_port,1,65535) && isMonitoringInterval(input.poll_interval_seconds) &&
     boundedInt(input.oper_error_threshold,1,100) && boundedInt(input.discard_threshold,1,100) &&
     boundedNumber(input.util_warning_percent,1,100) && boundedNumber(input.util_critical_percent,1,100) &&
     boundedInt(input.util_sustained_seconds,60,3600);

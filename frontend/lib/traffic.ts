@@ -1,5 +1,6 @@
 import type { DiagnosticRunner } from "@/lib/diagnostic-jobs";
 import type { ProfileRole } from "@/lib/authorization";
+import { isRunnerHeartbeatFresh, RUNNER_FRESHNESS_MS } from "./runner-freshness.ts";
 
 export type TrafficFlow = { flow_key:string; src_ip:string; dst_ip:string; src_port:number|null; dst_port:number|null; protocol:"tcp"|"udp"|"icmp"; service:string|null; first_seen:string; last_seen:string; total_bytes:number; packet_count:number; bytes_delta:number; packets_delta:number; packets_per_second:number; rate_mbps:number; peak_rate_mbps:number; rate_trend:"increasing"|"decreasing"|"stable"; status:"active"|"idle" };
 export type Conversation = { endpoint_a:string; endpoint_b:string; a_to_b_bytes:number; b_to_a_bytes:number; total_bytes:number; rate_mbps:number; active_flows:number; first_seen:string; last_seen:string; protocol:string; service:string|null };
@@ -9,7 +10,7 @@ export type TrafficSnapshot = { runner_id:string; session_id:string; captured_at
 export type TrafficSession = { id:string; runner_id:string; requested_by:string; status:"queued"|"running"|"stopping"|"completed"|"failed"|"expired"; duration_seconds:number; capture_scope:"this_device"; stage:string; error_code:string|null; error_message:string|null; created_at:string; started_at:string|null; expires_at:string|null; completed_at:string|null; updated_at:string };
 export type StorageStatus = { storage_mb:number|string; status:"healthy"|"warning"|"critical" };
 export type TrafficState = { runners:DiagnosticRunner[]; sessions:TrafficSession[]; snapshots:TrafficSnapshot[]; storage_status:StorageStatus; role:ProfileRole; server_time:string };
-export const TRAFFIC_RUNNER_FRESHNESS_MS = 30_000;
+export const TRAFFIC_RUNNER_FRESHNESS_MS = RUNNER_FRESHNESS_MS;
 export type TrafficRunnerSnapshot = Pick<DiagnosticRunner, "id" | "display_name" | "last_seen_at" | "health_status"> & {
   capabilities: Pick<DiagnosticRunner["capabilities"], "operations" | "traffic_durations_seconds">;
 };
@@ -63,8 +64,7 @@ export function mergeTrafficRunnerSnapshots(current: DiagnosticRunner[], snapsho
 export function isTrafficRunnerAvailable(runner: DiagnosticRunner | null | undefined, nowMs = Date.now()) {
   if (!runner || runner.health_status !== "online"
       || !runner.capabilities.operations.includes("traffic_live")) return false;
-  const lastSeen = Date.parse(runner.last_seen_at);
-  return Number.isFinite(lastSeen) && nowMs - lastSeen <= TRAFFIC_RUNNER_FRESHNESS_MS;
+  return isRunnerHeartbeatFresh(runner.last_seen_at, nowMs);
 }
 
 export function filterFlows(flows:TrafficFlow[], search:string, protocol:string, status:string) {

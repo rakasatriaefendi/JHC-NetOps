@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/devices";
 import { Button } from "@/components/ui/button";
 import { MutationForm, PendingSubmit } from "@/components/ui/mutation-form";
+import { MonitoringModeLabel, MonitoringModeSelector } from "@/components/monitoring-mode-selector";
 import {
   NETWORK_NODE_TYPES,
   networkNodeTypeLabel,
@@ -175,7 +176,7 @@ function HealthSummary({ targets, runners }: { targets: DeviceHealthTarget[]; ru
   return <div className="grid gap-2">{targets.map((target) => {
     const latest = relation(target.network_health_latest);
     const runner = runners.find((item) => item.id === target.runner_id);
-    return <div key={target.id}><div className="flex flex-wrap items-center gap-2"><MonitoringState target={target} />{latest ? <span className="text-meta capitalize text-text-secondary">{t("health.latest", { status: t(`common:status.${latest.status}`) })}</span> : null}</div><p className="mt-1 text-meta text-text-muted">{t("health.cadence", { runner: runner?.display_name ?? target.runner_id, interval: target.probe_interval_seconds, timeout: target.timeout_ms })}</p></div>;
+    return <div key={target.id}><div className="flex flex-wrap items-center gap-2"><MonitoringState target={target} />{latest ? <span className="text-meta capitalize text-text-secondary">{t("health.latest", { status: t(`common:status.${latest.status}`) })}</span> : null}</div><p className="mt-1 text-meta text-text-muted">{t("health.cadence", { runner: runner?.display_name ?? target.runner_id, interval: target.probe_interval_seconds, timeout: target.timeout_ms })}</p><p className="mt-1 text-meta text-text-muted"><MonitoringModeLabel interval={target.probe_interval_seconds} /></p></div>;
   })}</div>;
 }
 
@@ -190,7 +191,7 @@ function TargetForm({ node, runners, target }: { node: NetworkNode; runners: Run
     <input name="node_id" type="hidden" value={node.id} />
     <Field label={t("health.inventoryNode")}><div className="min-w-0 truncate rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary" title={`${node.name} — ${node.ip_address}`}>{node.name} — {node.ip_address}</div></Field>
     <Field label={t("health.runner")}><select className={control} defaultValue={target?.runner_id ?? ""} disabled={Boolean(target)} name="runner_id" required><option disabled value="">{t("health.selectRunner")}</option>{runners.map((runner) => <option key={runner.id} value={runner.id}>{runner.display_name}</option>)}</select>{target ? <input name="runner_id" type="hidden" value={target.runner_id} /> : null}</Field>
-    <NumberField label={t("health.interval")} name="probe_interval_seconds" value={target?.probe_interval_seconds ?? 30} min={15} max={3600} />
+    <MonitoringModeSelector currentInterval={target?.probe_interval_seconds ?? 900} name="probe_interval_seconds" />
     <NumberField label={t("health.timeout")} name="timeout_ms" value={target?.timeout_ms ?? 1000} min={250} max={5000} />
     <NumberField label={t("health.failures")} name="failure_threshold" value={target?.failure_threshold ?? 3} min={2} max={10} />
     <NumberField label={t("health.successes")} name="recovery_threshold" value={target?.recovery_threshold ?? 2} min={1} max={5} />

@@ -13,7 +13,8 @@ export default async function ProtectedLayout({
   return (
     <div className="min-h-screen overflow-x-hidden">
       <AppNavigation
-        fullName={profile.full_name ?? profile.email}
+        fullName={profile.full_name ?? ""}
+        email={profile.email}
         role={profile.role}
       />
       <div className="min-w-0 md:pl-64">{children}</div>

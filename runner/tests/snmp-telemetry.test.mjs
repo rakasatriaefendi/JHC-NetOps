@@ -84,6 +84,50 @@ test("counterDelta returns deltas, null on reset, and supports 32-bit wrap", () 
   assert.equal(counterDelta(5, -1, 32), null);
 });
 
+test("SNMP target validation and successful/failed schedules support exactly five monitoring intervals", () => {
+  for (const interval of [15, 30, 60, 900, 1800]) {
+    const item = target({ poll_interval_seconds: interval });
+    assert.equal(validTelemetryTarget(item, config()), true);
+    const service = watch();
+    service.applyResult(item, payload(), 1000);
+    assert.equal(service.states[item.id].nextPollAt, 1000 + interval * 1000);
+    service.applyFailure(item, "timeout", "SNMP_TIMEOUT", 2000);
+    assert.equal(service.states[item.id].nextPollAt, 2000 + interval * 1000);
+  }
+  for (const interval of [0, 90, 3600, "900"]) assert.equal(validTelemetryTarget(target({ poll_interval_seconds: interval }), config()), false);
+});
+
+test("SNMP baseline age and rates remain interval-relative for Moderate and Resource Saver", () => {
+  for (const interval of [900, 1800]) {
+    const item = target({ poll_interval_seconds: interval });
+    const service = watch();
+    service.applyResult(item, payload(), 1000);
+    service.applyResult(item, payload({ uptime_seconds: 100 + interval },
+      [interfaceSample({ in_octets: interval * 1000, out_octets: interval * 2000 })]), 1000 + interval * 1000);
+    assert.equal(service.states[item.id].interfaces[0].rx_rate_bps, 8000);
+    assert.equal(service.states[item.id].interfaces[0].tx_rate_bps, 16000);
+    service.applyResult(item, payload({ uptime_seconds: 100 + interval * 5 },
+      [interfaceSample({ in_octets: interval * 5000, out_octets: interval * 10000 })]), 1001 + interval * 4000);
+    assert.equal(service.states[item.id].interfaces[0].rx_rate_bps, null);
+    assert.equal(service.states[item.id].interfaces[0].tx_rate_bps, null);
+  }
+});
+
+test("SNMP interval refresh updates schedules without an old in-flight result restoring old cadence", async () => {
+  let item = target();
+  const service = watch({ backend: { managedTelemetryTargets: async () => ({ targets: [item] }), publishManagedTelemetry: async () => ({}) } });
+  await service.refreshTargets(1000);
+  service.applyResult(item, payload(), 1000);
+  const inFlightTarget = item;
+  item = target({ poll_interval_seconds: 900 });
+  await service.refreshTargets(2000);
+  assert.equal(service.states[item.id].nextPollAt, 1000 + 900 * 1000);
+  service.applyResult(inFlightTarget, payload(), 3000);
+  assert.equal(service.states[item.id].nextPollAt, 3000 + 900 * 1000);
+  service.applyFailure(inFlightTarget, "timeout", "SNMP_TIMEOUT", 4000);
+  assert.equal(service.states[item.id].nextPollAt, 4000 + 900 * 1000);
+});
+
 test("simpleDelta returns deltas and null when the counter decreases", () => {
   assert.equal(simpleDelta(10, 25), 15);
   assert.equal(simpleDelta(25, 10), null);

@@ -5,7 +5,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import { deleteManagedTelemetryTargetAction, saveManagedTelemetryTargetAction } from "@/app/actions/snmp";
+import { deleteManagedTelemetryTargetAction, saveManagedTelemetryTargetAction, setManagedTelemetryIntervalAction } from "@/app/actions/snmp";
+import { MonitoringModeLabel, MonitoringModeSelector } from "@/components/monitoring-mode-selector";
 import { Button } from "@/components/ui/button";
 import { MutationForm, PendingSubmit } from "@/components/ui/mutation-form";
 import type { RunnerCapabilities } from "@/lib/diagnostic-jobs";
@@ -30,12 +31,14 @@ type Target = {
   latest?: { status: string; last_polled_at: string | null } | null;
 };
 
-type Props = { nodes: Node[]; runners: Runner[]; targets: Target[]; canManage: boolean; notice?: string; error?: string };
+type Props = { nodes: Node[]; runners: Runner[]; targets: Target[]; canManage: boolean; canChangeInterval: boolean; notice?: string; error?: string };
 
-export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, notice, error }: Props) {
+export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, canChangeInterval, notice, error }: Props) {
   const { t, i18n } = useTranslation("admin");
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingTarget = targets.find((target) => target.id === editingId);
+  const [intervalTargetId, setIntervalTargetId] = useState<string | null>(null);
+  const intervalTarget = targets.find((target) => target.id === intervalTargetId);
 
   return (
     <section className="mt-12 border-t border-border pt-8" id="managed-telemetry">
@@ -68,7 +71,7 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
         ) : (
           <div className="mt-4 overflow-x-auto rounded-control border border-border">
             <table className="w-full min-w-[920px] text-left">
-              <thead className="bg-bg-surface text-meta text-text-secondary"><tr><th className="p-3">{t("telemetry.columns.node")}</th><th className="p-3">{t("telemetry.columns.runner")}</th><th className="p-3">{t("telemetry.columns.status")}</th><th className="p-3">{t("telemetry.columns.snmp")}</th><th className="p-3">{t("telemetry.columns.profile")}</th><th className="p-3">{t("telemetry.columns.latest")}</th>{canManage ? <th className="p-3 text-right">{t("telemetry.columns.action")}</th> : null}</tr></thead>
+              <thead className="bg-bg-surface text-meta text-text-secondary"><tr><th className="p-3">{t("telemetry.columns.node")}</th><th className="p-3">{t("telemetry.columns.runner")}</th><th className="p-3">{t("telemetry.columns.status")}</th><th className="p-3">{t("telemetry.columns.snmp")}</th><th className="p-3">{t("telemetry.columns.profile")}</th><th className="p-3">{t("telemetry.columns.latest")}</th>{canManage || canChangeInterval ? <th className="p-3 text-right">{t("telemetry.columns.action")}</th> : null}</tr></thead>
               <tbody>{targets.map((target) => {
                 const node = nodes.find((item) => item.id === target.node_id);
                 const runner = runners.find((item) => item.id === target.runner_id);
@@ -77,13 +80,15 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
                   <td className="p-3"><p className="font-medium">{node?.name ?? t("telemetry.unknownNode")}</p><p className="mt-1 font-data text-meta text-text-muted">{node?.ip_address ?? "-"}{node?.location ? ` · ${node.location}` : ""}</p></td>
                   <td className="p-3 text-text-secondary">{runner?.display_name ?? target.runner_id}</td>
                   <td className="p-3"><State enabled={target.enabled} />{target.latest ? <p className="mt-1 text-meta text-text-secondary">{target.latest.status}</p> : null}</td>
-                  <td className="p-3 font-data text-meta">v{target.snmp_version} · TCP/UDP {target.snmp_port}<br />{t("telemetry.seconds", { count: target.poll_interval_seconds })}</td>
+                  <td className="p-3 font-data text-meta">v{target.snmp_version} · TCP/UDP {target.snmp_port}<br /><MonitoringModeLabel interval={target.poll_interval_seconds} /></td>
                   <td className="p-3 text-meta"><p className="font-data">{target.credential_profile_ref}</p><ProfileState profile={profile} /></td>
                   <td className="p-3 font-data text-meta">{formatDateTime(target.latest?.last_polled_at ?? null, i18n.language)}</td>
-                  {canManage ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={() => setEditingId(target.id)}>{t("telemetry.edit")}</Button><MutationForm action={deleteManagedTelemetryTargetAction} kind="delete" onSubmit={(event) => {
+                  {canManage || canChangeInterval ? <td className="p-3"><div className="flex flex-wrap justify-end gap-2">
+                    {canChangeInterval ? <Button variant="secondary" onClick={() => { setIntervalTargetId(target.id); setEditingId(null); }}>{t("common:monitoring.title")}</Button> : null}
+                    {canManage ? <><Button variant="secondary" onClick={() => { setEditingId(target.id); setIntervalTargetId(null); }}>{t("telemetry.edit")}</Button><MutationForm action={deleteManagedTelemetryTargetAction} kind="delete" onSubmit={(event) => {
                     const label = `${node?.name ?? t("telemetry.unknownNode")} (${node?.ip_address ?? "-"})`;
                     if (!window.confirm(t("telemetry.deleteConfirm", { target: label }))) event.preventDefault();
-                  }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={`${node?.name ?? ""} (${node?.ip_address ?? ""})`} /><PendingSubmit  variant="destructive">{t("telemetry.delete")}</PendingSubmit></MutationForm></div></td> : null}
+                  }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={`${node?.name ?? ""} (${node?.ip_address ?? ""})`} /><PendingSubmit  variant="destructive">{t("telemetry.delete")}</PendingSubmit></MutationForm></> : null}</div></td> : null}
                 </tr>;
               })}</tbody>
             </table>
@@ -91,9 +96,17 @@ export function ManagedTelemetryTargets({ nodes, runners, targets, canManage, no
         )}
       </div>
 
+      {canChangeInterval && intervalTarget ? <div className="mt-6 rounded-panel border border-accent bg-bg-surface p-4 md:p-6">
+        <div className="flex items-center justify-between gap-3"><h3 className="text-section font-semibold">{nodes.find((node) => node.id === intervalTarget.node_id)?.name ?? t("telemetry.unknownNode")}</h3><Button variant="secondary" onClick={() => setIntervalTargetId(null)}>{t("common:actions.cancel")}</Button></div>
+        <MutationForm key={intervalTarget.id} action={setManagedTelemetryIntervalAction} kind="update" className="mt-4 grid gap-4">
+          <input type="hidden" name="target_id" value={intervalTarget.id} />
+          <MonitoringModeSelector currentInterval={intervalTarget.poll_interval_seconds} name="poll_interval_seconds" />
+          <div><PendingSubmit>{t("common:actions.save")}</PendingSubmit></div>
+        </MutationForm>
+      </div> : null}
       {canManage && editingTarget ? <div className="mt-6 rounded-panel border border-accent bg-bg-surface p-4 md:p-6">
         <div className="flex items-start justify-between gap-4"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("telemetry.editTitle")}</p><h3 className="mt-2 text-section font-semibold">{nodes.find((node) => node.id === editingTarget.node_id)?.name ?? t("telemetry.unknownNode")}</h3></div><Button variant="secondary" onClick={() => setEditingId(null)}>{t("common:actions.cancel")}</Button></div>
-        <TargetForm nodes={nodes} runners={runners} target={editingTarget} />
+        <TargetForm key={editingTarget.id} nodes={nodes} runners={runners} target={editingTarget} />
       </div> : null}
     </section>
   );
@@ -118,7 +131,7 @@ function TargetForm({ nodes, runners, target }: { nodes: Node[]; runners: Runner
     <Field label={t("telemetry.columns.runner")}><select className={control} value={runnerId} onChange={(event) => setRunnerId(event.target.value)} disabled={Boolean(target)} name="runner_id" required><option disabled value="">{t("telemetry.selectRunner")}</option>{runners.map((runner) => <option key={runner.id} value={runner.id}>{runner.display_name}</option>)}</select>{target ? <input name="runner_id" type="hidden" value={target.runner_id} /> : null}</Field>
     <Field label={t("telemetry.version")}><select className={control} defaultValue={target?.snmp_version ?? "3"} name="snmp_version"><option value="3">SNMPv3</option><option value="2c">SNMPv2c</option></select></Field>
     <Field label={t("telemetry.port")}><input className={control} defaultValue={target?.snmp_port ?? 161} max={65535} min={1} name="snmp_port" required step="1" type="number" /></Field>
-    <Field label={t("telemetry.interval")}><select className={control} defaultValue={target?.poll_interval_seconds ?? 60} name="poll_interval_seconds"><option value="30">{t("telemetry.seconds", { count: 30 })}</option><option value="60">{t("telemetry.seconds", { count: 60 })}</option></select></Field>
+    <MonitoringModeSelector currentInterval={target?.poll_interval_seconds ?? 900} name="poll_interval_seconds" />
     <div className="md:col-span-3"><Field label={t("telemetry.profileRef")}><input className={control} value={profileRef} onChange={(event) => setProfileRef(event.target.value)} maxLength={64} name="credential_profile_ref" pattern="[a-z0-9][a-z0-9_-]{0,63}" required /></Field><p className="mt-1 text-meta">{profile === "available" ? <span className="text-severity-low">{t("telemetry.profileAvailableHelp")}</span> : profile === "unavailable" ? <span className="text-severity-medium">{t("telemetry.profileUnavailableHelp")}</span> : <span className="text-text-muted">{t("telemetry.profileHelp")}</span>}</p></div>
     <NumberField label={t("telemetry.errorThreshold")} name="oper_error_threshold" value={target?.oper_error_threshold ?? 5} min={1} max={100} />
     <NumberField label={t("telemetry.discardThreshold")} name="discard_threshold" value={target?.discard_threshold ?? 10} min={1} max={100} />

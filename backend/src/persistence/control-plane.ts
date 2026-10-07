@@ -2,7 +2,9 @@ import type { PostgresQuery } from "./postgres-query.js";
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const RUNNER_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-export const RUNNER_FRESHNESS_MS = 30_000;
+// Cadence is not published in capabilities. Allow 60-second heartbeats plus
+// one interval of grace; keep aligned with frontend/lib/runner-freshness.ts.
+export const RUNNER_FRESHNESS_MS = 120_000;
 
 export type ControlPlaneErrorCode =
   | "INVALID_CONTROL_PLANE_INPUT"

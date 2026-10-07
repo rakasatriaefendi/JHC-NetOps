@@ -28,7 +28,8 @@ test("Admin is account-only and monitoring configuration moved to approved-user 
   assert.doesNotMatch(devices, /NetworkHealthTargets/);
   assert.match(snmp, /requireApprovedProfile|ManagedTelemetryTargets|ManagedTelemetryDetail/);
   assert.match(devices, /canManage=\{canOperateNetwork\(profile\.role\)\}/);
-  assert.match(snmp, /canManage=\{!portable\.enabled && canOperateNetwork\(profile\.role\)\}/);
+  assert.match(snmp, /canManage=\{!portable\.enabled && profile\.role === "admin"\}/);
+  assert.match(snmp, /canChangeInterval=\{!portable\.enabled && canOperateNetwork\(profile\.role\)\}/);
 });
 
 test("manual onboarding is operator-authorized, server-validated, duplicate-safe, and never starts a probe", () => {

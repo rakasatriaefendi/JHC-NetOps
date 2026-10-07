@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
+import { requireAdminProfile, requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
+import { isMonitoringInterval } from "@/lib/monitoring-modes";
 import { loadManagedTelemetry, validateManagedTelemetryForm } from "@/lib/managed-telemetry";
 import { portableDevMode } from "@/lib/portable-dev-mode";
 import { applicationDeleted, localApplicationRequest, localManagedTarget, localNetworkNode,
@@ -16,6 +17,7 @@ const TELEMETRY_FIELDS = new Set([
   "util_sustained_seconds", "enabled",
 ]);
 const DELETE_TELEMETRY_FIELDS = new Set(["target_id", "confirmation"]);
+const POLLING_FIELDS = new Set(["target_id", "poll_interval_seconds"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function loadManagedTelemetryForNodeAction(nodeId: string) {
@@ -61,7 +63,7 @@ export async function saveManagedTelemetryTargetAction(formData: FormData) {
   const validationError = validateManagedTelemetryForm(values);
   if (validationError) return { ok: false, code: "invalid-request" };
 
-  const { userId } = await requireOperatorProfile();
+  const { userId } = await requireAdminProfile();
   const [node, runner] = await Promise.all([localNetworkNode(values.node_id), localRunner(values.runner_id)]);
   if (!node || !runner) return { ok: false, code: "unknown-target" };
 
@@ -80,7 +82,9 @@ export async function saveManagedTelemetryTargetAction(formData: FormData) {
     typeof value === "number" ? Number(current[key]) !== value : current[key] !== value)) return { ok: false, code: "refresh-failed" };
   revalidatePath("/snmp");
   revalidatePath("/dashboard");
-  return { ok: true };
+  const result = saved.data;
+  if (typeof result !== "object" || result === null || !("changed" in result) || typeof result.changed !== "boolean") return { ok: false, code: "refresh-failed" };
+  return { ok: true, changed: result.changed };
 }
 
 export async function deleteManagedTelemetryTargetAction(formData: FormData) {
@@ -96,7 +100,7 @@ export async function deleteManagedTelemetryTargetAction(formData: FormData) {
     return { ok: false, code: "invalid-request" };
   }
 
-  const { userId } = await requireOperatorProfile();
+  const { userId } = await requireAdminProfile();
   const target = await localManagedTarget(targetId);
   if (!target || typeof target.node_name !== "string" || typeof target.ip_address !== "string" ||
     confirmation !== `${target.node_name} (${target.ip_address})`) {
@@ -110,6 +114,30 @@ export async function deleteManagedTelemetryTargetAction(formData: FormData) {
   revalidatePath("/devices");
   revalidatePath("/dashboard");
   return verifiedTelemetryMutation(targetId, "id", true);
+}
+
+export async function setManagedTelemetryIntervalAction(formData: FormData) {
+  const { userId } = await requireOperatorProfile();
+  if (portableDevMode()) return { ok: false, code: "portable-read-only" };
+  const targetId = formData.get("target_id");
+  const interval = Number(formData.get("poll_interval_seconds"));
+  if (hasUnexpectedFormFields(formData, POLLING_FIELDS) ||
+    [...POLLING_FIELDS].some((field) => formData.getAll(field).length !== 1) ||
+    typeof targetId !== "string" || !UUID_PATTERN.test(targetId) || !isMonitoringInterval(interval)) {
+    return { ok: false, code: "invalid-request" };
+  }
+  const saved = await localApplicationRequest("PATCH", `/api/application/managed-targets/${targetId}/interval`, {
+    actor_id: userId, poll_interval_seconds: interval,
+  });
+  if (!saved.ok) return { ok: false, code: saved.code };
+  const result = saved.data;
+  if (typeof result !== "object" || result === null || !("changed" in result) || typeof result.changed !== "boolean") {
+    return { ok: false, code: "refresh-failed" };
+  }
+  const current = await localManagedTarget(targetId);
+  if (!current || current.id !== targetId || Number(current.poll_interval_seconds) !== interval) return { ok: false, code: "refresh-failed" };
+  if (result.changed) { revalidatePath("/snmp"); revalidatePath("/dashboard"); }
+  return { ok: true, changed: result.changed };
 }
 
 function runnerCredentialProfiles(capabilities: unknown): string[] {

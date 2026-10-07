@@ -52,9 +52,13 @@ test("audit read authorizes a login-capable approved Admin; deleted lifecycle id
   const rows = await repo.list(AUDIT_ACTOR, 50, signal());
   assert.deepEqual(rows.map((row) => row.source), ["account", "administrative"]);
   assert.equal(rows[0]!.target_name, null);
+  assert.equal(rows[0]!.target_email, null);
+  assert.equal(rows[0]!.actor_email, null);
   assert.equal(rows[0]!.resource_key, db.readRows[0]!.resource_key);
   const read = db.calls.find(({ sql }) => sql.includes("UNION ALL"))!;
   assert.match(read.sql, /public\.account_lifecycle_audit[\s\S]*UNION ALL[\s\S]*public\.administrative_audit/);
+  assert.match(read.sql, /a\.full_name AS actor_name,a\.email AS actor_email/);
+  assert.match(read.sql, /t\.full_name AS target_name,t\.email AS target_email/);
   assert.match(read.sql, /ORDER BY e\.occurred_at DESC,e\.source ASC,e\.id::bigint DESC LIMIT 51 OFFSET \$1/);
   assert.deepEqual(read.values, [50]);
   for (const [role, status, credential] of [["operator", "approved", true], ["viewer", "approved", true],
@@ -63,6 +67,31 @@ test("audit read authorizes a login-capable approved Admin; deleted lifecycle id
     await assert.rejects(repo.list(AUDIT_ACTOR, 0, signal()), (e: unknown) => e instanceof ProfilePersistenceError && e.code === "ADMIN_ACCESS_REQUIRED");
   }
   await assert.rejects(repo.list(AUDIT_ACTOR, 10001, signal()));
+});
+
+test("audit read resolves latest profile name/email for both actor and target without changing historical IDs", async () => {
+  const db = new AuditDatabase();
+  const targetId = "22222222-2222-4222-8222-222222222222";
+  const historical = { id: "9", source: "account", actor_id: AUDIT_ACTOR, resource_type: "profile",
+    resource_key: targetId, action: "access_changed", before_state: {}, after_state: {}, occurred_at: "2026-10-07T00:00:00Z" };
+  db.readRows = [{ ...historical, actor_name: "New actor name", actor_email: "actor@example.invalid",
+    target_name: "", target_email: "target@example.invalid" }];
+  const repo = new PostgresAdministrativeAuditRepository(db);
+  const current = (await repo.list(AUDIT_ACTOR, 0, signal()))[0]!;
+  assert.equal(current.actor_name, "New actor name");
+  assert.equal(current.actor_email, "actor@example.invalid");
+  assert.equal(current.target_email, "target@example.invalid");
+  assert.equal(current.actor_id, AUDIT_ACTOR);
+  assert.equal(current.resource_key, targetId);
+  db.readRows = [{ ...historical }]; // Deleted profiles leave the LEFT JOIN labels null.
+  const deleted = (await repo.list(AUDIT_ACTOR, 0, signal()))[0]!;
+  assert.equal(deleted.actor_name, null); assert.equal(deleted.actor_email, null);
+  assert.equal(deleted.target_name, null); assert.equal(deleted.target_email, null);
+  assert.equal(deleted.actor_id, AUDIT_ACTOR); assert.equal(deleted.resource_key, targetId);
+  const query = db.calls.find(({ sql }) => sql.includes("UNION ALL"))!.sql;
+  assert.match(query, /LEFT JOIN public\.profiles a ON a\.id=e\.actor_id/);
+  assert.match(query, /LEFT JOIN public\.profiles t ON e\.resource_type='profile' AND t\.id::text=e\.resource_key/);
+  assert.doesNotMatch(db.calls.map(({ sql }) => sql).join("\n"), /\b(?:INSERT|UPDATE|DELETE)\b/);
 });
 
 test("branding identity meaningful change commits one safe audit; no-op and failure do not commit success", async () => withBranding(async (store, db, writer) => {

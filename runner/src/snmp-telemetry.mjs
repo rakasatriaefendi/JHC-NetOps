@@ -6,6 +6,7 @@ import path from "node:path";
 import { managedTelemetryPublishDiagnostic } from "./backend.mjs";
 import { resolveSnmpProfile, safeError } from "./config.mjs";
 import { runTelemetryAgent } from "./wsl.mjs";
+import { isMonitoringInterval } from "./monitoring-intervals.mjs";
 
 const PUBLISH_INTERVAL_MS = 30_000;
 const TARGET_REFRESH_MS = 60_000;
@@ -84,6 +85,14 @@ export class ManagedTelemetryWatch {
     try {
       const result = await this.backend.managedTelemetryTargets(this.runnerId);
       const targets = Array.isArray(result?.targets) ? result.targets.filter((target) => validTelemetryTarget(target, this.config)) : [];
+      for (const target of targets) {
+        const old = this.targets.get(target.id);
+        const state = this.states[target.id];
+        const lastPollAt = Date.parse(state?.device?.last_polled_at);
+        if (old && old.poll_interval_seconds !== target.poll_interval_seconds && Number.isFinite(lastPollAt)) {
+          state.nextPollAt = lastPollAt + target.poll_interval_seconds * 1000;
+        }
+      }
       this.targets = new Map(targets.map((target) => [target.id, target]));
       for (const id of Object.keys(this.states)) if (!this.targets.has(id)) delete this.states[id];
       this.pendingEvents = this.pendingEvents.filter((event) => this.targets.has(event.target_id));
@@ -185,7 +194,8 @@ export class ManagedTelemetryWatch {
       payload.observed_hosts,
     );
     state.dirty = true;
-    state.nextPollAt = now + target.poll_interval_seconds * 1000;
+    const scheduledTarget = this.targets.get(target.id) ?? target;
+    state.nextPollAt = now + scheduledTarget.poll_interval_seconds * 1000;
     if (!state.sawFirst) { state.sawFirst = true; this.publishDueAt = 0; }
     this.persist();
   }
@@ -214,7 +224,8 @@ export class ManagedTelemetryWatch {
     state.interfaces = [];
     state.observedHosts = [];
     state.dirty = true;
-    state.nextPollAt = now + target.poll_interval_seconds * 1000;
+    const scheduledTarget = this.targets.get(target.id) ?? target;
+    state.nextPollAt = now + scheduledTarget.poll_interval_seconds * 1000;
     if (!state.sawFirst) { state.sawFirst = true; this.publishDueAt = 0; }
     this.persist();
   }
@@ -410,7 +421,7 @@ export function validTelemetryTarget(target, config) {
   if (!UUID.test(target.node_id)) return false;
   if (!["3", "2c"].includes(target.snmp_version)) return false;
   if (target.snmp_port !== undefined && (!Number.isInteger(target.snmp_port) || target.snmp_port < 1 || target.snmp_port > 65535)) return false;
-  if (![30, 60].includes(target.poll_interval_seconds)) return false;
+  if (!isMonitoringInterval(target.poll_interval_seconds)) return false;
   if (target.oper_error_threshold !== undefined && (!Number.isInteger(target.oper_error_threshold) || target.oper_error_threshold < 1 || target.oper_error_threshold > 100)) return false;
   if (target.discard_threshold !== undefined && (!Number.isInteger(target.discard_threshold) || target.discard_threshold < 1 || target.discard_threshold > 100)) return false;
   for (const field of ["util_warning_percent", "util_critical_percent"]) {

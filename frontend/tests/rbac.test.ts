@@ -54,19 +54,40 @@ test("Admin route and user administration remain directly Admin-only", () => {
   assert.ok(auth.indexOf("requireApprovedProfile()") < auth.indexOf("canAdministerUsers(auth.profile.role)"));
 });
 
-test("operational server actions use active Operator authorization", () => {
+test("operational server actions preserve scoped Operator and Admin authorization", () => {
   const devices = source("../app/actions/devices.ts");
   const snmp = source("../app/actions/snmp.ts");
   const assets = source("../app/actions/assets.ts");
+
   assert.match(devices, /requireOperatorProfile/);
   assert.doesNotMatch(devices, /requireAdminProfile/);
-  assert.match(snmp, /requireOperatorProfile/);
-  assert.doesNotMatch(snmp, /requireAdminProfile/);
+
+  const saveManagedTarget = snmp.slice(
+    snmp.indexOf("export async function saveManagedTelemetryTargetAction"),
+    snmp.indexOf("export async function deleteManagedTelemetryTargetAction"),
+  );
+  const deleteManagedTarget = snmp.slice(
+    snmp.indexOf("export async function deleteManagedTelemetryTargetAction"),
+    snmp.indexOf("export async function setManagedTelemetryIntervalAction"),
+  );
+  const setManagedInterval = snmp.slice(
+    snmp.indexOf("export async function setManagedTelemetryIntervalAction"),
+    snmp.indexOf("function runnerCredentialProfiles"),
+  );
+
+  assert.match(saveManagedTarget, /requireAdminProfile/);
+  assert.doesNotMatch(saveManagedTarget, /requireOperatorProfile/);
+
+  assert.match(deleteManagedTarget, /requireAdminProfile/);
+  assert.doesNotMatch(deleteManagedTarget, /requireOperatorProfile/);
+
+  assert.match(setManagedInterval, /requireOperatorProfile/);
+  assert.doesNotMatch(setManagedInterval, /requireAdminProfile/);
+
   assert.match(assets, /requireOperatorProfile/);
   assert.match(assets, /requireApprovedProfile/);
   assert.doesNotMatch(assets, /requireAdminProfile/);
 });
-
 test("Admin UI exposes independent role and access selectors", () => {
   const control = source("../components/admin/user-access-control.tsx");
   for (const value of ["admin", "operator", "viewer"]) assert.match(control, new RegExp(`value="${value}"`));

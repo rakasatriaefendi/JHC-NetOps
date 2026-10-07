@@ -86,6 +86,14 @@ there are no profile/resource FKs. Existing lifecycle audit remains separate.
 Apply 017 explicitly before enabling this source release; startup never migrates.
 Migrations 001-016 remain immutable.
 
+`018_snmp_monitoring_intervals.sql` requires migration 17 as the latest recorded
+prerequisite and the same exact dedicated PostgreSQL/administrative guards. It
+replaces only `public.managed_telemetry_targets`' existing
+`managed_telemetry_targets_poll_interval_seconds_check`, allowing
+15/30/60/900/1800 seconds. Existing rows, database defaults, credentials, FKs,
+ownership and grants are unchanged. Apply 018 explicitly before using the new
+SNMP intervals; startup never migrates. Migrations 001-017 remain immutable.
+
 Apply Asset migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

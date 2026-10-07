@@ -148,7 +148,7 @@ function fixtureTarget(node: NetworkNode, latest: ManagedDeviceLatest): ManagedT
     credential_profile_ref: "portable-fixture-readonly",
     snmp_version: "3",
     snmp_port: 161,
-    poll_interval_seconds: 60,
+    poll_interval_seconds: 900,
     oper_error_threshold: 5,
     discard_threshold: 10,
     util_warning_percent: 80,

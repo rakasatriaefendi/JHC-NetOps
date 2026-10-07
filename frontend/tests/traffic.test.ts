@@ -29,7 +29,7 @@ test("Traffic treats stale, degraded, and incapable local runners as unavailable
     const [runner] = mergeTrafficRunnerSnapshots([], normalizeTrafficRunnerSnapshots([value]));
     return isTrafficRunnerAvailable(runner, now);
   };
-  assert.equal(available(localRunner({ last_seen_at: new Date(now - 30_001).toISOString() })), false);
+  assert.equal(available(localRunner({ last_seen_at: new Date(now - 120_001).toISOString() })), false);
   assert.equal(available(localRunner({ health_status: "degraded" })), false);
   assert.equal(available(localRunner({ health_status: "offline" })), false);
   assert.equal(available(localRunner({ capabilities: { targets: [], operations: ["network_discovery"] } })), false);

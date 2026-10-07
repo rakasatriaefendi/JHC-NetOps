@@ -45,3 +45,29 @@ test("existing Windows config remains valid without native-only fields", () => {
   assert.equal(config.runtime_platform, "win32");
   assert.equal(config.agent_path, "/mnt/c/project/agent/.venv/bin/network-monitor");
 });
+
+test("SNMP configuration accepts every monitoring preset and preserves legacy lists", () => {
+  for (const intervals of [[15, 30, 60, 900, 1800], [30, 60], [900], [1800]]) {
+    assert.deepEqual(loadConfig({ snmp_poll_intervals_seconds: intervals }).snmp_poll_intervals_seconds, intervals);
+  }
+  for (const intervals of [[90], [900, 900], ["900"], [], [15, 30, 60, 900, 1800, 3600]]) {
+    assert.throws(() => loadConfig({ snmp_poll_intervals_seconds: intervals }), /snmp_poll_intervals_seconds is invalid/);
+  }
+});
+
+test("source examples use 60000ms independent control-plane cadence, not monitoring minutes", () => {
+  for (const file of ["../config.example.json", "../../deploy/runner-config.example.json"]) {
+    const example = JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
+    assert.equal(example.poll_interval_ms, 60000);
+    assert.equal(example.heartbeat_interval_ms, 60000);
+    assert.deepEqual(example.snmp_poll_intervals_seconds, [15, 30, 60, 900, 1800]);
+  }
+  for (const field of ["poll_interval_ms", "heartbeat_interval_ms"]) {
+    for (const value of [1000, 60000]) assert.equal(loadConfig({ [field]: value })[field], value);
+    for (const value of [999, 60001, 900000, 1800000]) assert.throws(() => loadConfig({ [field]: value }), new RegExp(`${field} is invalid`));
+  }
+  const main = readFileSync(new URL("../src/main.mjs", import.meta.url), "utf8");
+  assert.match(main, /config\.poll_interval_ms/);
+  assert.match(main, /config\.heartbeat_interval_ms/);
+  assert.doesNotMatch(main, /monitoring-modes|monitoring-intervals|900_?000|1800_?000/);
+});

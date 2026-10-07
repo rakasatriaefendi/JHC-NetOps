@@ -15,8 +15,8 @@ test("Admin audit UI is protected, authoritative, newest-first bounded and retai
   assert.match(helper, /result\.data\.slice\(0, 50\)/);
   assert.match(helper, /error: true/);
   const ui = source("../components/admin/administrative-audit.tsx");
-  assert.match(ui, /entry\.actor_name \?\? entry\.actor_id/);
-  assert.match(ui, /entry\.target_name \?\? entry\.resource_key/);
+  assert.match(ui, /profileDisplayLabel\(entry\.actor_name, entry\.actor_email, entry\.actor_id/);
+  assert.match(ui, /profileDisplayLabel\(entry\.target_name, entry\.target_email, entry\.resource_key/);
   assert.match(ui, /result\.error[\s\S]*audit\.error[\s\S]*audit\.empty/);
   assert.match(ui, /entry\.source === "account"/);
   assert.match(ui, /safeIdentity\(state.institution_name\)/);

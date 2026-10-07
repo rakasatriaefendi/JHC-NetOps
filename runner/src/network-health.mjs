@@ -73,6 +73,14 @@ export class NetworkHealthWatch {
     try {
       const result = await this.backend.healthTargets(this.runnerId);
       const targets = Array.isArray(result?.targets) ? result.targets.filter(validTarget) : [];
+      for (const target of targets) {
+        const old = this.targets.get(target.id);
+        const state = this.states[target.id];
+        const lastProbeAt = Date.parse(state?.lastCheckedAt);
+        if (old && old.probe_interval_seconds !== target.probe_interval_seconds && Number.isFinite(lastProbeAt)) {
+          state.nextProbeAt = lastProbeAt + target.probe_interval_seconds * 1000;
+        }
+      }
       this.targets = new Map(targets.map((target) => [target.id, target]));
       for (const id of Object.keys(this.states)) if (!this.targets.has(id)) delete this.states[id];
       this.pendingTransitions = this.pendingTransitions.filter((event) => this.targets.has(event.target_id));
@@ -146,7 +154,8 @@ export class NetworkHealthWatch {
     state.latencyMs = latency;
     state.packetLossPercent = loss;
     state.dirty = true;
-    state.nextProbeAt = now + target.probe_interval_seconds * 1000;
+    const scheduledTarget = this.targets.get(target.id) ?? target;
+    state.nextProbeAt = now + scheduledTarget.probe_interval_seconds * 1000;
     if (!previous) this.publishDueAt = 0;
     if (previous && previous !== next) {
       this.pendingTransitions.push({ event_id: randomUUID(), target_id: target.id, previous_status: previous,
@@ -280,7 +289,9 @@ function publicState(state) {
 }
 function validTarget(target) {
   return target && typeof target.id === "string" && isIP(target.ip_address) && target.probe_method === "icmp"
-    && Number.isInteger(target.probe_interval_seconds) && Number.isInteger(target.timeout_ms);
+    // Legacy custom Health intervals stay readable/runnable; new writes use presets.
+    && Number.isInteger(target.probe_interval_seconds) && target.probe_interval_seconds >= 15 && target.probe_interval_seconds <= 3600
+    && Number.isInteger(target.timeout_ms);
 }
 function loadCache(file) {
   try { const value = JSON.parse(readFileSync(file, "utf8")); return value && typeof value === "object" ? value : {}; }

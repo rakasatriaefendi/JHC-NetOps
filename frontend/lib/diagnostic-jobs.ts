@@ -1,4 +1,5 @@
 import type { ConnectionType, DiagnosticEnvironment } from "@/lib/diagnostics";
+import { isRunnerHeartbeatFresh } from "./runner-freshness.ts";
 
 export type DiagnosticTarget = {
   id: string;
@@ -147,5 +148,5 @@ export type DiagnosticJobState = {
 };
 
 export function isRunnerFresh(runner: DiagnosticRunner, now = Date.now()) {
-  return now - Date.parse(runner.last_seen_at) <= 30_000;
+  return isRunnerHeartbeatFresh(runner.last_seen_at, now);
 }

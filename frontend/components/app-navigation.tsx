@@ -9,6 +9,7 @@ import { logoutAction } from "@/app/actions/auth";
 import { LanguageSelector } from "@/components/language-selector";
 import { Button } from "@/components/ui/button";
 import type { ProfileRole } from "@/lib/auth";
+import { profileDisplayLabel, profileInitials } from "@/lib/profile-display";
 
 const navigation = [
   { key: "networkOperations", items: [
@@ -28,13 +29,15 @@ const navigation = [
 
 type AppNavigationProps = {
   fullName: string;
+  email: string;
   role: ProfileRole;
 };
 
-export function AppNavigation({ fullName, role }: AppNavigationProps) {
+export function AppNavigation({ fullName, email, role }: AppNavigationProps) {
   const { t } = useTranslation("common");
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const initials = profileInitials(fullName, email);
   const groups = role === "admin"
     ? [...navigation, { key: "administration", items: [{ href: "/admin", key: "admin" }] }] as const
     : navigation;
@@ -61,7 +64,14 @@ export function AppNavigation({ fullName, role }: AppNavigationProps) {
 
       <div className="border-t border-border pt-4">
         <LanguageSelector />
-        <p className="truncate text-body font-medium">{fullName}</p>
+        <Link href="/profile" onClick={() => setOpen(false)} aria-label={t("profile.title")}
+          aria-current={pathname === "/profile" ? "page" : undefined}
+          className="mt-2 flex min-w-0 items-center gap-2 rounded-control p-1 hover:bg-accent/10 focus-visible:outline-accent">
+          <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg-base text-meta font-semibold">
+            {initials ?? <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" /></svg>}
+          </span>
+          <span className="truncate text-body font-medium">{profileDisplayLabel(fullName, email, null, t("profile.title"))}</span>
+        </Link>
         <p className="mt-1 text-meta capitalize text-text-muted">{t(`roles.${role}`)}</p>
         <form action={logoutAction} className="mt-3">
           <Button className="w-full" variant="secondary" type="submit">

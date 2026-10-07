@@ -58,6 +58,58 @@ test("refresh ignores unsupported entries and handles multiple targets", async (
   assert.deepEqual([...service.targets.keys()], targets.slice(0, 2).map((item) => item.id));
 });
 
+test("Health presets schedule the next probe by target interval, including failures", () => {
+  for (const interval of [15, 30, 60, 900, 1800]) {
+    const service = watch(); const item = target({ probe_interval_seconds: interval });
+    service.applySample(item, { success: true, latency_ms: 1 }, 1_000);
+    assert.equal(service.states[item.id].nextProbeAt, 1_000 + interval * 1000);
+    service.applySample(item, { success: false, latency_ms: null }, 2_000);
+    assert.equal(service.states[item.id].nextProbeAt, 2_000 + interval * 1000);
+  }
+});
+
+test("Health target refresh retains presets and readable legacy custom intervals", async () => {
+  for (const interval of [15, 30, 60, 900, 1800, 45]) {
+    const item = target({ probe_interval_seconds: interval });
+    const service = watch({ healthTargets: async () => ({ targets: [item] }), publishHealth: async () => ({}) });
+    await service.refreshTargets(1000);
+    assert.equal(service.targets.get(item.id).probe_interval_seconds, interval);
+  }
+});
+
+test("Health interval refresh reschedules existing state; an old in-flight sample cannot restore old cadence", async () => {
+  let item = target();
+  const service = watch({ healthTargets: async () => ({ targets: [item] }), publishHealth: async () => ({}) });
+  await service.refreshTargets(1000);
+  service.applySample(item, { success: true, latency_ms: 1 }, 1000);
+  const inFlightTarget = item;
+  item = target({ probe_interval_seconds: 1800 });
+  await service.refreshTargets(2000);
+  assert.equal(service.states[item.id].nextProbeAt, 1000 + 1800 * 1000);
+  service.applySample(inFlightTarget, { success: true, latency_ms: 1 }, 3000);
+  assert.equal(service.states[item.id].nextProbeAt, 3000 + 1800 * 1000);
+});
+
+test("lightweight Health ticks do not issue probes before a Moderate target is due", async () => {
+  let now = 1000; let calls = 0;
+  const item = target({ probe_interval_seconds: 900 });
+  const service = new NetworkHealthWatch({ runnerId: "runner-test",
+    backend: { healthTargets: async () => ({ targets: [item] }), publishHealth: async () => ({}) },
+    cachePath: path.join(mkdtempSync(path.join(os.tmpdir(), "health-presets-")), "state.json"),
+    now: () => now, ping: async () => { calls += 1; return { success: true, latency_ms: 1 }; } });
+  await service.refreshTargets(now);
+  service.applySample(item, { success: true, latency_ms: 1 }, now);
+  service.running = true;
+  now = 900999;
+  await service.tick();
+  assert.equal(calls, 0);
+  now = 901000;
+  await service.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.equal(service.states[item.id].nextProbeAt, now + 900 * 1000);
+});
+
 test("manual ping resolves the current runner-scoped target and does not mutate scheduled state", async () => {
   const item = target({ ip_address: "192.0.2.10", timeout_ms: 750 });
   const calls = [];

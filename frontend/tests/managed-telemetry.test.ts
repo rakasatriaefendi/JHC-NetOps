@@ -204,6 +204,9 @@ test("credentialProfileStatus reflects only profile availability, never secrets"
 
 test("validateManagedTelemetryForm accepts a valid form", () => {
   assert.equal(validateManagedTelemetryForm(validForm()), null);
+  for (const poll_interval_seconds of [15, 30, 60, 900, 1800]) {
+    assert.equal(validateManagedTelemetryForm({ ...validForm(), poll_interval_seconds }), null);
+  }
 });
 
 test("validateManagedTelemetryForm rejects bad nodes, runners, profiles, version, port, and interval", () => {
@@ -231,7 +234,7 @@ function validForm() {
     credential_profile_ref: "monitoring-readonly",
     snmp_version: "3",
     snmp_port: 161,
-    poll_interval_seconds: 60,
+    poll_interval_seconds: 900,
     oper_error_threshold: 5,
     discard_threshold: 10,
     util_warning_percent: 80,

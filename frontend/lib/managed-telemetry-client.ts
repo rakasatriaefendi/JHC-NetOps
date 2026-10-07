@@ -1,4 +1,5 @@
 import { localeForLanguage } from "../i18n/config.ts";
+import { isMonitoringInterval } from "./monitoring-modes.ts";
 
 export type ManagedTelemetryStatus =
   | "connected"
@@ -242,7 +243,7 @@ export function validateManagedTelemetryForm(values: {
   if (!validRef.test(values.credential_profile_ref)) return "Credential profile reference tidak valid.";
   if (values.snmp_version !== "3" && values.snmp_version !== "2c") return "SNMP version tidak valid.";
   if (!Number.isSafeInteger(values.snmp_port) || values.snmp_port < 1 || values.snmp_port > 65535) return "SNMP port tidak valid.";
-  if (values.poll_interval_seconds !== 30 && values.poll_interval_seconds !== 60) return "Polling interval tidak valid.";
+  if (!isMonitoringInterval(values.poll_interval_seconds)) return "Polling interval tidak valid.";
   if (!integerBetween(values.oper_error_threshold, 1, 100)) return "Error threshold tidak valid.";
   if (!integerBetween(values.discard_threshold, 1, 100)) return "Discard threshold tidak valid.";
   if (!Number.isFinite(values.util_warning_percent) || values.util_warning_percent < 1 || values.util_warning_percent > 100) return "Utilization warning tidak valid.";

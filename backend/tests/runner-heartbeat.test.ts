@@ -206,6 +206,35 @@ test("current Device Inspector and SNMP capability shapes remain accepted", asyn
   await server.close();
 });
 
+test("SNMP heartbeat preserves all monitoring presets and the legacy interval list", async () => {
+  for (const intervals of [[15, 30, 60, 900, 1800], [30, 60]]) {
+    const { repository, server } = serverWith();
+    const payload = { runner: { ...heartbeat().runner, capabilities: { ...heartbeat().runner.capabilities,
+      snmp_telemetry: { enabled: true, max_concurrent: 2,
+        poll_intervals_seconds: intervals, versions: ["3", "2c"], credential_profiles: [] } } } };
+    try {
+      const response = await server.inject({ method: "POST", url: "/api/runner/heartbeat", headers: AUTHORIZATION, payload });
+      assert.equal(response.statusCode, 200);
+      const stored = repository.rows[0]?.capabilities.snmp_telemetry;
+      assert.ok(stored?.enabled);
+      assert.deepEqual(stored.poll_intervals_seconds, intervals);
+    } finally { await server.close(); }
+  }
+});
+
+test("SNMP heartbeat still rejects unsupported, duplicate, nonnumeric and oversized interval lists", async () => {
+  for (const intervals of [[90], [900, 900], ["900"], [15, 30, 60, 900, 1800, 3600], []]) {
+    const { repository, server } = serverWith();
+    const payload = { runner: { ...heartbeat().runner, capabilities: { ...heartbeat().runner.capabilities,
+      snmp_telemetry: { enabled: true, max_concurrent: 2,
+        poll_intervals_seconds: intervals, versions: ["3", "2c"], credential_profiles: [] } } } };
+    try {
+      assert.equal((await server.inject({ method: "POST", url: "/api/runner/heartbeat", headers: AUTHORIZATION, payload })).statusCode, 400);
+      assert.equal(repository.rows.length, 0);
+    } finally { await server.close(); }
+  }
+});
+
 test("heartbeat request body is bounded below the global backend limit", async () => {
   const { repository, server } = serverWith();
   const response = await server.inject({

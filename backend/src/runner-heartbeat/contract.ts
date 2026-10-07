@@ -1,3 +1,5 @@
+import { isMonitoringInterval } from "../monitoring-intervals.js";
+
 const SAFE_ERROR_CODES = new Set([
   "AGENT_PROTOCOL_ERROR",
   "AGENT_PYTHON_UNSUPPORTED",
@@ -257,7 +259,7 @@ function validateSnmpTelemetry(value: unknown):
       : invalid("Runner SNMP telemetry capability is invalid");
   }
   if (!isIntegerBetween(value.max_concurrent, 1, 5) ||
-      !boundedUniqueArray<number>(value.poll_intervals_seconds, 1, 2, (item) => item === 30 || item === 60) ||
+      !boundedUniqueArray<number>(value.poll_intervals_seconds, 1, 5, isMonitoringInterval) ||
       !boundedUniqueArray<string>(value.versions, 1, 2, (item) => item === "3" || item === "2c") ||
       !boundedUniqueArray<string>(value.credential_profiles, 0, 50, (item) =>
         typeof item === "string" && PROFILE_REFERENCE.test(item))) {

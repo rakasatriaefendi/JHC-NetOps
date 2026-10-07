@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePlatform } from "./platform.mjs";
+import { isMonitoringInterval } from "./monitoring-intervals.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IDENTIFIER = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -251,7 +252,8 @@ function validateConfig(value, runtimePlatform) {
     throw new Error("snmp_timeout_seconds is invalid");
   }
   if (value.snmp_poll_intervals_seconds !== undefined && (!Array.isArray(value.snmp_poll_intervals_seconds) || value.snmp_poll_intervals_seconds.length < 1 ||
-      !value.snmp_poll_intervals_seconds.every((item) => item === 30 || item === 60))) throw new Error("snmp_poll_intervals_seconds is invalid");
+      value.snmp_poll_intervals_seconds.length > 5 || new Set(value.snmp_poll_intervals_seconds).size !== value.snmp_poll_intervals_seconds.length ||
+      !value.snmp_poll_intervals_seconds.every(isMonitoringInterval))) throw new Error("snmp_poll_intervals_seconds is invalid");
   if (value.snmp_credential_profiles !== undefined && !validSnmpProfiles(value.snmp_credential_profiles)) throw new Error("snmp_credential_profiles is invalid");
 }
 

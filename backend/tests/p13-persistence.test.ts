@@ -263,12 +263,13 @@ test("local inventory blocks pending operators before creating a node", async ()
 
 test("local target CRUD uses local profile authorization, fixed SQL and credential references only", async () => {
   const calls: { sql: string; values: readonly unknown[] }[] = [];
+  let role = "operator";
   const database: PostgresTransactionalQuery = {
     async rows() { throw new Error("outside transaction"); },
     async transaction(_signal, action) {
       return action({ async rows(sql, values) {
         calls.push({ sql, values });
-        if (sql.includes("SELECT role,status")) return [{ role: "operator", status: "approved" }];
+        if (sql.includes("SELECT role,status")) return [{ role, status: "approved" }];
         if (sql.includes("FROM public.diagnostic_runners")) return [{ id: "runner-1" }];
         if (sql.includes("RETURNING id,node_id")) return [{ id: "33333333-3333-4333-8333-333333333333" }];
         return [];
@@ -282,6 +283,7 @@ test("local target CRUD uses local profile authorization, fixed SQL and credenti
     failure_threshold: 3, recovery_threshold: 2, latency_warning_ms: 100,
     loss_warning_percent: 40,
   }, new AbortController().signal);
+  role = "admin"; // Full SNMP configuration is Admin-only; Operator uses the interval-only path.
   await repository.upsertManagedTarget("11111111-1111-4111-8111-111111111111", {
     node_id: "22222222-2222-4222-8222-222222222222", runner_id: "runner-1",
     enabled: true, credential_profile_ref: "authorized-readonly", snmp_version: "3",

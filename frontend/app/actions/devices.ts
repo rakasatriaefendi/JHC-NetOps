@@ -6,6 +6,7 @@ import { requireOperatorProfile } from "@/lib/auth";
 import { applicationDeleted, localApplicationRequest, localHealthTarget, localNetworkNode,
   localNetworkNodes, localHealthTargets, localRunner } from "@/lib/application-persistence";
 import { hasUnexpectedFormFields } from "@/lib/form-security";
+import { isMonitoringInterval } from "@/lib/monitoring-modes";
 import {
   NETWORK_NODE_TYPES,
   normalizeNetworkNodeIpv4,
@@ -84,7 +85,7 @@ export async function saveNetworkTargetAction(formData: FormData) {
   };
   const validRunner = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
   const valid = UUID_PATTERN.test(nodeId) && validRunner.test(runnerId)
-    && integerBetween(values.probe_interval_seconds, 15, 3600)
+    && isMonitoringInterval(values.probe_interval_seconds)
     && integerBetween(values.timeout_ms, 250, 5000)
     && integerBetween(values.failure_threshold, 2, 10)
     && integerBetween(values.recovery_threshold, 1, 5)
@@ -107,7 +108,9 @@ export async function saveNetworkTargetAction(formData: FormData) {
     Object.entries(values).some(([key, value]) => Number(current[key]) !== value)) return { ok: false, code: "refresh-failed" };
   revalidatePath("/devices");
   revalidatePath("/dashboard");
-  return { ok: true };
+  const data = saved.data;
+  if (typeof data !== "object" || data === null || !("changed" in data) || typeof data.changed !== "boolean") return { ok: false, code: "refresh-failed" };
+  return { ok: true, changed: data.changed };
 }
 
 export async function updateNetworkNodeAction(formData: FormData) {

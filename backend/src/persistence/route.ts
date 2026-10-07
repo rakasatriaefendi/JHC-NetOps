@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { isMonitoringInterval } from "../monitoring-intervals.js";
 
 import { validRunnerBearerToken } from "../runner-heartbeat/auth.js";
 import { InventoryPersistenceError, type HealthTargetInput, type InventoryNodeInput,
@@ -63,6 +64,19 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
       const row = await options.profiles.bootstrapPending(body.auth_user_id, body.email, body.full_name,
         AbortSignal.timeout(7_000));
       return reply.code(200).send({ data: row });
+    } catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.patch("/api/application/profiles/self/name", { bodyLimit: 2_048 }, async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const body = record(request.body);
+    if (!body || !onlyKeys(body, ["actor_id", "full_name"]) ||
+      typeof body.actor_id !== "string" || !validUuid(body.actor_id) || typeof body.full_name !== "string") {
+      return reply.code(400).send(invalid);
+    }
+    try {
+      const result = await options.profiles.setOwnName(body.actor_id, body.full_name, AbortSignal.timeout(7_000));
+      return reply.header("cache-control", "private, no-store").code(200).send({ data: result });
     } catch (error) { return persistenceFailure(reply, error); }
   });
 
@@ -256,6 +270,19 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
     if (!body || !input) return reply.code(400).send(invalid);
     try { return reply.code(200).send({ data: await options.inventory.upsertManagedTarget(body.actorId, input, AbortSignal.timeout(7_000)) }); }
     catch (error) { return persistenceFailure(reply, error); }
+  });
+
+  server.patch<{ Params: { id: string } }>("/api/application/managed-targets/:id/interval", { bodyLimit: 1_024 }, async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+    const body = record(request.body);
+    if (!body || !onlyKeys(body, ["actor_id", "poll_interval_seconds"]) ||
+      typeof body.actor_id !== "string" || !validUuid(body.actor_id) || !validUuid(request.params.id) ||
+      !isMonitoringInterval(body.poll_interval_seconds)) return reply.code(400).send(invalid);
+    try {
+      const result = await options.inventory.setManagedPollingInterval(body.actor_id, request.params.id,
+        body.poll_interval_seconds, AbortSignal.timeout(7_000));
+      return reply.code(200).send({ data: result });
+    } catch (error) { return persistenceFailure(reply, error); }
   });
 
   server.delete<{ Params: { id: string } }>("/api/application/managed-targets/:id", async (request, reply) => {
@@ -669,7 +696,7 @@ function managedInput(value: Record<string, unknown>): ManagedTargetInput | null
     typeof value.node_id !== "string" || typeof value.runner_id !== "string" ||
     typeof value.enabled !== "boolean" || typeof value.credential_profile_ref !== "string" ||
     (value.snmp_version !== "3" && value.snmp_version !== "2c") ||
-    (value.poll_interval_seconds !== 30 && value.poll_interval_seconds !== 60) ||
+    !isMonitoringInterval(value.poll_interval_seconds) ||
     ![value.snmp_port,value.oper_error_threshold,value.discard_threshold,value.util_warning_percent,
       value.util_critical_percent,value.util_sustained_seconds].every((item) => typeof item === "number")) return null;
   return {
@@ -712,7 +739,7 @@ function persistenceFailure(reply: import("fastify").FastifyReply, error: unknow
   }
   if (error instanceof ProfilePersistenceError) {
     const status = error.code === "INVALID_PROFILE" ? 400 : error.code === "PROFILE_NOT_FOUND" ? 404 :
-      error.code === "ADMIN_ACCESS_REQUIRED" || error.code === "SELF_DEMOTION_BLOCKED" ? 403 : 409;
+      error.code === "ADMIN_ACCESS_REQUIRED" || error.code === "PROFILE_ACCESS_REQUIRED" || error.code === "SELF_DEMOTION_BLOCKED" ? 403 : 409;
     return reply.code(status).send({ error: { code: error.code, message: "Account lifecycle request rejected" } });
   }
   if (error instanceof InventoryPersistenceError) {
