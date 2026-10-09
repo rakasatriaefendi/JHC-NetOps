@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { MutationKind } from "@/lib/mutation-feedback";
+import { manualPingFailure } from "@/lib/manual-ping";
 
 type Notification = { id: number; action: MutationKind; success: boolean; errorKey: string };
 const lifecycleErrors = new Set(["ADMIN_ACCESS_REQUIRED", "SELF_DELETE_BLOCKED", "SELF_DISABLE_BLOCKED",
@@ -17,7 +18,8 @@ export function ActionFeedbackProvider({ children }: { children: ReactNode }) {
   const nextId = useRef(0);
   const notify = useCallback((action: MutationKind, success: boolean, code?: string) => {
     const id = ++nextId.current;
-    const errorKey = code && lifecycleErrors.has(code) ? `admin:lifecycle.errors.${code}` : "mutation.failed";
+    const errorKey = action === "ping" && code ? manualPingFailure(code).key
+      : code && lifecycleErrors.has(code) ? `admin:lifecycle.errors.${code}` : "mutation.failed";
     setNotifications((current) => [...current.slice(-3), { id, action, success, errorKey }]);
   }, []);
   return <FeedbackContext.Provider value={notify}>

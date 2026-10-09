@@ -63,10 +63,13 @@ test("viewer has no manual ping action and enabled admin requests remain one-sho
   assert.match(request, /finally\s*\{\s*inFlight\.current\.delete\(targetId\);\s*\}/);
   assert.equal((request.match(/\bnotify\(/g) ?? []).length, 1);
   assert.equal((manualPingSource.match(/\bnotify\(/g) ?? []).length, 1);
-  assert.match(request, /notify\("ping", outcome\.phase === "success"\)/);
+  assert.match(request, /notify\("ping", outcome\.phase === "success", outcome\.code\)/);
   assert.ok(request.indexOf("await waitForManualPingLocal(pingId)") < request.indexOf('notify("ping",'));
   assert.match(manualPingSource, /useTranslation\("common"\)/);
-  assert.match(manualPingSource, /t\(job\.result\.category === "timeout" \? "manualPing\.timeout" : "manualPing\.unreachable"\)/);
+  assert.match(manualPingSource, /waitForManualPing\(pingId, pollManualPingAction/);
+  assert.match(manualPingSource, /message: t\(result\.key/);
+  const outcomes = readFileSync(new URL("../lib/manual-ping.ts", import.meta.url), "utf8");
+  assert.match(outcomes, /job\.result\.category === "timeout" \? "manualPing\.timeout" : "manualPing\.unreachable"/);
   type Catalog = { manualPing: { timeout: string; unreachable: string } };
   const en: Catalog = JSON.parse(readFileSync(new URL("../i18n/en/common.json", import.meta.url), "utf8"));
   const id: Catalog = JSON.parse(readFileSync(new URL("../i18n/id/common.json", import.meta.url), "utf8"));

@@ -174,10 +174,12 @@ export async function localPingJobs(runnerId: string): Promise<Record<string, un
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
 }
 
-export async function localPingJob(jobId: string): Promise<Record<string, unknown> | null> {
-  if (!uuid(jobId)) return null;
+export async function localPingJob(jobId: string): Promise<{ ok: boolean; data: Record<string, unknown> | null; code: string }> {
+  if (!uuid(jobId)) return { ok: false, data: null, code: "INVALID_CONTROL_PLANE_INPUT" };
   const response = await localApplicationRequest("GET", `/api/application/ping-jobs/${jobId}`);
-  return response.ok && record(response.data) ? response.data : null;
+  return response.ok && record(response.data)
+    ? { ok: true, data: response.data, code: "OK" }
+    : { ok: false, data: null, code: response.ok ? "MANUAL_PING_RESULT_UNAVAILABLE" : response.code };
 }
 
 export async function localBandwidthMeasurements(limit = 100): Promise<Record<string, unknown>[] | null> {
@@ -258,10 +260,12 @@ export async function createDiagnosticJobLocal(actorId: string, input: Readonly<
 
 export async function createPingJobLocal(actorId: string, input: Readonly<{
   target_id: string;
-}>): Promise<Record<string, unknown> | null> {
+}>): Promise<{ ok: boolean; data: Record<string, unknown> | null; code: string }> {
   const response = await localApplicationRequest("POST", "/api/application/ping-jobs",
     { actor_id: actorId, input });
-  return response.ok && record(response.data) ? response.data : null;
+  return response.ok && record(response.data)
+    ? { ok: true, data: response.data, code: "OK" }
+    : { ok: false, data: null, code: response.ok ? "MANUAL_PING_RESULT_UNAVAILABLE" : response.code };
 }
 
 export async function createNetworkDiscoveryLocal(actorId: string, input: Readonly<{
@@ -318,7 +322,9 @@ function safeCode(value: Record<string, unknown>): string {
     "SELF_DEMOTION_BLOCKED", "LAST_ADMIN_BLOCKED", "INVALID_PROFILE", "SELF_DELETE_BLOCKED", "SELF_DISABLE_BLOCKED",
     "LAST_LOGIN_CAPABLE_ADMIN_BLOCKED", "ACCOUNT_HAS_HISTORY", "ACCOUNT_NOT_DISABLEABLE",
     "ACCOUNT_NOT_REENABLEABLE", "ACCOUNT_NOT_DELETABLE", "NODE_NOT_FOUND", "TARGET_NOT_FOUND",
-    "RUNNER_NOT_FOUND", "CONFIRMATION_MISMATCH", "INVENTORY_DUPLICATE"]).has(value.error.code)
+    "RUNNER_NOT_FOUND", "CONFIRMATION_MISMATCH", "INVENTORY_DUPLICATE",
+    "INVALID_CONTROL_PLANE_INPUT", "RUNNER_BUSY", "RUNNER_OFFLINE", "OPERATION_NOT_AUTHORIZED",
+    "TARGET_NOT_AUTHORIZED", "OPERATION_NOT_READY", "STORAGE_CRITICAL", "ALREADY_ACTIVE"]).has(value.error.code)
     ? value.error.code : "LOCAL_APPLICATION_UNAVAILABLE";
 }
 

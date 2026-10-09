@@ -37,13 +37,16 @@ export async function createDiagnosticJobAction(input: Readonly<{
   return { ok: !!result, data: result as DiagnosticJob | null };
 }
 
-export async function queueManualPingAction(target: string): Promise<{ ok: boolean; id: string | null }> {
-  if (!uuid(target)) return { ok: false, id: null };
+export async function queueManualPingAction(target: string): Promise<{ ok: boolean; id: string | null; code: string }> {
+  if (!uuid(target)) return { ok: false, id: null, code: "INVALID_CONTROL_PLANE_INPUT" };
   const { userId } = await requireAdminProfile();
   const result = await createPingJobLocal(userId, {
     target_id: target,
   });
-  return { ok: !!result, id: result?.id as string | null };
+  const id = result.data?.id;
+  return typeof id === "string" && uuid(id) && result.ok
+    ? { ok: true, id, code: "OK" }
+    : { ok: false, id: null, code: result.ok ? "MANUAL_PING_RESULT_UNAVAILABLE" : result.code };
 }
 
 export async function mutateDiscoverySessionAction(input: Readonly<{
@@ -93,9 +96,8 @@ export async function mutateTrafficSessionAction(input: Readonly<{
   return { ok: !!result };
 }
 
-export async function pollManualPingAction(pingId: string): Promise<{ ok: boolean; data: Record<string, unknown> | null }> {
-  if (!uuid(pingId)) return { ok: false, data: null };
+export async function pollManualPingAction(pingId: string): Promise<{ ok: boolean; data: Record<string, unknown> | null; code: string }> {
+  if (!uuid(pingId)) return { ok: false, data: null, code: "INVALID_CONTROL_PLANE_INPUT" };
   await requireAdminProfile();
-  const result = await localPingJob(pingId);
-  return { ok: !!result, data: result as Record<string, unknown> | null };
+  return localPingJob(pingId);
 }

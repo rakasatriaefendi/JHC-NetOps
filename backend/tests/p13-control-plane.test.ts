@@ -5,6 +5,7 @@ import { PostgresDiagnosticJobsRepository } from "../src/persistence/diagnostic-
 import { PostgresDeviceInspectionRepository } from "../src/persistence/device-inspection.js";
 import { PostgresNetworkDiscoveryRepository } from "../src/persistence/network-discovery.js";
 import { PostgresNetworkHealthPingJobsRepository } from "../src/persistence/network-health-ping-jobs.js";
+import { PostgresNetworkHealthRepository } from "../src/persistence/network-health.js";
 import type { PostgresQuery, PostgresTransactionalQuery } from "../src/persistence/postgres-query.js";
 import { PostgresTrafficRepository } from "../src/persistence/traffic.js";
 
@@ -61,6 +62,44 @@ test("local Manual Ping claim excludes expired jobs and terminal mutations bind 
   assert.match(complete.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running' AND expires_at >= \$3::timestamptz/);
   assert.ok(fail);
   assert.match(fail.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running'/);
+  const expiry = database.calls.find(({ sql }) => sql.includes("expires_at < now()"));
+  assert.ok(expiry);
+  assert.match(expiry.sql, /status='failed', completed_at=now\(\)/);
+  assert.match(expiry.sql, /error_code='MANUAL_PING_TARGET_UNAVAILABLE'/, "retain the existing schema's bounded expiry code");
+});
+
+test("Manual Ping rejects a busy Traffic runner before queuing, without changing serial execution", async () => {
+  const database = new ControlDatabase();
+  database.trafficBusy = true;
+  await assert.rejects(new PostgresNetworkHealthPingJobsRepository(database)
+    .create(ACTOR, { targetId: TARGET }, signal()), { code: "RUNNER_BUSY" });
+  assert.equal(database.calls.some(({ sql }) => sql.includes("INSERT INTO public.network_health_ping_jobs")), false);
+  const busy = database.calls.find(({ sql }) => sql.includes(" AS traffic,"));
+  assert.ok(busy);
+  assert.match(busy.sql, /traffic_live_sessions WHERE runner_id=\$1 AND status IN \('queued','running','stopping'\)/);
+});
+
+test("Manual Ping rejects a stale runner before queuing with RUNNER_OFFLINE", async () => {
+  const database = new ControlDatabase();
+  database.runnerSeenAt = new Date(Date.now() - 121_000);
+  await assert.rejects(new PostgresNetworkHealthPingJobsRepository(database)
+    .create(ACTOR, { targetId: TARGET }, signal()), { code: "RUNNER_OFFLINE" });
+  assert.equal(database.calls.some(({ sql }) => sql.includes("INSERT INTO public.network_health_ping_jobs")), false);
+});
+
+test("the runner Health route preserves the same lease/expiry and runner binding as the application repository", async () => {
+  const database = new ControlDatabase();
+  const repository = new PostgresNetworkHealthRepository(database);
+  await repository.claimManualPing(RUNNER, signal());
+  await repository.completeManualPing(SESSION, RUNNER, new Date().toISOString(), { ok: true, latency_ms: 2 }, signal());
+  const expiry = database.calls.find(({ sql }) => sql.includes("expires_at < now()"));
+  const claim = database.calls.find(({ sql }) => sql.includes("FOR UPDATE SKIP LOCKED"));
+  const complete = database.calls.find(({ sql }) => sql.includes("status='completed'"));
+  assert.ok(expiry && claim && complete);
+  assert.match(expiry.sql, /error_code='MANUAL_PING_TARGET_UNAVAILABLE'/);
+  assert.match(expiry.sql, /completed_at=now\(\)/, "completion timestamp distinguishes persisted expiry without schema changes");
+  assert.match(claim.sql, /runner_id=\$1 AND status='queued' AND expires_at >= now\(\)/);
+  assert.match(complete.sql, /id=\$1::uuid AND runner_id=\$2 AND status='running' AND expires_at >= \$3::timestamptz/);
 });
 
 test("local Discovery prepare and start preserve the prepared session lifecycle", async () => {
@@ -173,6 +212,8 @@ class ControlDatabase implements PostgresTransactionalQuery {
   profileStatus = "approved";
   preflight: Record<string, unknown> | null = completedPreflight();
   inspectionBusy = false;
+  trafficBusy = false;
+  runnerSeenAt = new Date();
 
   async rows(sql: string, values: readonly unknown[]): Promise<readonly Record<string, unknown>[]> {
     this.calls.push({ sql, values });
@@ -186,7 +227,7 @@ class ControlDatabase implements PostgresTransactionalQuery {
     if (sql.includes("SELECT id,runner_id FROM public.network_targets")) return [{ id: TARGET, runner_id: RUNNER }];
     if (sql.includes("SELECT id FROM public.network_nodes")) return [{ id: TARGET }];
     if (sql.includes(" AS diagnostic") || sql.includes(" AS traffic,")) {
-      return [{ diagnostic: false, traffic: false, discovery: false, inspection: this.inspectionBusy }];
+      return [{ diagnostic: false, traffic: this.trafficBusy, discovery: false, inspection: this.inspectionBusy }];
     }
     if (sql.includes("SELECT * FROM public.network_discovery_sessions") && sql.includes("status IN ('queued','running')")) return [];
     if (sql.includes("pg_total_relation_size")) return [{ status: "healthy" }];
@@ -231,7 +272,7 @@ class ControlDatabase implements PostgresTransactionalQuery {
   private runner(): Record<string, unknown> {
     return {
       id: RUNNER,
-      last_seen_at: new Date(),
+      last_seen_at: this.runnerSeenAt,
       health_status: "online",
       preflight: this.preflight,
       capabilities: {

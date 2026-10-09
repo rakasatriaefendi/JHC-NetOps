@@ -62,27 +62,28 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
     runnerId: item.id,
     profiles: item.capabilities?.snmp_telemetry?.credential_profiles ?? [],
   })), [runners]);
+  const openedIp = opened?.ipAddress;
+  const selectedRunnerId = runner?.id;
+  const inspectionStatus = session?.status;
 
   useEffect(() => {
-    if (!opened || !runner) return;
+    if (!openedIp || !selectedRunnerId) return;
     let cancelled = false;
-    void getDeviceInspectionSessionAction(runner.id).then((result) => {
+    void getDeviceInspectionSessionAction(selectedRunnerId).then((result) => {
       if (cancelled) return;
       setInspectionAuthority(result.authority);
-      if (result.ok && result.data?.target_ip === opened.ipAddress) setSession(result.data);
-    });
+      if (result.ok && result.data?.target_ip === openedIp) setSession(result.data);
+    }).catch(() => {});
     return () => { cancelled = true; };
-  }, [opened, runner]);
+  }, [openedIp, selectedRunnerId]);
 
   useEffect(() => {
-    if (!opened || !runner || inspectionAuthority !== "local_postgres" ||
-        (session && !["queued", "running"].includes(session.status))) return;
+    if (!openedIp || !selectedRunnerId || inspectionAuthority !== "local_postgres" ||
+        (inspectionStatus && !["queued", "running"].includes(inspectionStatus))) return;
     let cancelled = false;
-    const refreshSession = () => {
-      void getDeviceInspectionSessionAction(runner.id).then((result) => {
-        if (!cancelled && result.ok && result.data?.target_ip === opened.ipAddress) setSession(result.data);
-      });
-    };
+    const refreshSession = () => getDeviceInspectionSessionAction(selectedRunnerId).then((result) => {
+      if (!cancelled && result.ok && result.data?.target_ip === openedIp) setSession(result.data);
+    });
     const stopRealtime = startLocalRealtimeInvalidation({
       topics: ["device_inspector"],
       refresh: refreshSession,
@@ -91,7 +92,7 @@ export function DeviceProfileProvider({ children, role, runners = [] }: {
       fallbackIntervalMs: 2_000,
     });
     return () => { cancelled = true; stopRealtime(); };
-  }, [inspectionAuthority, opened, runner, session]);
+  }, [inspectionAuthority, openedIp, selectedRunnerId, inspectionStatus]);
 
   useEffect(() => {
     let cancelled = false;

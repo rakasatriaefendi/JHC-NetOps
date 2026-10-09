@@ -55,7 +55,7 @@ test("SNMP configuration accepts every monitoring preset and preserves legacy li
   }
 });
 
-test("source examples use 60000ms independent control-plane cadence, not monitoring minutes", () => {
+test("control-plane idle wait is capped independently of heartbeat and monitoring presets", () => {
   for (const file of ["../config.example.json", "../../deploy/runner-config.example.json"]) {
     const example = JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
     assert.equal(example.poll_interval_ms, 60000);
@@ -67,7 +67,11 @@ test("source examples use 60000ms independent control-plane cadence, not monitor
     for (const value of [999, 60001, 900000, 1800000]) assert.throws(() => loadConfig({ [field]: value }), new RegExp(`${field} is invalid`));
   }
   const main = readFileSync(new URL("../src/main.mjs", import.meta.url), "utf8");
-  assert.match(main, /config\.poll_interval_ms/);
+  assert.equal(loadConfig({ poll_interval_ms: 60000 }).control_poll_interval_ms, 2000);
+  assert.equal(loadConfig({ poll_interval_ms: 1000 }).control_poll_interval_ms, 1000);
+  assert.equal(loadConfig({ poll_interval_ms: 60000, heartbeat_interval_ms: 60000 }).heartbeat_interval_ms, 60000);
+  assert.match(main, /if \(!once\) await delay\(config\.control_poll_interval_ms\)/);
+  assert.match(main, /if \(rawSession\) await executeTraffic\(rawSession\)/, "long Traffic remains serial, not a parallel probe loop");
   assert.match(main, /config\.heartbeat_interval_ms/);
   assert.doesNotMatch(main, /monitoring-modes|monitoring-intervals|900_?000|1800_?000/);
 });

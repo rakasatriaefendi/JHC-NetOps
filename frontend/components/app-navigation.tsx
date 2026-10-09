@@ -43,13 +43,13 @@ export function AppNavigation({ fullName, email, role }: AppNavigationProps) {
     : navigation;
 
   const sidebar = (
-    <div className="flex h-full flex-col bg-bg-surface p-4">
-      <div className="border-b border-border pb-4">
+    <div data-sidebar="shell" className="flex h-full min-h-0 flex-col overflow-y-auto bg-bg-surface p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="shrink-0 border-b border-border pb-4 pr-8">
         <p className="text-section font-semibold">{t("appName")}</p>
         <p className="mt-1 text-meta text-text-muted">{t("networkVisibility")}</p>
       </div>
 
-      <nav className="mt-4 flex flex-1 flex-col gap-1" aria-label={t("nav.main")}>
+      <nav data-sidebar="navigation" className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain [@media(max-height:480px)]:flex-none [@media(max-height:480px)]:overflow-visible" aria-label={t("nav.main")}>
         {groups.map((group, groupIndex) => <div className={groupIndex ? "mt-4" : ""} key={group.key}>
           <p className="mb-1 px-3 text-meta font-medium uppercase tracking-wide text-text-muted">{t(`nav.${group.key}`)}</p>
           <div className="flex flex-col gap-1">{group.items.map((link) => {
@@ -62,19 +62,26 @@ export function AppNavigation({ fullName, email, role }: AppNavigationProps) {
         </div>)}
       </nav>
 
-      <div className="border-t border-border pt-4">
-        <LanguageSelector />
-        <Link href="/profile" onClick={() => setOpen(false)} aria-label={t("profile.title")}
-          aria-current={pathname === "/profile" ? "page" : undefined}
-          className="mt-2 flex min-w-0 items-center gap-2 rounded-control p-1 hover:bg-accent/10 focus-visible:outline-accent">
+      <div data-sidebar="account" className="mt-4 shrink-0 border-t border-border pt-4">
+        <div className="mb-3 flex min-w-0 items-center gap-2">
           <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg-base text-meta font-semibold">
             {initials ?? <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" /></svg>}
           </span>
-          <span className="truncate text-body font-medium">{profileDisplayLabel(fullName, email, null, t("profile.title"))}</span>
+          <div className="min-w-0">
+            <p className="truncate text-body font-medium">{profileDisplayLabel(fullName, email, null, t("profile.title"))}</p>
+            <p className="mt-1 text-meta capitalize text-text-muted">{t(`roles.${role}`)}</p>
+          </div>
+        </div>
+        <LanguageSelector />
+        <Link href="/profile" onClick={() => setOpen(false)} aria-label={t("profile.title")}
+          aria-current={pathname === "/profile" ? "page" : undefined}
+          className={`flex w-full items-center gap-2 rounded-control border px-4 py-2 text-body font-medium transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent ${pathname === "/profile" ? "border-accent bg-accent/10 text-accent" : "border-border bg-bg-base text-text-primary hover:border-accent hover:bg-accent/10 hover:text-accent"}`}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" /></svg>
+          <span>{t("profile.title")}</span>
         </Link>
-        <p className="mt-1 text-meta capitalize text-text-muted">{t(`roles.${role}`)}</p>
-        <form action={logoutAction} className="mt-3">
-          <Button className="w-full" variant="secondary" type="submit">
+        <form action={logoutAction} className="mt-2">
+          <Button className="flex w-full items-center gap-2 bg-bg-base hover:bg-accent/10" variant="secondary" type="submit">
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H4V3h5M14 7l5 5-5 5M8 12h11" /></svg>
             {t("actions.signOut")}
           </Button>
         </form>
@@ -84,7 +91,7 @@ export function AppNavigation({ fullName, email, role }: AppNavigationProps) {
 
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border md:block">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden h-dvh min-h-0 w-64 border-r border-border md:block">
         {sidebar}
       </aside>
 
@@ -102,19 +109,19 @@ export function AppNavigation({ fullName, email, role }: AppNavigationProps) {
       </header>
 
       {open ? (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 h-dvh md:hidden">
           <button
             type="button"
             aria-label={t("nav.close")}
             className="absolute inset-0 bg-bg-base/80"
             onClick={() => setOpen(false)}
           />
-          <aside className="relative h-full w-64 border-r border-border">
+          <aside className="relative h-full min-h-0 w-64 max-w-full border-r border-border">
             <button
               type="button"
               aria-label={t("nav.close")}
               onClick={() => setOpen(false)}
-              className="absolute right-4 top-4 z-10 text-section text-text-secondary"
+              className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-10 text-section text-text-secondary"
             >
               ×
             </button>

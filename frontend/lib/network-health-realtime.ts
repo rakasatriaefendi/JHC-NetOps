@@ -17,7 +17,7 @@ export type NetworkHealthRealtimeTimers = Readonly<{
 }>;
 
 export type NetworkHealthRealtimeOptions = Readonly<{
-  refresh: () => void;
+  refresh: () => void | Promise<void>;
   onStatus: (status: NetworkHealthRealtimeStatus) => void;
   createEventStream?: (url: string) => NetworkHealthEventStream;
   timers?: NetworkHealthRealtimeTimers;
@@ -27,7 +27,7 @@ export type LocalRealtimeTopic = "network_health" | "diagnostics" | "device_insp
 
 export type LocalRealtimeInvalidationOptions = Readonly<{
   topics: readonly LocalRealtimeTopic[];
-  refresh: () => void;
+  refresh: () => void | Promise<void>;
   onStatus: (status: NetworkHealthRealtimeStatus) => void;
   debounceMs: number;
   fallbackIntervalMs: number;
@@ -58,12 +58,28 @@ export function startLocalRealtimeInvalidation(options: LocalRealtimeInvalidatio
   let refreshTimer: unknown | null = null;
   let fallbackTimer: unknown | null = null;
   let stream: NetworkHealthEventStream | null = null;
+  let refreshing = false;
+  let refreshAgain = false;
 
   const scheduleRefresh = () => {
-    if (disposed || refreshTimer !== null) return;
+    if (disposed) return;
+    if (refreshing) { refreshAgain = true; return; }
+    if (refreshTimer !== null) return;
     refreshTimer = timers.setTimeout(() => {
       refreshTimer = null;
-      if (!disposed) options.refresh();
+      if (disposed) return;
+      refreshing = true;
+      const finish = () => {
+        refreshing = false;
+        if (refreshAgain) { refreshAgain = false; scheduleRefresh(); }
+      };
+      try {
+        const pending = options.refresh();
+        if (pending) void pending.catch(() => {}).finally(finish);
+        else finish();
+      } catch {
+        finish();
+      }
     }, options.debounceMs);
   };
   const stopFallback = () => {

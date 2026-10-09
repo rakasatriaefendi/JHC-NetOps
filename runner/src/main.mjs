@@ -112,7 +112,7 @@ try {
         }
       }
     }
-    if (!once) await delay(config.poll_interval_ms);
+    if (!once) await delay(config.control_poll_interval_ms);
   } while (!once);
 } finally {
   await healthWatch.stop();

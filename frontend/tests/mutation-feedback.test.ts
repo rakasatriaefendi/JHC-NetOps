@@ -75,7 +75,7 @@ test("notifications are app-wired, bounded, accessible, allowlisted and not emit
   assert.match(discovery, /inFlight\.current = false; setBusy\(false\)/);
   const ping = source("../components/dashboard/manual-ping-provider.tsx");
   assert.match(ping, /inFlight\.current\.has\(targetId\)/);
-  assert.ok(ping.indexOf("await waitForManualPingLocal(pingId)") < ping.indexOf('notify("ping", outcome.phase === "success")'));
+  assert.ok(ping.indexOf("await waitForManualPingLocal(pingId)") < ping.indexOf('notify("ping", outcome.phase === "success", outcome.code)'));
   assert.match(ping, /!isAdmin \|\| !target\?\.manual_ping_available/);
 });
 

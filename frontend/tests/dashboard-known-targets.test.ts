@@ -10,8 +10,8 @@ const manualPing = readFileSync(new URL("../components/dashboard/manual-ping-pro
 const networkControl = readFileSync(new URL("../app/actions/legacy-network-control.ts", import.meta.url), "utf8");
 
 test("Other known targets reuses the single Manual Ping provider and target-id-only request", () => {
-  assert.match(dashboard, /<ManualPingProvider targets=\{targets\} isAdmin=\{isAdmin\}>/);
-  assert.match(dashboard, /title=\{t\("health\.otherTargets"\)\}[\s\S]*paginate showManualPing=\{isAdmin\}/);
+  assert.match(dashboard, /<ManualPingProvider targets=\{targets\} isAdmin=\{manualPingIsAdmin\}>/);
+  assert.match(dashboard, /title=\{t\("health\.otherTargets"\)\}[\s\S]*paginate showManualPing=\{manualPingIsAdmin\}/);
   assert.match(dashboard, /<th className="p-3">\{t\("health\.columns\.action"\)\}<\/th>/);
   assert.match(dashboard, /manualPing\.run\(target\.id\)/);
   assert.match(map, /useManualPing\(\)/);
@@ -19,6 +19,24 @@ test("Other known targets reuses the single Manual Ping provider and target-id-o
   assert.match(networkControl, /createPingJobLocal\(userId,[\s\S]*target_id: target/);
   assert.match(networkControl, /createPingJobLocal\(userId,[\s\S]*target_id: target/);
   assert.doesNotMatch(dashboard, /ip_address[^\n]*manual_ping|manual_ping[^\n]*ip_address/);
+});
+
+test("only Admin sees Ping in table/mobile cards and Reachability Map; Operator retains other controls", () => {
+  const page = readFileSync(new URL("../app/(protected)/dashboard/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const canOperate = canOperateNetwork\(profile\.role\)/);
+  assert.match(page, /isAdmin=\{canOperate\}/);
+  assert.match(page, /manualPingIsAdmin=\{profile\.role === "admin"\}/);
+  assert.match(dashboard, /<ManualPingProvider targets=\{targets\} isAdmin=\{manualPingIsAdmin\}>/);
+  assert.doesNotMatch(dashboard, /showManualPing=\{isAdmin\}/);
+  assert.match(dashboard, /\{showManualPing \? <td[^\n]*<ManualPingAction/);
+  assert.match(dashboard, /\{showManualPing \? <div[^\n]*<ManualPingAction/);
+  const action = dashboard.slice(dashboard.indexOf("function ManualPingAction("));
+  const adminGuard = action.indexOf("if (!manualPing.isAdmin) return null;");
+  assert.ok(adminGuard >= 0 && adminGuard < action.indexOf("<Button"));
+  assert.match(map, /\{manualPing\.isAdmin \? \([\s\S]*?<Button[\s\S]*?manualPing\.run\(target\.id\)/);
+  assert.match(networkControl, /queueManualPingAction[\s\S]*?await requireAdminProfile\(\)/);
+  assert.match(dashboard, /\{isAdmin \? <Button[^\n]*setDiscoveryOpen\(true\)/,
+    "Discovery still uses the general Operator/Admin capability");
 });
 
 test("manual Ping blocks duplicate and unavailable requests before creating transient state", () => {

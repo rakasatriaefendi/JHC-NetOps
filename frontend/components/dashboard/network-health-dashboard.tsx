@@ -18,7 +18,7 @@ import { startNetworkHealthRealtime, type NetworkHealthRealtimeStatus } from "@/
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
 
-export function NetworkHealthDashboard({ targets, events, samples, loadError, isAdmin, discoveryRunners, discoverySessions, trafficIps, initialTargetId }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; loadError: boolean; isAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[]; initialTargetId?: string }) {
+export function NetworkHealthDashboard({ targets, events, samples, loadError, isAdmin, manualPingIsAdmin, discoveryRunners, discoverySessions, trafficIps, initialTargetId }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; loadError: boolean; isAdmin: boolean; manualPingIsAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[]; initialTargetId?: string }) {
   const { t, i18n } = useTranslation("dashboard");
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(() => targets.some((target) => target.id === initialTargetId) ? initialTargetId ?? null : null);
@@ -47,7 +47,7 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
   if (loadError) return <section className="mt-6 rounded-panel border border-severity-critical bg-bg-surface p-6"><p className="font-medium text-severity-critical">{t("health.loadError")}</p><p className="mt-2 text-text-secondary">{t("health.loadErrorHelp")}</p></section>;
 
   return (
-    <ManualPingProvider targets={targets} isAdmin={isAdmin}>
+    <ManualPingProvider targets={targets} isAdmin={manualPingIsAdmin}>
       <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("health.eyebrow")}</p><h2 className="mt-2 text-section font-semibold">{t("health.title")}</h2><p className="mt-2 max-w-3xl text-text-secondary">{t("health.description")}</p></div>
@@ -68,7 +68,7 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
               <Summary label={t("health.averageLatency")} value={summary.average === null ? "-" : `${summary.average.toFixed(1)} ms`} />
             </div>
             <TargetGroup title={t("health.criticalTargets")} targets={targets.filter((target) => target.critical)} onSelect={setSelectedId} />
-            <TargetGroup title={t("health.otherTargets")} targets={targets.filter((target) => !target.critical)} onSelect={setSelectedId} paginate showManualPing={isAdmin} />
+            <TargetGroup title={t("health.otherTargets")} targets={targets.filter((target) => !target.critical)} onSelect={setSelectedId} paginate showManualPing={manualPingIsAdmin} />
           </>
         )}
       </section>
@@ -160,6 +160,7 @@ function ManualPingAction({ target }: { target: NetworkHealthTarget }) {
   const { t } = useTranslation("dashboard");
   const manualPing = useManualPing();
   const state = manualPing.states[target.id];
+  if (!manualPing.isAdmin) return null;
   return (
     <div className="flex min-w-[8rem] flex-col items-start gap-1">
       <Button

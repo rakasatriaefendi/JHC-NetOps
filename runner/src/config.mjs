@@ -17,6 +17,8 @@ export function loadRunnerConfig(configPath = path.join(RUNNER_ROOT, "config.loc
   const projectRoot = runtimePlatform === "win32" ? value.wsl_project_root : value.native_project_root;
   return {
     ...value,
+    // Interactive jobs have a 30-second lease; monitoring/heartbeat cadence is independent.
+    control_poll_interval_ms: Math.min(value.poll_interval_ms, 2_000),
     runtime_platform: runtimePlatform,
     config_path: absolutePath,
     environment_path: envPath,

@@ -20,13 +20,13 @@ export function LocalTrafficSummary({ initialState, loadError }: {
 
   useEffect(() => {
     let disposed = false;
-    const refresh = () => void getTrafficStateAction().then((result) => {
+    const refresh = () => getTrafficStateAction().then((result) => {
       if (disposed) return;
       if (result.ok && result.data) setState(result.data);
     }).catch(() => {
       // Retain the last authoritative snapshot on a transient refresh failure.
     });
-    refresh();
+    // The initial snapshot is already loaded; SSE sync (or fallback) refreshes it.
 
     const stopRealtime = startLocalRealtimeInvalidation({
       topics: ["traffic"],

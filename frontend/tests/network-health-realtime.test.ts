@@ -11,6 +11,7 @@ const {
   NETWORK_HEALTH_FALLBACK_INTERVAL_MS,
   NETWORK_HEALTH_REALTIME_DEBOUNCE_MS,
   startNetworkHealthRealtime,
+  startLocalRealtimeInvalidation,
 } = await import("../lib/network-health-realtime.ts");
 
 test("Network Health uses same-origin local invalidations and coalesces a health burst", () => {
@@ -101,6 +102,89 @@ test("unmount clears pending refresh and fallback resources without changing das
   timers.flushTimeouts();
   timers.tickIntervals();
   assert.equal(refreshes, 0);
+});
+
+test("slow authoritative refetch is single-flight and invalidations retain only one trailing refresh", async () => {
+  const stream = new FakeEventStream();
+  const timers = new FakeTimers();
+  let release: () => void = () => {};
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let refreshes = 0;
+  const stop = startLocalRealtimeInvalidation({
+    topics: ["device_inspector"], debounceMs: 250, fallbackIntervalMs: 2_000,
+    refresh: () => { refreshes += 1; return pending; },
+    onStatus: () => {}, createEventStream: () => stream, timers,
+  });
+  stream.emitInvalidation("sync");
+  timers.flushTimeouts();
+  assert.equal(refreshes, 1);
+  stream.emit("error");
+  for (let index = 0; index < 20; index += 1) {
+    stream.emitInvalidation("device_inspector");
+    timers.tickIntervals();
+    timers.flushTimeouts();
+  }
+  assert.equal(refreshes, 1, "neither SSE nor fallback overlaps the active request");
+  assert.equal(timers.timeoutCount, 0);
+  release();
+  await pending;
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(timers.timeoutCount, 1, "all in-flight events coalesce without losing the last invalidation");
+  timers.flushTimeouts();
+  assert.equal(refreshes, 2);
+  stop();
+});
+
+test("a rejected refetch remains recoverable, but disposing an in-flight refetch prevents trailing work", async () => {
+  const stream = new FakeEventStream();
+  const timers = new FakeTimers();
+  let reject: () => void = () => {};
+  const pending = new Promise<void>((resolve, fail) => { void resolve; reject = () => fail(new Error("read failed")); });
+  let refreshes = 0;
+  const stop = startLocalRealtimeInvalidation({
+    topics: ["traffic"], debounceMs: 250, fallbackIntervalMs: 60_000,
+    refresh: () => { refreshes += 1; return pending; },
+    onStatus: () => {}, createEventStream: () => stream, timers,
+  });
+  stream.emitInvalidation("sync");
+  timers.flushTimeouts();
+  stream.emitInvalidation("traffic");
+  reject();
+  await pending.catch(() => {});
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(timers.timeoutCount, 1);
+  timers.flushTimeouts();
+  assert.equal(refreshes, 2);
+  stream.emitInvalidation("traffic");
+  stop();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(timers.timerCount, 0);
+  assert.equal(stream.closed, true);
+  assert.equal(refreshes, 2);
+});
+
+test("Inspector subscription depends on identity/lifecycle primitives, not each freshly refetched row", () => {
+  const inspector = readFileSync(new URL("../components/device-profile/device-profile-provider.tsx", import.meta.url), "utf8");
+  const effectStart = inspector.indexOf('inspectionAuthority !== "local_postgres"');
+  const effectEnd = inspector.indexOf("}, [", effectStart);
+  assert.ok(effectStart >= 0 && effectEnd > effectStart);
+  const effect = inspector.slice(effectStart, effectEnd);
+  assert.match(effect, /getDeviceInspectionSessionAction\(selectedRunnerId\)\.then/);
+  assert.match(effect, /target_ip === openedIp\) setSession\(result\.data\)/);
+  assert.match(effect, /topics: \["device_inspector"\]/);
+  assert.match(effect, /refresh: refreshSession/);
+  assert.doesNotMatch(effect, /void getDeviceInspectionSessionAction/, "return the promise so invalidations can be coalesced in flight");
+  assert.match(inspector.slice(effectEnd), /^\}, \[inspectionAuthority, openedIp, selectedRunnerId, inspectionStatus\]\)/);
+  assert.match(inspector, /const openedIp = opened\?\.ipAddress/);
+  assert.match(inspector, /const selectedRunnerId = runner\?\.id/);
+  assert.match(inspector, /const inspectionStatus = session\?\.status/);
+  assert.doesNotMatch(inspector, /\[inspectionAuthority, opened, runner, session\]/);
+  const summary = readFileSync(new URL("../components/dashboard/local-traffic-summary.tsx", import.meta.url), "utf8");
+  assert.match(summary, /const refresh = \(\) => getTrafficStateAction\(\)\.then/);
+  assert.doesNotMatch(summary, /^\s*refresh\(\);/m, "use initial data and SSE sync, not a duplicate mount refetch");
 });
 
 test("Network Health consumer has no Supabase channel or Edge Function fallback", () => {

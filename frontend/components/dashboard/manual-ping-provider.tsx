@@ -2,21 +2,14 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { useActionFeedback } from "@/components/ui/action-feedback";
 
 import type { NetworkHealthTarget } from "@/lib/network-health";
 import { queueManualPingAction, pollManualPingAction } from "@/app/actions/legacy-network-control";
+import { manualPingFailure, waitForManualPing, type ManualPingOutcome } from "@/lib/manual-ping";
 
 export type ManualPingPhase = "loading" | "success" | "error";
-export type ManualPingState = { phase: ManualPingPhase; message: string };
-
-type ManualPingJob = {
-  id: string;
-  status: "queued" | "running" | "completed" | "failed";
-  result: { ok: boolean; latency_ms?: number; category?: "timeout" | "unreachable" } | null;
-  error_code: string | null;
-};
+export type ManualPingState = { phase: ManualPingPhase; message: string; code?: string };
 
 type ManualPingContextValue = {
   isAdmin: boolean;
@@ -31,37 +24,6 @@ const ManualPingContext = createContext<ManualPingContextValue>({
   activityTokens: {},
   run: () => {},
 });
-
-async function waitForManualPingLocal(pingId: string): Promise<ManualPingJob> {
-  const startTime = Date.now();
-  const maxWaitMs = 15_000;
-  const pollIntervalMs = 1500;
-  let lastJob: ManualPingJob | null = null;
-
-  while (Date.now() - startTime < maxWaitMs) {
-    const response = await pollManualPingAction(pingId);
-    if (!response.ok || !response.data) {
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      continue;
-    }
-    const job = response.data as ManualPingJob;
-    lastJob = job;
-    if (job.status === "completed" || job.status === "failed") {
-      return job;
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-  }
-  if (lastJob) return lastJob;
-  throw new Error("Manual ping timed out");
-}
-
-function manualPingOutcome(job: ManualPingJob, t: TFunction): ManualPingState {
-  if (job.status !== "completed" || !job.result) return { phase: "error", message: t("manualPing.failed") };
-  if (job.result.ok === true && typeof job.result.latency_ms === "number") {
-    return { phase: "success", message: t("manualPing.result", { latency: job.result.latency_ms.toFixed(1) }) };
-  }
-  return { phase: "error", message: t(job.result.category === "timeout" ? "manualPing.timeout" : "manualPing.unreachable") };
-}
 
 export function ManualPingProvider({ targets, isAdmin, children }: {
   targets: NetworkHealthTarget[];
@@ -85,20 +47,26 @@ export function ManualPingProvider({ targets, isAdmin, children }: {
     setActivityTokens((current) => ({ ...current, [targetId]: Number(current[targetId] ?? 0) + 1 }));
 
     let outcome: ManualPingState;
+    const translate = (result: ManualPingOutcome): ManualPingState => ({
+      phase: result.phase, message: t(result.key, { latency: result.latency }),
+      ...(result.code ? { code: result.code } : {}),
+    });
+    const waitForManualPingLocal = (pingId: string) => waitForManualPing(pingId, pollManualPingAction,
+      (progress) => setStates((current) => ({ ...current, [targetId]: translate(progress) })));
     try {
       const queued = await queueManualPingAction(targetId);
       const pingId = queued.id;
-      if (!queued.ok || typeof pingId !== "string") throw new Error("Manual ping could not be queued");
-      const job = await waitForManualPingLocal(pingId);
-      outcome = manualPingOutcome(job, t);
+      outcome = translate(queued.ok && typeof pingId === "string"
+        ? await waitForManualPingLocal(pingId)
+        : manualPingFailure(queued.code));
     } catch {
-      outcome = { phase: "error", message: t("manualPing.failed") };
+      outcome = translate(manualPingFailure("MANUAL_PING_RESULT_UNAVAILABLE"));
     } finally {
       inFlight.current.delete(targetId);
     }
 
     setStates((current) => ({ ...current, [targetId]: outcome }));
-    notify("ping", outcome.phase === "success"); // One terminal result for this explicit request, never a background poll toast.
+    notify("ping", outcome.phase === "success", outcome.code); // One terminal result for this explicit request, never a background poll toast.
     clearTimers.current[targetId] = setTimeout(() => {
       setStates((current) => ({ ...current, [targetId]: undefined }));
       delete clearTimers.current[targetId];

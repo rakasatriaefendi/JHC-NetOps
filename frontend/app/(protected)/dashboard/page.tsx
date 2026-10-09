@@ -49,6 +49,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           samples={samples.data ?? []}
           loadError={health.error || discovery.error}
           isAdmin={canOperate}
+          manualPingIsAdmin={profile.role === "admin"}
           discoveryRunners={discoveryRunners.data}
           discoverySessions={discovery.data}
           trafficIps={observedTrafficIps(traffic.data.snapshots)}

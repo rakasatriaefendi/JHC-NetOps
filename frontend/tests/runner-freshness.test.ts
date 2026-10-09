@@ -72,7 +72,7 @@ test("heartbeat grace does not remove status or capability checks; empty targets
   assert.match(diagnostics, /runner\.health_status === "online" && isRunnerFresh\(runner, now\)/);
 });
 
-test("freshness change preserves monitoring presets and the runner's configured claim/heartbeat cadence", () => {
+test("freshness preserves monitoring and heartbeat while control-plane claim wait remains bounded", () => {
   assert.deepEqual(MONITORING_INTERVALS, [15, 30, 60, 900, 1800]);
   assert.equal(DEFAULT_MONITORING_INTERVAL, 900);
   assert.equal(intervalForMode("moderate"), 900);
@@ -81,7 +81,8 @@ test("freshness change preserves monitoring presets and the runner's configured 
   const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
   const main = source("../../runner/src/main.mjs");
   assert.match(main, /startHeartbeatLoop\(\s*sendHeartbeat,\s*config\.heartbeat_interval_ms,/);
-  assert.match(main, /if \(!once\) await delay\(config\.poll_interval_ms\)/);
+  assert.match(main, /if \(!once\) await delay\(config\.control_poll_interval_ms\)/);
+  assert.match(source("../../runner/src/config.mjs"), /control_poll_interval_ms: Math\.min\(value\.poll_interval_ms, 2_000\)/);
   assert.match(main, /backend\.claimDiscovery\(config\.runner_id\)/);
   assert.match(main, /backend\.claimInspection\(config\.runner_id\)/);
   for (const path of ["../../runner/src/network-health.mjs", "../../runner/src/snmp-telemetry.mjs"]) {

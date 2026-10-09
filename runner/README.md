@@ -26,6 +26,12 @@ Monitoring target memakai preset Aggressive (15/30/60 detik), Moderate
 Health/SNMP mengatur probe/poll target, bukan claim loop atau heartbeat.
 Contoh deployment memakai `poll_interval_ms=60000` dan
 `heartbeat_interval_ms=60000`; validasi keduanya tetap 1000-60000 ms.
+Claim control-plane memakai `min(poll_interval_ms, 2000)` ms di antara iterasi,
+tanpa mengubah heartbeat atau interval Health/SNMP. Loop tetap serial: Traffic
+yang sedang berjalan menahan claim berikutnya sampai selesai; Manual Ping
+ditolak dengan `RUNNER_BUSY` ketika ada pekerjaan aktif, bukan dijalankan paralel.
+Saat idle, maksimal satu rangkaian claim setiap 2 detik pada config 60000 ms;
+latensi HTTP dan pekerjaan aktif tetap menambah waktu tunggu.
 Scheduler internal 1 detik hanya memeriksa pekerjaan yang sudah jatuh tempo;
 baseline counter SNMP tetap relatif terhadap interval target. Timeout SNMP
 tidak diubah. Perubahan interval diterapkan saat target di-refresh (hingga
