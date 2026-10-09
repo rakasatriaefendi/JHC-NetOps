@@ -47,7 +47,8 @@ test("compact inventory exposes P10D columns, Insights, filters, pagination, and
   assert.match(component, /isNewNetworkAsset/);
   assert.match(component, /flex min-w-0 items-center gap-2/);
   assert.match(component, /inline-flex shrink-0 whitespace-nowrap/);
-  assert.doesNotMatch(component, /identity|IP_CHANGED|MAC_CHANGED|NEW_DEVICE/);
+  assert.match(component, /<AssetIdentityPanel key=\{asset\.id\} assetId=\{asset\.id\}/);
+  assert.doesNotMatch(component, /IP_CHANGED|MAC_CHANGED|NEW_DEVICE/);
 });
 
 test("Asset Detail renders bounded SNMP, Health Watch, and Inspector integration states", () => {

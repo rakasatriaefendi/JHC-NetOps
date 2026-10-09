@@ -3,6 +3,18 @@
   "title": "Asset Inventory",
   "description": "A compact inventory enriched from authorized NetOps evidence. Active scans run only after an operator explicitly starts one.",
   "loading": "Loading Asset Inventory",
+  "identity": {
+    "title": "Device identity and endpoint history", "help": "The asset ID is durable identity. IP addresses are endpoints, not proof of identity.",
+    "loading": "Loading identity evidence…", "unavailable": "Identity evidence is temporarily unavailable.",
+    "canonicalId": "Canonical asset ID", "stateLabel": "Identity state", "endpoints": "Current and previous endpoints",
+    "evidence": "Identity evidence", "noEndpoints": "No endpoint assignments recorded.", "noEvidence": "No usable identity evidence recorded.",
+    "truncated": "This bounded view shows current endpoints first and recent evidence/history; older records remain stored.",
+    "state": { "resolved": "Resolved", "provisional": "Provisional", "conflict": "Conflict — no automatic merge" },
+    "endpointState": { "current": "Current", "historical": "Historical", "unresolved": "Unresolved observation" },
+    "confidence": { "authoritative": "Authoritative", "high": "High", "medium": "Medium", "low": "Low" },
+    "strength": { "strong": "Strong", "corroborating": "Corroborating", "weak": "Weak" },
+    "type": { "network_node_binding": "Explicit node binding", "global_mac": "Global MAC", "local_mac": "Local/private MAC", "snmp_serial": "SNMP serial", "sys_object_id": "System Object ID", "manufacturer": "Manufacturer", "model": "Model", "hostname": "Hostname", "sys_name": "System name", "netbios_name": "NetBIOS name" }
+  },
   "lastUpdated": "Last updated: {{value}}",
   "report": { "action": "Export Excel", "exporting": "Exporting…", "success": "Report downloaded.", "error": "Report export failed. Please try again.", "ctaTitle": "Download this inventory view", "ctaDescription": "Export all {{count}} matching assets and their bounded change history as a branded Excel report." },
   "summary": { "total": "Total assets", "online": "Online", "offline": "Offline", "changed": "Changed" },

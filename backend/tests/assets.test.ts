@@ -132,11 +132,12 @@ test("P10D migration adds bounded evidence fields and an idempotent stable key",
   assert.match(repository, /jsonb_to_recordset\(\$1::jsonb\)/);
   assert.match(repository, /ON CONFLICT \(stable_source_key\) DO UPDATE/);
   assert.match(repository, /lower\(btrim\(asset\.assets\.vendor\)\) ~ '\^0x/);
-  assert.doesNotMatch(repository, /for \(const observation of observations\)/);
+  const mergeLoop = repository.slice(repository.indexOf("for (const observation of observations)"), repository.indexOf("const idsByKey"));
+  assert.doesNotMatch(mergeLoop, /client\.query/); // In-memory merge, not per-row database writes.
   assert.doesNotMatch(sql, /DROP\s+(?:TABLE|DATABASE|SCHEMA)|TRUNCATE|REFERENCES\s+(?:public|auth)\./i);
 });
 
-test("existing evidence becomes one conservative idempotent asset without raw payloads", () => {
+test("explicit node evidence stays separate from IP-correlated private-MAC neighbor observations", () => {
   const nodeId = "22222222-2222-4222-8222-222222222222";
   const targetId = "33333333-3333-4333-8333-333333333333";
   const snapshot: AssetEvidenceSnapshot = {
@@ -148,7 +149,9 @@ test("existing evidence becomes one conservative idempotent asset without raw pa
   const first = buildAssetObservations(snapshot);
   const second = buildAssetObservations(snapshot);
   assert.deepEqual(first, second);
-  assert.equal(first.length, 1);
+  assert.equal(first.length, 2);
+  assert.equal(first[1]?.network_node_ref, null);
+  assert.equal(first[1]?.stable_source_key, `observed:${targetId}:192.168.1.8`);
   assert.equal(first[0]?.stable_source_key, `node:${nodeId}`);
   assert.equal(first[0]?.device_type, "switch_network");
   assert.equal(first[0]?.classification_confidence, "high");
@@ -297,12 +300,15 @@ test("asset evidence remains bounded and cannot start a network operation", () =
   assert.ok(observations.every((item) => item.classification_evidence.length <= 32 && item.open_ports.length <= 32));
 });
 
-test("asset persistence merges field evidence before bulk upsert while active scans remain premerged", () => {
+test("asset persistence resolves identity before merging field evidence and bulk scan upsert", () => {
   const repository = readFileSync(new URL("../src/assets/repository.ts", import.meta.url), "utf8");
   const scanRepository = readFileSync(new URL("../src/assets/scan-repository.ts", import.meta.url), "utf8");
-  assert.match(repository, /mergeAssetEvidence\(existingObservation\(before\), observation\)/);
+  assert.match(repository, /identity\.prepare\(observations, context\.scanRunId \?\? null, signal\)/);
+  assert.match(repository, /mergeAssetEvidence\(before, observation\)/);
+  assert.match(repository, /mergeActiveScanObservation\(before, observation\)/);
   assert.match(repository, /JSON\.stringify\(effectiveObservations\)/);
-  assert.match(scanRepository, /observationsPremerged: true/);
+  assert.match(scanRepository, /this\.#assets\.ingest\(observations, signal, \{\s*scanRunId,\s*eventSource: "active_scan"/);
+  assert.doesNotMatch(scanRepository, /byIp|byMac/);
 });
 
 test("PostgreSQL provisioning handles an existing dedicated cluster without touching 16/main", () => {

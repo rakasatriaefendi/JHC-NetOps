@@ -27,6 +27,7 @@ export type AssetSummary = Readonly<{
 
 export type AssetRecord = Readonly<{
   id: string;
+  identity_state?: "resolved" | "provisional" | "conflict";
   name: string;
   hostname: string | null;
   device_type: string;

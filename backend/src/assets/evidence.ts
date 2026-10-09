@@ -1,4 +1,5 @@
 import type { PostgresNetworkInventoryRepository } from "../persistence/inventory.js";
+import { normalizeIdentityEvidence, type IdentityEvidence } from "./identity.js";
 
 export const ASSET_EVIDENCE_ROW_LIMIT = 1_000;
 export const ASSET_EVIDENCE_LIMIT = 32;
@@ -47,6 +48,7 @@ export type AssetObservation = Readonly<{
   managed_telemetry_target_ref: string | null;
   observed_host_target_ref: string | null;
   field_evidence?: AssetFieldEvidence;
+  identity_evidence?: readonly IdentityEvidence[];
 }>;
 
 export type AssetEvidenceSnapshot = Readonly<{
@@ -114,6 +116,7 @@ type Draft = {
   fingerprintType: string | null;
   nameEvidence: AssetFieldEvidence["name"];
   servicesEvidence: AssetFieldEvidence["services"];
+  identityEvidence: IdentityEvidence[];
 };
 
 export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetObservation[] {
@@ -162,6 +165,7 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
       fingerprintType: boundedIdentifier(fingerprint?.likely_device_type),
       nameEvidence: "authoritative",
       servicesEvidence: fingerprint && Array.isArray(fingerprint.observed_services) ? "partial" : "unobserved",
+      identityEvidence: [],
     };
     drafts.set(draft.stableKey, draft);
     nodeById.set(id, draft);
@@ -208,14 +212,22 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
     addEvidence(draft, "managed_telemetry", "SNMP status", String(latest.status));
     addOptionalEvidence(draft, "managed_telemetry", "System name", latest.sys_name);
     addOptionalEvidence(draft, "managed_telemetry", "Model", latest.model);
+    for (const [type, value] of [
+      ["snmp_serial", latest.serial_number], ["sys_object_id", latest.sys_object_id],
+      ["manufacturer", latest.manufacturer], ["model", latest.model], ["sys_name", latest.sys_name],
+    ] as const) {
+      const evidence = normalizeIdentityEvidence(type, value);
+      if (evidence) draft.identityEvidence.push(evidence);
+    }
   }
 
   for (const row of snapshot.observedHosts.slice(0, ASSET_EVIDENCE_ROW_LIMIT)) {
     const targetId = uuid(row.target_id);
     const ip = privateIpv4(row.ip_address);
     if (!targetId || !ip) continue;
-    const nodeId = uuid(row.node_id);
-    const key = nodeId ? `node:${nodeId}` : `observed:${targetId}:${ip}`;
+    // node_id here is an IP correlation in latest-state telemetry, NOT an
+    // explicit operator binding. Never feed it into durable identity selection.
+    const key = `observed:${targetId}:${ip}`;
     let draft = drafts.get(key);
     if (!draft) {
       const firstSeen = timestamp(row.first_seen_at);
@@ -241,16 +253,16 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
         services: [],
         latency: null,
         evidenceUpdatedAt: timestamp(row.updated_at) ?? lastSeen,
-        nodeRef: nodeId,
+        nodeRef: null,
         healthRef: null,
         managedRef: null,
         observedRef: targetId,
         fingerprintType: null,
         nameEvidence: boundedText(row.netbios_name, 200) ? "observed" : "fallback",
         servicesEvidence: "unobserved",
+        identityEvidence: [],
       };
       drafts.set(key, draft);
-      if (nodeId) nodeById.set(nodeId, draft);
     } else {
       draft.hostname ??= boundedText(row.netbios_name, 255);
       draft.mac ??= normalizeMac(row.mac_address);
@@ -262,6 +274,8 @@ export function buildAssetObservations(snapshot: AssetEvidenceSnapshot): AssetOb
       setStatus(draft, row.status === "current" ? "online" : "unknown", 2);
     }
     addEvidence(draft, "observed_host", "Neighbor evidence", String(row.observation_source ?? "observed"));
+    const netbios = normalizeIdentityEvidence("netbios_name", row.netbios_name);
+    if (netbios) draft.identityEvidence.push(netbios);
     if (draft.macKind === "locally_administered") {
       addEvidence(draft, "observed_host", "MAC address", "Locally administered/private");
     }
@@ -307,6 +321,7 @@ function finalizeDraft(draft: Draft): AssetObservation {
     health_target_ref: draft.healthRef,
     managed_telemetry_target_ref: draft.managedRef,
     observed_host_target_ref: draft.observedRef,
+    identity_evidence: draft.identityEvidence,
     field_evidence: {
       name: draft.nameEvidence,
       device_type: draft.nodeType ? "authoritative" : classified.deviceType === "unknown" ? "unobserved" : "inferred",

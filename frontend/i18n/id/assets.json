@@ -3,6 +3,18 @@
   "title": "Inventaris Aset",
   "description": "Inventaris ringkas yang diperkaya dari bukti NetOps terotorisasi. Pemindaian aktif hanya berjalan setelah operator memulainya secara eksplisit.",
   "loading": "Memuat Inventaris Aset",
+  "identity": {
+    "title": "Identitas perangkat dan riwayat endpoint", "help": "ID aset adalah identitas tetap. Alamat IP merupakan endpoint, bukan bukti identitas.",
+    "loading": "Memuat bukti identitas…", "unavailable": "Bukti identitas sementara tidak tersedia.",
+    "canonicalId": "ID aset kanonis", "stateLabel": "Status identitas", "endpoints": "Endpoint saat ini dan sebelumnya",
+    "evidence": "Bukti identitas", "noEndpoints": "Belum ada penetapan endpoint.", "noEvidence": "Belum ada bukti identitas yang valid.",
+    "truncated": "Tampilan terbatas ini mendahulukan endpoint saat ini dan bukti/riwayat terbaru; catatan lama tetap tersimpan.",
+    "state": { "resolved": "Terverifikasi", "provisional": "Provisional", "conflict": "Konflik — tanpa penggabungan otomatis" },
+    "endpointState": { "current": "Saat ini", "historical": "Historis", "unresolved": "Observasi belum terverifikasi" },
+    "confidence": { "authoritative": "Otoritatif", "high": "Tinggi", "medium": "Sedang", "low": "Rendah" },
+    "strength": { "strong": "Kuat", "corroborating": "Pendukung", "weak": "Lemah" },
+    "type": { "network_node_binding": "Binding node eksplisit", "global_mac": "MAC global", "local_mac": "MAC lokal/privat", "snmp_serial": "Serial SNMP", "sys_object_id": "System Object ID", "manufacturer": "Produsen", "model": "Model", "hostname": "Hostname", "sys_name": "Nama sistem", "netbios_name": "Nama NetBIOS" }
+  },
   "lastUpdated": "Terakhir diperbarui: {{value}}",
   "report": { "action": "Ekspor Excel", "exporting": "Mengekspor…", "success": "Laporan berhasil diunduh.", "error": "Ekspor laporan gagal. Silakan coba lagi.", "ctaTitle": "Unduh tampilan inventaris ini", "ctaDescription": "Ekspor seluruh {{count}} aset yang cocok beserta riwayat perubahan terbatasnya sebagai laporan Excel beridentitas." },
   "summary": { "total": "Total aset", "online": "Online", "offline": "Offline", "changed": "Berubah" },

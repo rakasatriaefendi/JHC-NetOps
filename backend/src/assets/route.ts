@@ -18,6 +18,19 @@ export type AssetRouteOptions = Readonly<{
 export function registerAssetRoutes(server: FastifyInstance, options: AssetRouteOptions): void {
   const authorize = (authorization: unknown) => validRunnerBearerToken(authorization, options.token);
 
+  server.get<{ Params: { id: string } }>("/api/assets/:id/identity", async (request, reply) => {
+    if (!authorize(request.headers.authorization)) return reply.code(401).send({ error: { code: "UNAUTHORIZED" } });
+    if (!validateAssetId(request.params.id)) return reply.code(400).send({ error: { code: "INVALID_ASSET_ID" } });
+    try {
+      if (!options.repository.identity) return reply.code(503).send({ error: { code: "ASSET_QUERY_FAILED" } });
+      const data = await options.repository.identity(request.params.id, AbortSignal.timeout(options.timeoutMs ?? ASSET_PERSISTENCE_TIMEOUT_MS));
+      return data ? reply.send({ data }) : reply.code(404).send({ error: { code: "ASSET_NOT_FOUND" } });
+    } catch {
+      request.log.warn({ request_id: request.id, error_code: "ASSET_QUERY_FAILED" }, "asset identity read failed");
+      return reply.code(503).send({ error: { code: "ASSET_QUERY_FAILED" } });
+    }
+  });
+
   server.get("/api/assets", async (request, reply) => {
     if (!authorize(request.headers.authorization)) {
       return reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "Frontend server authentication required" } });

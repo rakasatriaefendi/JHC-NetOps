@@ -94,6 +94,19 @@ replaces only `public.managed_telemetry_targets`' existing
 ownership and grants are unchanged. Apply 018 explicitly before using the new
 SNMP intervals; startup never migrates. Migrations 001-017 remain immutable.
 
+`019_stable_device_identity.sql` requires version 18 as the latest migration,
+the exact dedicated cluster, and the reviewed postgres administrative session.
+It adds identity state, non-globally-unique normalized evidence, and endpoint
+history with one current owner per IPv4. Asset IDs/source keys and all duplicate
+assets are preserved. Explicit node bindings receive authoritative endpoints;
+other legacy IP observations remain unresolved. Duplicate explicit bindings
+fail closed for operator review rather than selecting an arbitrary owner.
+Apply 019 explicitly before the P17-B application release; startup never migrates.
+019 is a standalone guarded operator migration, not an addition to the legacy
+Asset migration wrapper below; that wrapper does not apply 019.
+Runtime has SELECT/INSERT/UPDATE (no DELETE) on the two new tables. No Health/SNMP
+identity fail-closed behavior is introduced in this batch.
+
 Apply Asset migrations through the reviewed
 wrapper in `deploy/postgresql/apply-asset-migration.sql` during an approved change
 window; no migration is run automatically at backend startup.

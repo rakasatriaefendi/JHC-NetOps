@@ -3,12 +3,20 @@
 import { revalidatePath } from "next/cache";
 
 import { requireApprovedProfile, requireOperatorProfile } from "@/lib/auth";
-import { cancelAssetScan, createScanNetwork, deleteScanNetwork, loadAssetChangeHistory, loadAssetScanState, loadDetectedScanNetworks, loadScanNetworks, requestAssetScan, testScanNetwork, updateScanNetwork } from "@/lib/assets";
+import { cancelAssetScan, createScanNetwork, deleteScanNetwork, loadAssetChangeHistory, loadAssetIdentity, loadAssetScanState, loadDetectedScanNetworks, loadScanNetworks, requestAssetScan, testScanNetwork, updateScanNetwork } from "@/lib/assets";
 import type { AssetScanMode } from "@/lib/asset-scan-contract";
 
 export async function getAssetScanStateAction() {
   await requireApprovedProfile();
   return loadAssetScanState();
+}
+
+export async function getAssetIdentityAction(assetId: string) {
+  await requireApprovedProfile();
+  if (typeof assetId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(assetId)) {
+    return { data: null, error: "unavailable" as const };
+  }
+  return loadAssetIdentity(assetId);
 }
 
 export async function startAssetScanAction(mode: AssetScanMode, network: string) {

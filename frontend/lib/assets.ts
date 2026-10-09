@@ -1,4 +1,5 @@
 import "server-only";
+import { validAssetIdentity, type AssetIdentityData } from "./asset-identity-contract.ts";
 
 import { validAssetScanState, type AssetScanMode, type AssetScanRecord, type AssetScanState } from "./asset-scan-contract.ts";
 import { validAssetChangePayload, type AssetChangeData, type AssetChangeHistoryQuery } from "./asset-change-contract.ts";
@@ -9,6 +10,7 @@ export type AssetSort = "name_asc" | "name_desc";
 
 export type AssetRecord = Readonly<{
   id: string;
+  identity_state?: "resolved" | "provisional" | "conflict";
   name: string;
   hostname: string | null;
   device_type: string;
@@ -165,6 +167,19 @@ function validAsset(item: unknown): boolean {
     && Array.isArray(item.classification_evidence) && item.classification_evidence.length <= 32
     && item.classification_evidence.every((evidence) => record(evidence) && typeof evidence.source === "string"
       && typeof evidence.label === "string" && typeof evidence.value === "string");
+}
+
+export async function loadAssetIdentity(id: string): Promise<{ data: AssetIdentityData | null; error: "unconfigured" | "unavailable" | null }> {
+  const config = localBackendConfig();
+  if (!config) return { data: null, error: "unconfigured" };
+  try {
+    const response = await fetch(new URL(`/api/assets/${encodeURIComponent(id)}/identity`, config.origin), {
+      headers: { authorization: `Bearer ${config.token}` }, cache: "no-store", signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) return { data: null, error: "unavailable" };
+    const payload: unknown = await response.json();
+    return validAssetIdentity(payload, id) ? { data: payload.data, error: null } : { data: null, error: "unavailable" };
+  } catch { return { data: null, error: "unavailable" }; }
 }
 
 export async function loadAssetChangeHistory(query: AssetChangeHistoryQuery, assetId: string | null = null): Promise<

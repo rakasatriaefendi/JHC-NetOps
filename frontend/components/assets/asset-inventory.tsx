@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { getAssetChangeHistoryAction } from "@/app/actions/assets";
 import { AssetChangeList } from "@/components/assets/asset-change-history-panel";
+import { AssetIdentityPanel } from "@/components/assets/asset-identity-panel";
 import { AssetExportButton } from "@/components/assets/asset-export-button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider";
@@ -145,6 +146,7 @@ function AssetDetail({ asset, locale, serverTime, canInspect, inspectorAvailable
       <p className="mt-1 text-meta text-text-muted">{t("detail.vendorHelp")}</p>{asset.classification_evidence.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.evidence")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.classification_evidence.map((item, index) => <li className="rounded-control border border-border bg-bg-base p-3 text-meta" key={`${item.source}-${item.label}-${index}`}><span className="font-medium">{item.label}</span><span className="mt-1 block text-text-muted">{item.value} · {item.source}</span></li>)}</ul></div> : null}</>
       : tab === "network" ? <div className="mt-5"><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Meta label={t("detail.latency")} value={asset.latency_ms === null ? "-" : `${asset.latency_ms.toFixed(2)} ms`} /><Meta label={t("table.ports")} value={t("table.portCount", { count: asset.open_ports.length })} /><Meta label={t("detail.evidenceUpdated")} value={dateLabel(asset.evidence_updated_at, locale)} /></dl>{asset.detected_services.length ? <div className="mt-5"><h3 className="font-medium">{t("detail.services")}</h3><ul className="mt-2 grid gap-2 sm:grid-cols-2">{asset.detected_services.map((service) => <li className="rounded-control border border-border bg-bg-base p-3" key={`${service.protocol}-${service.port}`}><div><span>{service.name}</span><span className="ml-2 font-data text-meta text-text-muted">{service.protocol.toUpperCase()}/{service.port}</span></div>{service.product || service.version || service.extra_info ? <p className="mt-1 text-meta text-text-secondary">{[service.product, service.version, service.extra_info].filter(Boolean).join(" · ")}</p> : null}</li>)}</ul></div> : <p className="mt-5 text-meta text-text-muted">{t("detail.noServices")}</p>}</div>
         : <AssetDetailHistory assetId={asset.id} locale={locale} />}
+    <AssetIdentityPanel key={asset.id} assetId={asset.id} />
     <section className="mt-6 border-t border-border pt-5" aria-labelledby="asset-integrations-title">
       <h3 className="text-section font-semibold" id="asset-integrations-title">{t("detail.integrations.title")}</h3>
       <p className="mt-1 text-meta text-text-muted">{t("detail.integrations.description")}</p>

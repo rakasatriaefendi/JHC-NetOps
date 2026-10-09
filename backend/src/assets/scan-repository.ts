@@ -2,7 +2,6 @@ import type { Pool, QueryResultRow } from "pg";
 
 import type { AssetObservation } from "./evidence.js";
 import { PostgresAssetRepository } from "./repository.js";
-import { mergeActiveScanObservation } from "./scan-normalize.js";
 import type { AssetScanMode, AssetScanRecord } from "./scan-contract.js";
 
 export interface AssetScanRepository {
@@ -63,43 +62,9 @@ export class PostgresAssetScanRepository implements AssetScanRepository {
 
   async ingest(observations: readonly AssetObservation[], scanRunId: string, signal: AbortSignal): Promise<number> {
     signal.throwIfAborted();
-    if (!observations.length) return 0;
-    const macs = observations.map((item) => item.mac_address).filter((item): item is string => Boolean(item));
-    const ips = observations.map((item) => item.ip_address).filter((item): item is string => Boolean(item));
-    const candidates = await this.pool.query<ExistingAssetRow>({
-      text: `SELECT stable_source_key, name, hostname, device_type, status, host(ip_address) AS ip_address,
-        mac_address::text AS mac_address, vendor, platform, first_seen_at::text, last_seen_at::text,
-        source, classification_confidence, os_confidence, classification_evidence, open_ports,
-        detected_services, latency_ms::float8 AS latency_ms, evidence_updated_at::text,
-        network_node_ref::text, health_target_ref::text, managed_telemetry_target_ref::text,
-        observed_host_target_ref::text
-        FROM asset.assets
-        WHERE (cardinality($1::text[]) > 0 AND mac_address::text = ANY($1::text[]))
-           OR (cardinality($2::text[]) > 0 AND host(ip_address) = ANY($2::text[]))
-        ORDER BY (network_node_ref IS NOT NULL) DESC, (source = 'manual') DESC,
-          evidence_updated_at DESC NULLS LAST, stable_source_key ASC`,
-      values: [macs, ips],
-    });
-    const byMac = new Map<string, AssetObservation>();
-    const byIp = new Map<string, AssetObservation>();
-    for (const row of candidates.rows) {
-      const normalized = existingObservation(row);
-      if (normalized.mac_address && !byMac.has(normalized.mac_address)) byMac.set(normalized.mac_address, normalized);
-      if (normalized.ip_address && !byIp.has(normalized.ip_address)) byIp.set(normalized.ip_address, normalized);
-    }
-    const merged = new Map<string, AssetObservation>();
-    for (const observation of observations) {
-      const strongMac = observation.stable_source_key.startsWith("active_scan:mac:");
-      const existing = (strongMac && observation.mac_address ? byMac.get(observation.mac_address) : undefined) ??
-        (observation.ip_address ? byIp.get(observation.ip_address) : undefined);
-      const previous = merged.get(existing?.stable_source_key ?? observation.stable_source_key) ?? existing;
-      const value = previous ? mergeActiveScanObservation(previous, observation) : observation;
-      merged.set(value.stable_source_key, value);
-    }
-    return this.#assets.ingest([...merged.values()], signal, {
+    return this.#assets.ingest(observations, signal, {
       scanRunId,
       eventSource: "active_scan",
-      observationsPremerged: true,
     });
   }
 }
@@ -110,37 +75,8 @@ type ScanRow = QueryResultRow & {
   started_at: string; completed_at: string | null; cancelled_at: string | null; error_code: string | null;
 };
 
-type ExistingAssetRow = QueryResultRow & AssetObservation;
 const SCAN_COLUMNS = "id::text, mode, network::text, status, discovered_count, fingerprinted_count, failed_count, host(current_target) AS current_target, started_at::text, completed_at::text, cancelled_at::text, error_code";
 
 function normalizeScan(row: ScanRow): AssetScanRecord {
   return { ...row };
-}
-
-function existingObservation(row: ExistingAssetRow): AssetObservation {
-  return {
-    stable_source_key: row.stable_source_key,
-    name: row.name,
-    hostname: row.hostname,
-    device_type: row.device_type,
-    status: row.status,
-    ip_address: row.ip_address,
-    mac_address: row.mac_address,
-    vendor: row.vendor,
-    platform: row.platform,
-    first_seen_at: row.first_seen_at,
-    last_seen_at: row.last_seen_at,
-    source: row.source,
-    classification_confidence: row.classification_confidence,
-    os_confidence: row.os_confidence,
-    classification_evidence: row.classification_evidence,
-    open_ports: row.open_ports,
-    detected_services: row.detected_services,
-    latency_ms: row.latency_ms,
-    evidence_updated_at: row.evidence_updated_at,
-    network_node_ref: row.network_node_ref,
-    health_target_ref: row.health_target_ref,
-    managed_telemetry_target_ref: row.managed_telemetry_target_ref,
-    observed_host_target_ref: row.observed_host_target_ref,
-  };
 }

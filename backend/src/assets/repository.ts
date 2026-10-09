@@ -3,6 +3,9 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { AssetListQuery, AssetListResponse, AssetRecord, AssetSummary } from "./contract.js";
 import { normalizeAssetChangeSnapshot, prepareAssetChangeEvent, type AssetChangeEventWrite } from "./change.js";
 import { mergeAssetEvidence } from "./evidence-merge.js";
+import { AssetIdentityRepository, type PreparedAssetIdentity } from "./identity-repository.js";
+import { mergeActiveScanObservation } from "./scan-normalize.js";
+import type { EndpointAssignment, IdentityEvidence, IdentityState } from "./identity.js";
 import type { AssetObservation } from "./evidence.js";
 import { assetListOrder, assetListWhere } from "./query.js";
 
@@ -11,8 +14,16 @@ export const ASSET_QUERY_TIMEOUT_MS = 5_000;
 export interface AssetRepository {
   list(query: AssetListQuery, signal: AbortSignal): Promise<AssetListResponse>;
   detail(id: string, signal: AbortSignal): Promise<AssetRecord | null>;
+  identity?(id: string, signal: AbortSignal): Promise<AssetIdentityDetail | null>;
   ingest(observations: readonly AssetObservation[], signal: AbortSignal, context?: AssetIngestContext): Promise<number>;
 }
+
+export type AssetIdentityDetail = Readonly<{
+  asset_id: string; identity_state: IdentityState;
+  evidence: readonly (IdentityEvidence & { source: string; first_seen_at: string; last_seen_at: string })[];
+  endpoints: readonly EndpointAssignment[];
+  evidence_truncated: boolean; endpoints_truncated: boolean;
+}>;
 
 export type AssetIngestContext = Readonly<{
   scanRunId?: string | null;
@@ -82,12 +93,43 @@ export class PostgresAssetRepository implements AssetRepository {
     return result.rows[0] ? normalizeAsset(result.rows[0]) : null;
   }
 
+  async identity(id: string, signal: AbortSignal): Promise<AssetIdentityDetail | null> {
+    signal.throwIfAborted();
+    const asset = await this.pool.query<{ id: string; identity_state: IdentityState }>(
+      "SELECT id::text,identity_state FROM asset.assets WHERE id=$1::uuid", [id]);
+    if (!asset.rows[0]) return null;
+    const [evidence, endpoints] = await Promise.all([
+      this.pool.query<IdentityEvidence & { source: string; first_seen_at: string; last_seen_at: string }>(
+        `SELECT evidence_type,normalized_value,strength,source,first_seen_at::text,last_seen_at::text
+         FROM asset.identity_evidence WHERE asset_id=$1::uuid ORDER BY last_seen_at DESC,id LIMIT 129`, [id]),
+      this.pool.query<EndpointAssignment>(
+        `SELECT id::text,asset_id::text,host(ip_address) AS ip_address,state,confidence,source,
+          first_seen_at::text,last_seen_at::text,ended_at::text,network_node_ref::text,identity_key
+         FROM asset.endpoint_assignments WHERE asset_id=$1::uuid
+         ORDER BY (state='current') DESC,first_seen_at DESC,id LIMIT 201`, [id]),
+    ]);
+    signal.throwIfAborted();
+    return { asset_id: id, identity_state: asset.rows[0].identity_state,
+      evidence: evidence.rows.slice(0, 128), endpoints: endpoints.rows.slice(0, 200),
+      evidence_truncated: evidence.rows.length > 128, endpoints_truncated: endpoints.rows.length > 200 };
+  }
+
   async ingest(observations: readonly AssetObservation[], signal: AbortSignal, context: AssetIngestContext = {}): Promise<number> {
     signal.throwIfAborted();
     if (!observations.length) return 0;
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const identity = new AssetIdentityRepository(client);
+      const prepared = await identity.prepare(observations, context.scanRunId ?? null, signal);
+      const ingestible = prepared.filter((item): item is PreparedAssetIdentity => item.disposition === "ingest");
+      observations = ingestible.map((item) => item.observation);
+      if (!observations.length) {
+        await identity.persist(prepared, signal);
+        signal.throwIfAborted();
+        await client.query("COMMIT");
+        return 0;
+      }
       const stableKeys = [...new Set(observations.map((item) => item.stable_source_key))].sort();
       await client.query({
         text: `SELECT pg_advisory_xact_lock(hashtextextended(stable_key, 0))
@@ -97,20 +139,33 @@ export class PostgresAssetRepository implements AssetRepository {
       signal.throwIfAborted();
       const beforeResult = await loadAssetsForChange(client, stableKeys);
       const beforeByKey = new Map(beforeResult.rows.map((row) => [row.stable_source_key, row]));
-      const effectiveObservations = context.observationsPremerged
-        ? observations
-        : observations.map((observation) => {
-          const before = beforeByKey.get(observation.stable_source_key);
-          return before ? mergeAssetEvidence(existingObservation(before), observation) : observation;
-        });
+      const effective = new Map<string, AssetObservation>();
+      for (const observation of observations) {
+        const stored = beforeByKey.get(observation.stable_source_key);
+        const before = effective.get(observation.stable_source_key) ?? (stored ? existingObservation(stored) : null);
+        let merged = before && !context.observationsPremerged
+          ? observation.source === "active_scan" ? mergeActiveScanObservation(before, observation) : mergeAssetEvidence(before, observation)
+          : observation;
+        const beforeSeen = before?.evidence_updated_at ?? before?.last_seen_at;
+        const incomingSeen = observation.evidence_updated_at ?? observation.last_seen_at;
+        if (before && beforeSeen && incomingSeen && Date.parse(incomingSeen) < Date.parse(beforeSeen)) {
+          // Retained/delayed snapshots may add evidence, but cannot rewind the
+          // canonical endpoint projection while the timeline keeps a newer owner.
+          merged = { ...merged, ip_address: before.ip_address, mac_address: before.mac_address,
+            evidence_updated_at: before.evidence_updated_at };
+        }
+        effective.set(observation.stable_source_key, merged);
+      }
+      const idsByKey = new Map(ingestible.map((item) => [item.observation.stable_source_key, item.assetId]));
+      const effectiveObservations = [...effective.values()].map((item) => ({ ...item, asset_id: idsByKey.get(item.stable_source_key) }));
       const result = await client.query<{ id: string; stable_source_key: string }>({
         text: `INSERT INTO asset.assets (
-        stable_source_key, name, hostname, device_type, status, ip_address, mac_address,
+        id, stable_source_key, name, hostname, device_type, status, ip_address, mac_address,
         vendor, platform, first_seen_at, last_seen_at, source, classification_confidence, os_confidence,
         classification_evidence, open_ports, detected_services, latency_ms, evidence_updated_at,
         network_node_ref, health_target_ref, managed_telemetry_target_ref, observed_host_target_ref
       )
-      SELECT source.stable_source_key, source.name, source.hostname, source.device_type, source.status,
+      SELECT source.asset_id::uuid, source.stable_source_key, source.name, source.hostname, source.device_type, source.status,
         source.ip_address::inet, source.mac_address::macaddr, source.vendor, source.platform,
         source.first_seen_at::timestamptz, source.last_seen_at::timestamptz, source.source,
         source.classification_confidence, source.os_confidence, source.classification_evidence, source.open_ports,
@@ -118,7 +173,7 @@ export class PostgresAssetRepository implements AssetRepository {
         source.network_node_ref::uuid, source.health_target_ref::uuid,
         source.managed_telemetry_target_ref::uuid, source.observed_host_target_ref::uuid
       FROM jsonb_to_recordset($1::jsonb) AS source(
-        stable_source_key text, name text, hostname text, device_type text, status text,
+        asset_id text, stable_source_key text, name text, hostname text, device_type text, status text,
         ip_address text, mac_address text, vendor text, platform text, first_seen_at text,
         last_seen_at text, source text, classification_confidence text, os_confidence text,
         classification_evidence jsonb, open_ports jsonb, detected_services jsonb,
@@ -158,6 +213,7 @@ export class PostgresAssetRepository implements AssetRepository {
         RETURNING id::text, stable_source_key`,
         values: [JSON.stringify(effectiveObservations)],
       });
+      await identity.persist(prepared, signal);
       signal.throwIfAborted();
       const afterResult = await loadAssetsForChange(client, stableKeys);
       const afterByKey = new Map(afterResult.rows.map((row) => [row.stable_source_key, row]));
@@ -198,7 +254,7 @@ type InsightRow = QueryResultRow & { value: string; count: string };
 type VendorTypeRow = QueryResultRow & { vendor: string; device_type: string; count: string };
 type ChangeAssetRow = AssetRow & { stable_source_key: string };
 
-export const ASSET_COLUMNS = `id, name, hostname, device_type, status, host(ip_address) AS ip_address,
+export const ASSET_COLUMNS = `id, identity_state, name, hostname, device_type, status, host(ip_address) AS ip_address,
   mac_address::text AS mac_address, vendor, platform, first_seen_at::text, last_seen_at::text,
   source, classification_confidence, os_confidence, classification_evidence, open_ports, detected_services,
   latency_ms::float8 AS latency_ms, evidence_updated_at::text, network_node_ref::text,
@@ -235,6 +291,7 @@ async function insertAssetChangeEvents(client: PoolClient, events: readonly Asse
 export function normalizeAsset(row: AssetRow): AssetRecord {
   return {
     id: row.id,
+    identity_state: row.identity_state ?? "provisional",
     name: row.name,
     hostname: row.hostname,
     device_type: row.device_type,
@@ -272,8 +329,8 @@ function existingObservation(row: ChangeAssetRow): AssetObservation {
     mac_address: normalized.mac_address,
     vendor: normalized.vendor,
     platform: normalized.platform,
-    first_seen_at: normalized.first_seen_at,
-    last_seen_at: normalized.last_seen_at,
+    first_seen_at: isoTimestamp(normalized.first_seen_at),
+    last_seen_at: isoTimestamp(normalized.last_seen_at),
     source: normalized.source as AssetObservation["source"],
     classification_confidence: normalized.classification_confidence,
     os_confidence: normalized.os_confidence,
@@ -281,12 +338,16 @@ function existingObservation(row: ChangeAssetRow): AssetObservation {
     open_ports: normalized.open_ports,
     detected_services: normalized.detected_services,
     latency_ms: normalized.latency_ms,
-    evidence_updated_at: normalized.evidence_updated_at,
+    evidence_updated_at: isoTimestamp(normalized.evidence_updated_at),
     network_node_ref: normalized.network_node_ref,
     health_target_ref: normalized.health_target_ref,
     managed_telemetry_target_ref: normalized.managed_telemetry_target_ref,
     observed_host_target_ref: normalized.observed_host_target_ref,
   };
+}
+
+function isoTimestamp(value: string | null): string | null {
+  return value === null ? null : new Date(value).toISOString();
 }
 
 function normalizeInsight(row: InsightRow) {

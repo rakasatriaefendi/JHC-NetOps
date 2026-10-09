@@ -41,7 +41,9 @@ export function normalizeScannedHost(discovery: NmapHost, fingerprint: NmapHost 
     ...classified.evidence,
   ].slice(0, ASSET_EVIDENCE_LIMIT);
   return {
-    stable_source_key: mac && macKind === "global" ? `active_scan:mac:${mac}` : `active_scan:ip:${discovery.ip_address}`,
+    // Source observation only. The ingestion resolver chooses durable identity;
+    // its provisional key also includes the immutable scan run/timestamp.
+    stable_source_key: `active_scan:observation:${discovery.ip_address}`,
     name: hostname ?? discovery.ip_address,
     hostname,
     device_type: classified.deviceType,
