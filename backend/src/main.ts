@@ -39,6 +39,8 @@ import { PostgresRealtimeListener, postgresRealtimeConnectionFactory } from "./r
 import { PostgresLocalAuthRepository } from "./local-auth/repository.js";
 import { PostgresAdministrativeAuditRepository } from "./persistence/administrative-audit.js";
 import { AuditedReportBranding } from "./report-branding/audited-mutations.js";
+import { PostgresRunnerWorkRepository } from "./runner-work/repository.js";
+import { RunnerWorkService } from "./runner-work/service.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
@@ -124,6 +126,10 @@ async function main(): Promise<void> {
     traffic: { token: config.runnerApiToken, repository: applicationRepositories.traffic },
     managedTelemetry: { token: config.runnerApiToken, repository: applicationRepositories.telemetry },
     administrativeAudit: { token: config.frontendApiToken, repository: administrativeAudit },
+    ...(!config.candidateReadOnly ? { runnerWork: {
+      token: config.runnerApiToken,
+      service: new RunnerWorkService(new PostgresRunnerWorkRepository(new PoolPostgresQuery(appPool))),
+    } } : {}),
   };
 
   if (config.assets && assetRepository) {

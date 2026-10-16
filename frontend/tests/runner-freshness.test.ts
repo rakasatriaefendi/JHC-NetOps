@@ -72,7 +72,7 @@ test("heartbeat grace does not remove status or capability checks; empty targets
   assert.match(diagnostics, /runner\.health_status === "online" && isRunnerFresh\(runner, now\)/);
 });
 
-test("freshness preserves monitoring and heartbeat while control-plane claim wait remains bounded", () => {
+test("freshness preserves independent monitoring and heartbeat while control-plane work wait remains bounded", async () => {
   assert.deepEqual(MONITORING_INTERVALS, [15, 30, 60, 900, 1800]);
   assert.equal(DEFAULT_MONITORING_INTERVAL, 900);
   assert.equal(intervalForMode("moderate"), 900);
@@ -81,14 +81,53 @@ test("freshness preserves monitoring and heartbeat while control-plane claim wai
   const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
   const main = source("../../runner/src/main.mjs");
   assert.match(main, /startHeartbeatLoop\(\s*sendHeartbeat,\s*config\.heartbeat_interval_ms,/);
-  assert.match(main, /if \(!once\) await delay\(config\.control_poll_interval_ms\)/);
+  const dispatch = main.match(/await\s+runControlPlane\s*\(\s*\{([\s\S]*?)\}\s*\)/)?.[1];
+  assert.ok(dispatch, "main must await the delegated control-plane scheduler");
+  assert.match(dispatch, /signal\s*:\s*controlShutdown\.signal/);
+  assert.match(dispatch, /legacyIntervalMs\s*:\s*config\.control_poll_interval_ms/);
+  assert.match(main, /controlShutdown\.abort\(\)/);
+  for (const start of ["startHeartbeatLoop(", "healthWatch.start()", "telemetryWatch.start()"]) {
+    assert.ok(main.includes(start));
+    assert.ok(main.indexOf(start) < main.indexOf("await runControlPlane"), `${start} is independent of control dispatch`);
+  }
   assert.match(source("../../runner/src/config.mjs"), /control_poll_interval_ms: Math\.min\(value\.poll_interval_ms, 2_000\)/);
-  assert.match(main, /backend\.claimDiscovery\(config\.runner_id\)/);
-  assert.match(main, /backend\.claimInspection\(config\.runner_id\)/);
+  const control = source("../../runner/src/control-plane.mjs");
+  assert.match(control, /discovery\s*:\s*"claimDiscovery"/);
+  assert.match(control, /device_inspector\s*:\s*"claimInspection"/);
+  assert.match(source("../../backend/src/runner-work/contract.ts"), /WORK_WAIT_MS\s*=\s*10_000/);
   for (const path of ["../../runner/src/network-health.mjs", "../../runner/src/snmp-telemetry.mjs"]) {
     assert.match(source(path), /setInterval\(\(\) => void this\.tick\(\), 1_000\)/);
   }
   assert.match(source("../../runner/src/network-health.mjs"), /scheduledTarget\.probe_interval_seconds \* 1000/);
   assert.match(source("../../runner/src/snmp-telemetry.mjs"), /scheduledTarget\.poll_interval_seconds \* 1000/);
   assert.match(source("../../runner/src/config.mjs"), /value\[field\] < 1000 \|\| value\[field\] > 60000/);
+
+  // Execute the real scheduler without loading main (which starts the runtime).
+  // A URL import avoids requiring a declaration file for this JavaScript module.
+  const controlPlaneModule: unknown = await import(new URL("../../runner/src/control-plane.mjs", import.meta.url).href);
+  assert.ok(controlPlaneModule !== null && typeof controlPlaneModule === "object" && "runControlPlane" in controlPlaneModule);
+  const runControlPlane = controlPlaneModule.runControlPlane;
+  assert.ok(typeof runControlPlane === "function");
+  const shutdown = new AbortController();
+  let waits = 0;
+  let claims = 0;
+  let sleeps = 0;
+  const claim = async () => { claims += 1; shutdown.abort(); return null; };
+  await runControlPlane({
+    runnerId: "it-lt8", signal: shutdown.signal, manualPingEnabled: true, legacyIntervalMs: 2_000,
+    backend: {
+      waitForWork: async (id: string, signal: AbortSignal) => {
+        waits += 1;
+        if (waits >= 3) shutdown.abort();
+        assert.equal(id, "it-lt8"); assert.equal(signal, shutdown.signal);
+        return { supported: true, available: [], timed_out: true };
+      },
+      claimManualPing: claim, claimTraffic: claim, claimDiscovery: claim, claimInspection: claim,
+    },
+    execute: {},
+    sleep: async () => { sleeps += 1; if (sleeps >= 3) shutdown.abort(); },
+  });
+  assert.equal(waits, 3);
+  assert.equal(claims, 0, "successful idle timeouts must not fan out to empty claims");
+  assert.equal(sleeps, 0, "healthy long-poll must not add the legacy polling delay");
 });

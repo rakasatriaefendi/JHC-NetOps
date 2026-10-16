@@ -11,18 +11,17 @@ import { useNetworkNodes } from "@/components/diagnostics/network-nodes-provider
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { findNetworkNode } from "@/lib/network-nodes";
 import type { DiagnosticsData } from "@/lib/diagnostics";
-import { startLocalRealtimeInvalidation } from "@/lib/network-health-realtime";
+import { startTrafficRefresh } from "@/lib/traffic-refresh";
 import { canOperateNetwork } from "@/lib/authorization";
 import {
   filterFlows,
   isTrafficRunnerAvailable,
-  mergeTrafficRunnerSnapshots,
   type TrafficFlow,
   type TrafficSnapshot,
   type TrafficState,
 } from "@/lib/traffic";
 import { mutateTrafficSessionAction } from "@/app/actions/legacy-network-control";
-import { getTrafficRunnersAction, getTrafficStateAction } from "@/app/actions/traffic";
+import { getTrafficStateAction } from "@/app/actions/traffic";
 
 type Tab = "flows" | "conversations" | "talkers";
 
@@ -31,7 +30,6 @@ export function TrafficLivePage({
   diagnostics,
   loadError,
   initialSearch,
-  initialAuthority,
 }: {
   initialState: TrafficState;
   diagnostics: DiagnosticsData;
@@ -41,6 +39,10 @@ export function TrafficLivePage({
 }) {
   const { t, i18n } = useTranslation("traffic");
   const [state, setState] = useState(initialState);
+  const [refreshSeed] = useState(() => ({
+    state: initialState,
+    knownJobs: new Set([...diagnostics.bandwidth, ...diagnostics.hops].map((row) => row.job_id).filter(Boolean)),
+  }));
   const [runnerId, setRunnerId] = useState(initialState.runners[0]?.id ?? "");
   const [now, setNow] = useState(() => Date.now());
   const [duration, setDuration] = useState(600);
@@ -54,7 +56,7 @@ export function TrafficLivePage({
   const notify = useActionFeedback();
   const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
-  const [runnerAuthority, setRunnerAuthority] = useState<"local_postgres">(initialAuthority);
+  const refreshController = useRef<ReturnType<typeof startTrafficRefresh<TrafficState>> | null>(null);
 
   const runner = state.runners.find((item) => item.id === runnerId) ?? state.runners[0];
   const active = state.sessions.find(
@@ -74,72 +76,34 @@ export function TrafficLivePage({
     : 0;
 
   useEffect(() => {
-    let disposed = false;
-    void getTrafficRunnersAction().then((result) => {
-      if (disposed) return;
-      setRunnerAuthority(result.authority);
-      if (result.ok) {
-        setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
-        setNow(Date.now());
-      }
-    }).catch(() => {
-      // Retain the last runner snapshot until its normal freshness window expires.
-    });
-    return () => { disposed = true; };
-  }, []);
-
-  useEffect(() => {
-    if (runnerAuthority !== "local_postgres") return;
-    let disposed = false;
-    let refreshing = false;
-    async function refreshRunners() {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const result = await getTrafficRunnersAction();
-        if (!disposed && result.ok && result.authority === "local_postgres") {
-          setState((current) => ({ ...current, runners: mergeTrafficRunnerSnapshots(current.runners, result.data) }));
-          setNow(Date.now());
-        }
-      } catch {
-        // A transient refresh failure does not erase the last authoritative heartbeat.
-      } finally {
-        refreshing = false;
-      }
-    }
-    const interval = window.setInterval(() => void refreshRunners(), 10_000);
-    return () => { disposed = true; window.clearInterval(interval); };
-  }, [runnerAuthority]);
-
-  useEffect(() => {
-    let disposed = false;
-
-    async function refresh() {
-      const result = await getTrafficStateAction().catch(() => null);
-      if (!disposed && result?.ok && result.data) {
-        setRunnerAuthority(result.authority);
-        const nextState = result.data;
-        setState(nextState);
-      }
-    }
-
-    const poll = window.setInterval(() => void refresh(), 5_000);
-    const clock = window.setInterval(() => setNow(Date.now()), 1_000);
-
-    const stopRealtime = startLocalRealtimeInvalidation({
-      topics: ["traffic"],
-      refresh: () => void refresh(),
+    // Full authoritative reads already include runners; SSR supplies both initially.
+    let current = refreshSeed.state;
+    const knownJobs = refreshSeed.knownJobs;
+    const controller = startTrafficRefresh({
+      read: async () => {
+        const latest = await getTrafficStateAction();
+        if (!latest.ok || !latest.data) throw new Error("Traffic refresh failed");
+        return latest.data;
+      },
+      apply: (nextState) => { current = nextState; setState(nextState); setNow(Date.now()); },
+      isActive: () => current.sessions.some((session) => ["queued", "running", "stopping"].includes(session.status)),
+      // Diagnostics shares runner and job keys. Ignore proven job keys, not unknown
+      // keys: a newly registered runner must still become visible (UUID IDs are valid).
+      diagnosticsRelevant: (key) => current.runners.some((item) => item.id === key) || !knownJobs.has(key),
       onStatus: (next) => setRealtime(next === "connected"),
-      debounceMs: 250,
-      fallbackIntervalMs: 60_000,
+      visible: document.visibilityState !== "hidden",
     });
+    refreshController.current = controller;
+    const onVisibility = () => controller.setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVisibility);
+    const clock = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => {
-      disposed = true;
-      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.clearInterval(clock);
-      stopRealtime();
+      controller.dispose();
+      if (refreshController.current === controller) refreshController.current = null;
     };
-  }, [initialAuthority]);
+  }, [refreshSeed]);
 
   async function runAction(actionName: "create_session" | "stop_session") {
     if (!runner || inFlight.current) return;
@@ -152,10 +116,9 @@ export function TrafficLivePage({
         ? { action: actionName, runnerId: runner.id, durationSeconds: duration }
         : { action: actionName, sessionId: active?.id });
       if (!result.ok) throw new Error("Traffic mutation failed");
-      const latest = await getTrafficStateAction();
-      if (!latest.ok || !latest.data) throw new Error("Traffic refresh failed");
-      setRunnerAuthority(latest.authority);
-      setState(latest.data);
+      const controller = refreshController.current;
+      if (!controller) throw new Error("Traffic refresh stopped");
+      await controller.confirmMutation();
       notify(kind, true);
     } catch { notify(kind, false); }
     finally { inFlight.current = false; setBusy(false); }

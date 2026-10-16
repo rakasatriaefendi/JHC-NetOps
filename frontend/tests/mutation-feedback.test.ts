@@ -67,8 +67,12 @@ test("notifications are app-wired, bounded, accessible, allowlisted and not emit
   assert.doesNotMatch(beforeActions, /notify\(/);
   const action = traffic.slice(traffic.indexOf("async function runAction"), traffic.indexOf("\n  return ("));
   assert.match(action, /inFlight\.current/);
-  assert.ok(action.indexOf("await getTrafficStateAction()") < action.indexOf("notify(kind, true)"));
-  assert.match(action, /if \(!latest\.ok \|\| !latest\.data\) throw/);
+  assert.match(action, /await mutateTrafficSessionAction\(/);
+  assert.match(action, /if \(!result\.ok\) throw/);
+  assert.match(action, /await controller\.confirmMutation\(\)/);
+  assert.ok(action.indexOf("await mutateTrafficSessionAction(") < action.indexOf("await controller.confirmMutation()"));
+  assert.ok(action.indexOf("await controller.confirmMutation()") < action.indexOf("notify(kind, true)"));
+  assert.match(beforeActions, /if \(!latest\.ok \|\| !latest\.data\) throw/);
   assert.match(action, /catch \{ notify\(kind, false\); \}/);
   const discovery = source("../components/dashboard/network-discovery-drawer.tsx");
   assert.match(discovery, /if \(action === "start_session"\) notify\("start", true\)/);

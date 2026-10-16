@@ -31,6 +31,52 @@ Frontend/browser tidak pernah menerima `DATABASE_URL` atau token backend.
 Outbox/watermark lama dan tooling P12/P13 tetap dipertahankan sebagai evidence.
 Mereka tidak mengaktifkan shadow projection pada runtime local-only.
 
+## P17-D2B bounded runner work wait
+
+`POST /api/runner/work/wait` uses the existing runner bearer (not the frontend
+token) and exactly `{ "runner_id": "<registered-runner-id>" }`, body limit 256
+bytes. The response is `{ "data": { "runner_id": "...", "available": [],
+"timed_out": true } }`; available kinds, in priority order, are `manual_ping`,
+`traffic`, `discovery`, `device_inspector`. It never returns job assignments or
+payloads. Identity is a validated, registered ID under the existing shared runner
+bearer trust model, not a new per-runner credential system.
+
+One wait per runner, 32 globally, waits about 10 seconds. Durable queue checks run
+at registration and timeout, with additional checks after successful application
+enqueue responses (repository transactions have already committed). Subscribe
+before checking; revision tracking closes enqueue/check races. Hints coalesce to
+at most one check per 100ms per waiter; known runner IDs wake only that runner.
+Ping enqueue derives its runner in SQL, so its hint is a bounded broadcast.
+Hints are process-local and non-durable: missed responses, multiple backend
+processes or a restart are covered by the next durable check, not event replay.
+Existing atomic claim routes remain the only assignment authority.
+
+No PostgreSQL connection/transaction is held during the wait. Each short read or
+maintenance transaction sets its own 3-second statement timeout; pool acquisition
+is independently bounded. A final query can extend the nominal 10-second wait;
+the runner uses a 20-second HTTP deadline. Only this authenticated wait disables
+the socket's 5-second idle timeout and restores it afterward. Cancellation and
+shutdown release waiters. Capacity/repository/shutdown failures return bounded
+503 codes; unknown runner returns 403, authentication failure 401.
+
+Expiry maintenance runs once at startup and every 10 seconds **after the prior
+pass settles**, even without runners. One transaction updates at most 100 expired
+rows per subsystem using `SKIP LOCKED`, preserving existing lease predicates and
+terminal fields (Ping lease, Traffic 10m queued/30s stopping/45s running recovery,
+Discovery and Inspector expiry). Failures log only a bounded category and retry
+next pass. Large historical expiry backlogs drain over multiple passes. Candidate
+read-only mode does not register this service or start maintenance. No migration,
+new token, environment switch, or startup schema mutation is introduced.
+
+Roll out **backend first**, retaining all old claim routes; the existing runner
+continues working. Then upgrade the runner. A new runner receiving 404/405 for
+work-wait uses the same authenticated local claim endpoints at its existing
+control cadence, rechecking support after 60 seconds. Auth/503/network failures
+never trigger a transport/auth downgrade. Rollback can restore the runner first;
+rolling back the backend first is also compatible through that bounded fallback.
+Do not change Health/SNMP intervals, capture privileges, or shared infrastructure.
+These are source-level expectations; runtime acceptance is still required.
+
 ## P17-B asset identity
 
 Migration 019 is an explicit prerequisite for this release; startup never applies

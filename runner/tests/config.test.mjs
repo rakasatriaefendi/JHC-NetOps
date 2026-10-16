@@ -70,8 +70,10 @@ test("control-plane idle wait is capped independently of heartbeat and monitorin
   assert.equal(loadConfig({ poll_interval_ms: 60000 }).control_poll_interval_ms, 2000);
   assert.equal(loadConfig({ poll_interval_ms: 1000 }).control_poll_interval_ms, 1000);
   assert.equal(loadConfig({ poll_interval_ms: 60000, heartbeat_interval_ms: 60000 }).heartbeat_interval_ms, 60000);
-  assert.match(main, /if \(!once\) await delay\(config\.control_poll_interval_ms\)/);
-  assert.match(main, /if \(rawSession\) await executeTraffic\(rawSession\)/, "long Traffic remains serial, not a parallel probe loop");
+  assert.match(main, /legacyIntervalMs: config\.control_poll_interval_ms/);
+  assert.match(main, /await runControlPlane\(/);
+  const control = readFileSync(new URL("../src/control-plane.mjs", import.meta.url), "utf8");
+  assert.match(control, /await execute\[kind\]\(claimed\)/, "long Traffic remains serial, not a parallel probe loop");
   assert.match(main, /config\.heartbeat_interval_ms/);
   assert.doesNotMatch(main, /monitoring-modes|monitoring-intervals|900_?000|1800_?000/);
 });

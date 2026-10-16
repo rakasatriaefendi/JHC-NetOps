@@ -5,6 +5,42 @@ import { BackendClient, loadLocalBackendConfig, managedTelemetryPublishError } f
 
 const local = { url: "http://127.0.0.1:3402", token: "t".repeat(32) };
 
+test("work wait uses the same local runner bearer, exact identity, and shutdown signal", async (t) => {
+  const shutdown = new AbortController();
+  t.mock.method(globalThis, "fetch", async (input, options) => {
+    assert.equal(String(input), `${local.url}/api/runner/work/wait`);
+    assert.equal(options.headers.Authorization, `Bearer ${local.token}`);
+    assert.deepEqual(JSON.parse(options.body), { runner_id: "it-lt8" });
+    shutdown.abort(); assert.equal(options.signal.aborted, true);
+    return Response.json({ data: { runner_id: "it-lt8", available: [], timed_out: true } });
+  });
+  const result = await new BackendClient(local, "local_postgres").waitForWork("it-lt8", shutdown.signal);
+  assert.equal(result.timed_out, true);
+});
+
+test("only 404/405 indicate legacy support; 401/503 and malformed responses fail closed", async (t) => {
+  let response;
+  t.mock.method(globalThis, "fetch", async () => response);
+  const client = new BackendClient(local, "local_postgres");
+  for (const status of [404, 405]) {
+    response = new Response("", { status });
+    assert.deepEqual(await client.waitForWork("it-lt8"), { supported: false });
+  }
+  for (const status of [401, 403, 503]) {
+    response = new Response("private response must not escape", { status });
+    await assert.rejects(client.waitForWork("it-lt8"), new RegExp(`HTTP ${status}`));
+  }
+  for (const data of [
+    { runner_id: "other", available: ["traffic"], timed_out: false },
+    { runner_id: "it-lt8", available: ["traffic", "traffic"], timed_out: false },
+    { runner_id: "it-lt8", available: ["arbitrary"], timed_out: false },
+    { runner_id: "it-lt8", available: [], timed_out: false },
+  ]) {
+    response = Response.json({ data });
+    await assert.rejects(client.waitForWork("it-lt8"), /Invalid work wait response/);
+  }
+});
+
 test("runner accepts only explicit local PostgreSQL authority and local backend configuration", () => {
   assert.throws(() => new BackendClient(local, "remote"), /local_postgres/);
   assert.throws(() => new BackendClient(null, "local_postgres"), /Local backend/);

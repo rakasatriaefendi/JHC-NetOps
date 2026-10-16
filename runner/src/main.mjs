@@ -10,6 +10,7 @@ import { startHeartbeatLoop } from "./heartbeat.mjs";
 import { runAgent, runInspectionAgent, runPreflight, runTrafficAgent } from "./wsl.mjs";
 import { manualPingCompletionLog, NetworkHealthWatch } from "./network-health.mjs";
 import { ManagedTelemetryWatch } from "./snmp-telemetry.mjs";
+import { runControlPlane } from "./control-plane.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
@@ -86,35 +87,19 @@ if (config.enable_snmp_telemetry === true) {
   });
   if (!once) telemetryWatch.start();
 }
+const controlShutdown = new AbortController();
+const stopControl = () => controlShutdown.abort();
+process.once("SIGINT", stopControl);
+process.once("SIGTERM", stopControl);
 try {
-  do {
-    const rawManualPing = config.enable_manual_ping === true
-      ? await backend.claimManualPing(config.runner_id).catch(() => null)
-      : null;
-    if (rawManualPing) await executeManualPing(rawManualPing);
-    else {
-      const rawPreflight = await backend.claimPreflight(config.runner_id).catch(() => null);
-      if (rawPreflight) await executePreflight(rawPreflight);
-      else {
-        const rawJob = await backend.claim(config.runner_id).catch(() => null);
-        if (rawJob) await executeJob(rawJob);
-        else {
-          const rawSession = await backend.claimTraffic(config.runner_id).catch(() => null);
-          if (rawSession) await executeTraffic(rawSession);
-          else {
-            const rawDiscovery = await backend.claimDiscovery(config.runner_id).catch(() => null);
-            if (rawDiscovery) await executeDiscovery(rawDiscovery);
-            else {
-              const rawInspection = await backend.claimInspection(config.runner_id).catch(() => null);
-              if (rawInspection) await executeInspection(rawInspection);
-            }
-          }
-        }
-      }
-    }
-    if (!once) await delay(config.control_poll_interval_ms);
-  } while (!once);
+  await runControlPlane({
+    backend, runnerId: config.runner_id, manualPingEnabled: config.enable_manual_ping === true,
+    signal: controlShutdown.signal, once, legacyIntervalMs: config.control_poll_interval_ms,
+    execute: { manual_ping: executeManualPing, traffic: executeTraffic, discovery: executeDiscovery, device_inspector: executeInspection },
+  });
 } finally {
+  process.removeListener("SIGINT", stopControl);
+  process.removeListener("SIGTERM", stopControl);
   await healthWatch.stop();
   if (telemetryWatch) await telemetryWatch.stop();
   stopHeartbeat();

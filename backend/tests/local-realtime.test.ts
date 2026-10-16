@@ -88,12 +88,42 @@ test("dedicated listener LISTENs, validates notifications, and reconnects safely
   first.notify(LOCAL_REALTIME_CHANNEL, JSON.stringify({ ...EVENT, payload: { secret: true } }));
   assert.deepEqual(received, [EVENT]);
   first.disconnect();
-  await waitFor(() => second.listenChannel === LOCAL_REALTIME_CHANNEL);
+  await waitFor(() => second.listenChannel === LOCAL_REALTIME_CHANNEL && received.some((event) => event.topic === "sync"));
   assert.equal(listener.isListening(), true);
+  assert.deepEqual(received.map((event) => event.topic), ["network_health", "sync"]);
+  const sync = received[1];
+  assert.equal(sync?.aggregate_key, null, "re-LISTEN recovery is invalidation-only, not replayed state");  second.notify(LOCAL_REALTIME_CHANNEL, JSON.stringify(EVENT));
+  assert.deepEqual(received.map((event) => event.topic), ["network_health", "sync", "network_health"]);
   await listener.stop();
   assert.equal(listener.isListening(), false);
   assert.equal(first.closed, true);
   assert.equal(second.closed, true);
+});
+
+test("failed LISTEN does not publish a recovery sync before successful subscription", async () => {
+  const broker = new LocalRealtimeBroker();
+  const received: LocalRealtimeInvalidation[] = [];
+  broker.subscribe({ send: (event) => { received.push(event); return true; }, close: () => {} });
+  const first = new FakeListenConnection();
+  const broken = new FakeListenConnection();
+  broken.listen = async () => { throw new Error("not listening"); };
+  const recovered = new FakeListenConnection();
+  const connections = [first, broken, recovered];
+  const listener = new PostgresRealtimeListener(async () => {
+    const connection = connections.shift();
+    if (!connection) throw new Error("unavailable");
+    return connection;
+  }, broker, 1, 2);
+  try {
+    listener.start();
+    await waitFor(() => listener.isListening());
+    assert.equal(received.length, 0);
+    first.disconnect();
+    await waitFor(() => received.length === 1);
+    assert.equal(broken.closed, true);
+    assert.equal(recovered.listenChannel, LOCAL_REALTIME_CHANNEL);
+    assert.equal(received[0]?.topic, "sync");
+  } finally { await listener.stop(); }
 });
 
 test("backend SSE requires bearer auth", async () => {

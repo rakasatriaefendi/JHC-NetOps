@@ -10,6 +10,7 @@ export class BackendClient {
     this.localTelemetryEndpoint = localBackend ? `${localBackend.url}/api/runner/managed-telemetry` : null;
     this.localDiscoveryEndpoint = `${localBackend.url}/api/runner/network-discovery`;
     this.localInspectionEndpoint = `${localBackend.url}/api/runner/device-inspector`;
+    this.localWorkEndpoint = `${localBackend.url}/api/runner/work/wait`;
     this.localBackendHeaders = localBackend ? {
       Authorization: `Bearer ${localBackend.token}`,
       "Content-Type": "application/json",
@@ -17,6 +18,30 @@ export class BackendClient {
   }
 
   heartbeat(runner) { return this.#postLocalHeartbeat({ runner }); }
+  async waitForWork(runnerId, signal) {
+    const response = await fetch(this.localWorkEndpoint, {
+      method: "POST", headers: this.localBackendHeaders,
+      body: JSON.stringify({ runner_id: runnerId }),
+      signal: AbortSignal.any([AbortSignal.timeout(20_000), ...(signal ? [signal] : [])]),
+    });
+    // Capability fallback only: auth, capacity and transport failures never downgrade.
+    if (response.status === 404 || response.status === 405) return { supported: false };
+    if (!response.ok) {
+      const error = new Error(`Local work wait failed with HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    const text = await response.text();
+    if (text.length > 4_096) throw new Error("Invalid work wait response");
+    let data;
+    try { data = JSON.parse(text).data; } catch { throw new Error("Invalid work wait response"); }
+    const kinds = ["manual_ping", "traffic", "discovery", "device_inspector"];
+    if (!data || Object.keys(data).length !== 3 || data.runner_id !== runnerId ||
+        typeof data.timed_out !== "boolean" || !Array.isArray(data.available) || data.available.length > 4 ||
+        new Set(data.available).size !== data.available.length || data.available.some((kind) => !kinds.includes(kind)) ||
+        data.timed_out !== (data.available.length === 0)) throw new Error("Invalid work wait response");
+    return { supported: true, ...data };
+  }
   claimPreflight() { return Promise.resolve(null); }
   completePreflight() { return Promise.resolve(null); }
   failPreflight() { return Promise.resolve(null); }

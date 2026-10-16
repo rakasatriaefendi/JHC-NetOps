@@ -16,6 +16,7 @@ import { registerApplicationRoutes, type ApplicationRouteOptions } from "./persi
 import { registerLocalRealtimeRoute, type LocalRealtimeRouteOptions } from "./realtime/route.js";
 import { registerLocalAuthRoutes, type LocalAuthRouteOptions } from "./local-auth/route.js";
 import { registerAdministrativeAuditRoute } from "./persistence/administrative-audit-route.js";
+import { registerRunnerWorkRoute, type RunnerWorkRouteOptions } from "./runner-work/route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -40,6 +41,7 @@ type BuildServerOptions = Readonly<{
   realtime?: LocalRealtimeRouteOptions;
   localAuth?: LocalAuthRouteOptions;
   administrativeAudit?: Parameters<typeof registerAdministrativeAuditRoute>[1];
+  runnerWork?: RunnerWorkRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -92,6 +94,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     ...(options.candidateReadOnly ? { candidate_read_only: true } : {}),
   }));
 
+  if (options.runnerWork && !options.candidateReadOnly) registerRunnerWorkRoute(server, options.runnerWork);
   if (options.runnerHeartbeat) {
     registerRunnerHeartbeatRoute(server, options.runnerHeartbeat);
   }

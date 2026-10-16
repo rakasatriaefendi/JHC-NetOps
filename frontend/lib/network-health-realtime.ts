@@ -141,7 +141,7 @@ function invalidationTopic(event: Event): "sync" | LocalRealtimeTopic | null {
   }
 }
 
-function browserEventStream(url: string): NetworkHealthEventStream {
+export function browserEventStream(url: string): NetworkHealthEventStream {
   const source = new EventSource(url);
   return {
     addEventListener: (type, listener) => source.addEventListener(type, listener),

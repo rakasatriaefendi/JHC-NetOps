@@ -26,12 +26,33 @@ Monitoring target memakai preset Aggressive (15/30/60 detik), Moderate
 Health/SNMP mengatur probe/poll target, bukan claim loop atau heartbeat.
 Contoh deployment memakai `poll_interval_ms=60000` dan
 `heartbeat_interval_ms=60000`; validasi keduanya tetap 1000-60000 ms.
-Claim control-plane memakai `min(poll_interval_ms, 2000)` ms di antara iterasi,
-tanpa mengubah heartbeat atau interval Health/SNMP. Loop tetap serial: Traffic
-yang sedang berjalan menahan claim berikutnya sampai selesai; Manual Ping
-ditolak dengan `RUNNER_BUSY` ketika ada pekerjaan aktif, bukan dijalankan paralel.
-Saat idle, maksimal satu rangkaian claim setiap 2 detik pada config 60000 ms;
-latensi HTTP dan pekerjaan aktif tetap menambah waktu tunggu.
+Control-plane idle memakai authenticated `POST /api/runner/work/wait` (sekitar
+10 detik, HTTP deadline 20 detik). Respons timeout tanpa work tidak menjalankan
+claim kosong. Work hint hanya memicu atomic claim lama untuk jenis yang tersedia,
+dengan prioritas Manual Ping -> Traffic -> Discovery -> Device Inspector.
+Loop tetap serial: Traffic yang sedang berjalan menahan claim/wait berikutnya
+sampai selesai; snapshot dan stop handling agent tidak berubah. Manual Ping
+tetap ditolak dengan `RUNNER_BUSY` ketika pekerjaan lain aktif.
+
+Heartbeat, Health Watch dan SNMP tetap independen; probe 1800 detik tidak menjadi
+claim 1800 detik atau berubah menjadi probe 10 detik. SIGINT/SIGTERM membatalkan
+wait/backoff. Pekerjaan agent yang sudah berjalan tetap menyelesaikan jalur
+bounded existing sebelum cleanup; tidak ada paralelisasi atau requeue baru.
+HTTP 503/network/auth failure memakai exponential backoff berjitter (awal sekitar
+0,8-1,2 detik, maksimum 30 detik), bukan fallback auth/transport. Hanya 404/405
+menandakan backend lama: gunakan claim lokal dengan bearer yang sama setiap
+`min(poll_interval_ms, 2000)` ms, dan cek dukungan wait lagi setelah 60 detik.
+`--once` tetap satu rangkaian claim bounded tanpa long wait.
+
+Ekspektasi source (bukan benchmark): idle healthy sekitar 6 wait HTTP/menit vs
+120 claim/menit sebelumnya jika Manual Ping aktif (90 jika nonaktif), di luar
+heartbeat/Health/SNMP. Saat capture aktif, tidak ada wait/claim control-plane;
+request snapshot dan stop tetap seperti sebelumnya. Saat backend terus gagal,
+steady-state retry sekitar 2-2,5/menit ditambah ramp-up awal dan durasi HTTP.
+Backend lama mempertahankan 90/120 claim/menit ditambah sekitar 1 support check
+per menit. Deploy backend dahulu, lalu runner; rollback runner dahulu disarankan.
+Semua endpoint claim lama tetap tersedia. Recovery lease kini juga dijalankan
+backend secara bounded tanpa bergantung pada claim idle; lihat backend README.
 Scheduler internal 1 detik hanya memeriksa pekerjaan yang sudah jatuh tempo;
 baseline counter SNMP tetap relatif terhadap interval target. Timeout SNMP
 tidak diubah. Perubahan interval diterapkan saat target di-refresh (hingga

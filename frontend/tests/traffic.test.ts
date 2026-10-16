@@ -38,11 +38,16 @@ test("Traffic treats stale, degraded, and incapable local runners as unavailable
 test("Traffic client refreshes authoritative local state and ignores shadow snapshots", () => {
   const component = readFileSync(new URL("../components/traffic/traffic-live-page.tsx", import.meta.url), "utf8");
   const action = readFileSync(new URL("../app/actions/traffic.ts", import.meta.url), "utf8");
-  assert.match(component, /getTrafficRunnersAction/);
-  assert.match(component, /runnerAuthority !== "local_postgres"\) return/);
+  assert.match(component, /startTrafficRefresh/);
+  assert.doesNotMatch(component, /getTrafficRunnersAction|refreshRunners|setRunnerAuthority/);
   assert.match(component, /setState\(nextState\)/);
-  assert.match(component, /transient refresh failure does not erase the last authoritative heartbeat/i);
-  assert.match(component, /window\.setInterval[^]*10_000/);
+  assert.match(component, /useState\(initialState\)/);
+  assert.match(component, /if \(!latest\.ok \|\| !latest\.data\) throw/);
+  assert.match(component, /window\.setInterval\(\(\) => setNow\(Date\.now\(\)\), 1_000\)/);
+  assert.equal([...component.matchAll(/setInterval\(/g)].length, 1, "only the local UI clock remains");
+  assert.match(component, /visibilitychange/);
+  assert.match(component, /document\.removeEventListener/);
+  assert.match(component, /controller\.dispose\(\)/);
   assert.match(action, /const authority = "local_postgres" as const;[\s\S]*localRunners\(\)/);
   assert.match(action, /normalizeTrafficRunnerSnapshots\(rows\)/);
   assert.doesNotMatch(component, /LOCAL_BACKEND_FRONTEND_TOKEN|localRunners|localApplicationRequest/);

@@ -1,6 +1,6 @@
 import { Client } from "pg";
 
-import { LOCAL_REALTIME_CHANNEL, parseLocalRealtimeNotification } from "./contract.js";
+import { LOCAL_REALTIME_CHANNEL, createSyncInvalidation, parseLocalRealtimeNotification } from "./contract.js";
 import type { LocalRealtimeBroker } from "./broker.js";
 
 export type RealtimeListenConnection = Readonly<{
@@ -69,6 +69,7 @@ export class PostgresRealtimeListener {
 
   private async run(signal: AbortSignal): Promise<void> {
     let reconnectDelay = this.reconnectMinimumMs;
+    let hasListened = false;
     while (!signal.aborted) {
       let connection: RealtimeListenConnection | null = null;
       try {
@@ -85,7 +86,11 @@ export class PostgresRealtimeListener {
         connection.onError(disconnected);
         connection.onEnd(disconnected);
         await connection.listen(LOCAL_REALTIME_CHANNEL);
+        if (signal.aborted) break;
         this.listening = true;
+        // NOTIFY is not durable: connected browsers must refetch after a LISTEN gap.
+        if (hasListened) this.broker.publish(createSyncInvalidation());
+        hasListened = true;
         reconnectDelay = this.reconnectMinimumMs;
         await Promise.race([disconnection, aborted(signal)]);
       } catch {

@@ -13,7 +13,7 @@ test("frontend authority accepts only explicit local PostgreSQL", () => {
 test("Traffic consumers use local SSE invalidation and authoritative refetch", () => {
   for (const path of ["../components/dashboard/local-traffic-summary.tsx", "../components/traffic/traffic-live-page.tsx"]) {
     const component = source(path);
-    assert.match(component, /startLocalRealtimeInvalidation/);
+    assert.match(component, /startLocalRealtimeInvalidation|startTrafficRefresh/);
     assert.match(component, /getTrafficStateAction/);
     assert.doesNotMatch(component, /\.channel\(|postgres_changes|createClient/);
   }
