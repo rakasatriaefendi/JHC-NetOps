@@ -1,6 +1,8 @@
 "use server";
 
-import { localEvents, localHealthTargets, localRunners } from "./application-persistence.ts";
+import { localEvents, localHealthTargets, localRunners, localHealthSamples } from "./application-persistence.ts";
+import { requireApprovedProfile } from "./auth";
+import type { HealthHistoryResult } from "./health-history.ts";
 import type {
   HealthStatus,
   NetworkHealthTarget,
@@ -52,14 +54,9 @@ async function loadNetworkHealthLocal() {
   return { data, events: events as NetworkHealthEvent[], error: false };
 }
 
-export async function loadHealthSamples(targetIds: string[], range: HealthTrendRange): Promise<{
-  data: NetworkHealthSample[];
-  error: boolean;
-}> {
-  void targetIds;
-  void range;
-  // Historical samples are not yet exposed by the local application API.
-  return { data: [], error: false };
+export async function loadHealthSamples(targetIds: string[], range: HealthTrendRange): Promise<HealthHistoryResult> {
+  await requireApprovedProfile();
+  return localHealthSamples(targetIds, range);
 }
 
 function relation(value: unknown): Record<string, unknown> | null {

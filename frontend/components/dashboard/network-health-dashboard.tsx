@@ -15,10 +15,11 @@ import { NetworkDiscoveryDrawer } from "@/components/dashboard/network-discovery
 import type { DiscoverySession } from "@/lib/network-discovery";
 import { healthTargetPagination, type HealthStatus, type NetworkHealthEvent, type NetworkHealthTarget, type NetworkHealthSample } from "@/lib/network-health-client";
 import { startNetworkHealthRealtime, type NetworkHealthRealtimeStatus } from "@/lib/network-health-realtime";
+import type { HealthHistoryResult } from "@/lib/health-history";
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
 
-export function NetworkHealthDashboard({ targets, events, samples, loadError, isAdmin, manualPingIsAdmin, discoveryRunners, discoverySessions, trafficIps, initialTargetId }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; loadError: boolean; isAdmin: boolean; manualPingIsAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[]; initialTargetId?: string }) {
+export function NetworkHealthDashboard({ targets, events, samples, history, loadError, isAdmin, manualPingIsAdmin, discoveryRunners, discoverySessions, trafficIps, initialTargetId }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; history: HealthHistoryResult; loadError: boolean; isAdmin: boolean; manualPingIsAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[]; initialTargetId?: string }) {
   const { t, i18n } = useTranslation("dashboard");
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(() => targets.some((target) => target.id === initialTargetId) ? initialTargetId ?? null : null);
@@ -75,7 +76,7 @@ export function NetworkHealthDashboard({ targets, events, samples, loadError, is
 
       {selected ? <Detail target={selected} onClose={() => setSelectedId(null)} /> : null}
 
-      <NetworkHealthTrends targets={targets} samples={samples} />
+      <NetworkHealthTrends targets={targets} initialHistory={history} />
 
       <ReachabilityMap key={targets.map((target) => target.id).sort().join(":")} targets={targets} samples={samples} events={events} runnerId="raka-local-wsl" />
 

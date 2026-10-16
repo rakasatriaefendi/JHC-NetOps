@@ -40,10 +40,11 @@ export type NetworkHealthSample = {
 export type HealthTrendRange = "1h" | "6h" | "24h" | "7d";
 
 export const HEALTH_TREND_RANGES: { value: HealthTrendRange; label: string; maxPoints: number }[] = [
-  { value: "1h", label: "Last hour", maxPoints: 60 },
-  { value: "6h", label: "Last 6 hours", maxPoints: 180 },
-  { value: "24h", label: "Last 24 hours", maxPoints: 240 },
-  { value: "7d", label: "Last 7 days", maxPoints: 480 },
+  // Include a partial boundary bucket; the requested UTC window is never clipped.
+  { value: "1h", label: "Last hour", maxPoints: 61 },
+  { value: "6h", label: "Last 6 hours", maxPoints: 181 },
+  { value: "24h", label: "Last 24 hours", maxPoints: 241 },
+  { value: "7d", label: "Last 7 days", maxPoints: 481 },
 ];
 
 export const HEALTH_TARGET_PAGE_SIZE = 10;

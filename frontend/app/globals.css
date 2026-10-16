@@ -27,4 +27,48 @@
   .medical-date-input::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
   }
+
+  .sidebar-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #56616e transparent;
+  }
+
+  .sidebar-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .sidebar-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .sidebar-scrollbar::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: #56616e;
+    background-clip: padding-box;
+  }
+
+  .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #7b8795;
+    background-clip: padding-box;
+  }
+
+  @media (forced-colors: active) {
+    .sidebar-scrollbar {
+      forced-color-adjust: auto;
+      scrollbar-color: auto;
+    }
+
+    .sidebar-scrollbar::-webkit-scrollbar-track {
+      background: Canvas;
+    }
+
+    .sidebar-scrollbar::-webkit-scrollbar-thumb,
+    .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+      border-color: Canvas;
+      background: ButtonText;
+      background-clip: padding-box;
+    }
+  }
 }

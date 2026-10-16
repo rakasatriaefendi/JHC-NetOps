@@ -22,15 +22,83 @@ test("viewport sidebar reserves account space and lets the main navigation shrin
 });
 
 test("short-height and 125% zoom fallback keeps navigation and account in reachable scroll flow", () => {
-  // 600px at 125% zoom can leave only 480 CSS pixels. The 768/900px cases
-  // retain nav scrolling; the smaller case expands the nav in shell scrolling.
-  assert.deepEqual([600, 768, 900].map((height) => height / 1.25 <= 480), [true, false, false]);
-  assert.match(nav, /\[@media\(max-height:480px\)\]:flex-none/);
-  assert.match(nav, /\[@media\(max-height:480px\)\]:overflow-visible/);
-  assert.match(shell, /overflow-y-auto/);
+  // At each desktop height, navigation alone scrolls when content overflows;
+  // at <=480 CSS px (including 600 physical px at 125% zoom), shell owns scroll.
+  const viewportCases = [600, 768, 900].flatMap((height) => [
+    { height, zoom: 1, owner: "navigation" },
+    { height, zoom: 1.25, owner: height / 1.25 <= 480 ? "shell" : "navigation" },
+  ]);
+  assert.deepEqual(viewportCases.map(({ owner }) => owner), [
+    "navigation", "shell", "navigation", "navigation", "navigation", "navigation",
+  ]);
+  assert.equal(600 / 1.25, 480);
+  for (const { owner } of viewportCases) {
+    assert.match(shell, /h-full min-h-0/);
+    assert.match(account, /shrink-0/);
+    assert.match(account, /href="\/profile"/);
+    assert.match(account, /<form action=\{logoutAction\}/);
+    if (owner === "navigation") {
+      assert.match(nav, /min-h-0 flex-1 flex-col[^\n]*overflow-y-auto/);
+    } else {
+      assert.match(shell, /overflow-y-auto/);
+      assert.match(nav, /\[@media\(max-height:480px\)\]:flex-none/);
+      assert.match(nav, /\[@media\(max-height:480px\)\]:overflow-visible/);
+    }
+  }
   assert.match(shell, /env\(safe-area-inset-top\)/);
   assert.match(shell, /env\(safe-area-inset-bottom\)/);
   assert.doesNotMatch(account, /max-h-|overflow-hidden/);
+});
+
+test("sidebar uses scoped dark scrollbars with Firefox and WebKit implementations", () => {
+  const css = source("../app/globals.css");
+  assert.match(shell, /sidebar-scrollbar/);
+  assert.match(nav, /sidebar-scrollbar/);
+  assert.match(css, /\.sidebar-scrollbar\s*\{[^}]*scrollbar-width:\s*thin;[^}]*scrollbar-color:\s*#56616e transparent;/);
+  assert.match(css, /\.sidebar-scrollbar::\-webkit-scrollbar\s*\{\s*width:\s*6px;\s*height:\s*6px;/);
+  assert.match(css, /\.sidebar-scrollbar::\-webkit-scrollbar-track\s*\{\s*background:\s*transparent;/);
+  assert.match(css, /\.sidebar-scrollbar::\-webkit-scrollbar-thumb\s*\{[^}]*background:\s*#56616e;/);
+  assert.match(css, /\.sidebar-scrollbar::\-webkit-scrollbar-thumb:hover\s*\{\s*background:\s*#7b8795;/);
+  assert.doesNotMatch(css, /(?:^|\n)\s*(?:html|body|\*)\s*\{[^}]*scrollbar-/);
+});
+
+test("normal and very short viewports have one active scroll owner", () => {
+  const shortRules = nav.slice(nav.indexOf("[@media(max-height:480px)]"));
+  assert.match(shell, /overflow-y-auto/);
+  assert.match(nav, /min-h-0 flex-1 flex-col[^\n]*overflow-y-auto/);
+  assert.match(shortRules, /\[@media\(max-height:480px\)\]:flex-none/);
+  assert.match(shortRules, /\[@media\(max-height:480px\)\]:overflow-visible/);
+  assert.doesNotMatch(shortRules, /overflow-y-auto/);
+  assert.ok(navigation.indexOf('data-sidebar="account"') > navigation.indexOf("</nav>"));
+  assert.match(account, /shrink-0/);
+});
+
+test("scoped scrollbar leaves the main layout width and content styles untouched", () => {
+  const css = source("../app/globals.css");
+  const scoped = css.slice(css.indexOf(".sidebar-scrollbar {"));
+  assert.doesNotMatch(scoped, /(?:^|\n)\s*(?:main|body|html|\*)\s*\{/);
+  const layout = source("../app/(protected)/layout.tsx");
+  assert.match(layout, /min-w-0 md:pl-64/);
+  assert.doesNotMatch(layout, /sidebar-scrollbar/);
+});
+
+test("forced-colors mode restores system scrollbar colors", () => {
+  const css = source("../app/globals.css");
+  const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
+  assert.match(forced, /\.sidebar-scrollbar\s*\{[^}]*forced-color-adjust:\s*auto;[^}]*scrollbar-color:\s*auto;/);
+  assert.match(forced, /::-webkit-scrollbar-track\s*\{\s*background:\s*Canvas;/);
+  assert.match(forced, /::-webkit-scrollbar-thumb,[\s\S]*?background:\s*ButtonText;/);
+});
+
+test("mobile drawer preserves the short-height shell fallback, safe area, and reachable account controls", () => {
+  assert.match(navigation, /<aside className="relative h-full min-h-0 w-64 max-w-full border-r border-border">/);
+  assert.match(navigation, /fixed inset-0 z-50 h-dvh md:hidden/);
+  assert.match(shell, /overflow-y-auto sidebar-scrollbar/);
+  assert.match(shell, /pt-\[max\(1rem,env\(safe-area-inset-top\)\)\]/);
+  assert.match(shell, /pb-\[max\(1rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.ok(navigation.indexOf('data-sidebar="account"') > navigation.indexOf("</nav>"));
+  assert.match(account, /href="\/profile"/);
+  assert.match(account, /<form action=\{logoutAction\}/);
 });
 
 test("Profile is an explicit localized navigation control with icon, active and keyboard focus states", () => {
@@ -66,6 +134,8 @@ test("account retains identity/role/language and exactly one official logout for
 
 test("sidebar account access does not alter role-gated navigation or approved route protection", () => {
   assert.match(navigation, /role === "admin"[\s\S]*key: "administration"/);
+  assert.match(navigation, /const groups = role === "admin"[\s\S]*: navigation;/,
+    "Admin keeps its administration link and Operator/Viewer share the existing navigation list");
   assert.match(navigation, /const \[open, setOpen\] = useState\(false\)/);
   assert.match(navigation, /\{open \? \(/);
   assert.match(navigation, /aria-expanded=\{open\}/);

@@ -2,6 +2,8 @@ import "server-only";
 
 import { localBackendConfig } from "./assets.ts";
 import { getApplicationAuthority, type ApplicationAuthority } from "./application-authority.ts";
+import { historyFailure, parseHealthHistory, validHistorySelection, type HealthHistoryResult } from "./health-history.ts";
+import type { HealthTrendRange } from "./network-health-client.ts";
 
 export { getApplicationAuthority as applicationAuthority, type ApplicationAuthority };
 
@@ -26,7 +28,7 @@ export async function localApplicationRequest(
     });
     const payload: unknown = await response.json().catch(() => null);
     if (!record(payload)) return { ok: false, data: null, code: "LOCAL_APPLICATION_UNAVAILABLE" };
-    if (!response.ok) return { ok: false, data: null, code: safeCode(payload) };
+    if (!response.ok) return { ok: false, data: null, code: safeCode(payload, approvedPath) };
     return { ok: true, data: payload.data ?? null, code: "OK" };
   } catch {
     return { ok: false, data: null, code: "LOCAL_APPLICATION_UNAVAILABLE" };
@@ -42,7 +44,9 @@ export function safeApplicationPath(path: string): string | null {
     if (parsed.origin !== base.origin || !/^\/api\/application\/[a-z0-9_/-]{1,200}$/i.test(parsed.pathname)) return null;
     const entries = [...parsed.searchParams.entries()];
     if (entries.length > 20 || entries.some(([key, value]) =>
-      !/^[a-z0-9_]{1,64}$/i.test(key) || value.length > 500 || /[\u0000-\u001f\u007f]/.test(value))) return null;
+      !/^[a-z0-9_]{1,64}$/i.test(key) || value.length >
+        (parsed.pathname === "/api/application/network-health-samples" && key === "target_ids" ? 740 : 500) ||
+      /[\u0000-\u001f\u007f]/.test(value))) return null;
     return `${parsed.pathname}${parsed.search}`;
   } catch {
     return null;
@@ -111,6 +115,14 @@ export async function localRunners(): Promise<Record<string, unknown>[] | null> 
 export async function localHealthTargets(): Promise<Record<string, unknown>[] | null> {
   const response = await localApplicationRequest("GET", "/api/application/network-targets");
   return response.ok && Array.isArray(response.data) && response.data.every(record) ? response.data : null;
+}
+
+export async function localHealthSamples(targetIds: string[], range: HealthTrendRange): Promise<HealthHistoryResult> {
+  if (!validHistorySelection(targetIds, range)) return historyFailure("INVALID_HEALTH_HISTORY_REQUEST");
+  if (!targetIds.length) return { data: [], error: false, code: "OK", metadata: null };
+  const query = new URLSearchParams({ target_ids: [...targetIds].sort().join(","), range });
+  const response = await localApplicationRequest("GET", `/api/application/network-health-samples?${query}`);
+  return response.ok ? parseHealthHistory(response.data, targetIds, range) : historyFailure(response.code);
 }
 
 export async function localHealthTarget(targetId: string): Promise<Record<string, unknown> | null> {
@@ -315,8 +327,9 @@ export function uuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function safeCode(value: Record<string, unknown>): string {
+function safeCode(value: Record<string, unknown>, path = ""): string {
   if (!record(value.error) || typeof value.error.code !== "string") return "LOCAL_APPLICATION_UNAVAILABLE";
+  if (value.error.code === "UNAUTHORIZED" && path.startsWith("/api/application/network-health-samples?")) return "UNAUTHORIZED";
   return new Set(["INVALID_APPLICATION_REQUEST", "INVALID_INVENTORY_INPUT", "OPERATOR_ACCESS_REQUIRED",
     "ADMIN_ACCESS_REQUIRED", "PROFILE_ACCESS_REQUIRED", "PROFILE_NOT_FOUND", "DEPENDENT_TARGETS_PRESENT", "RUNNER_PROFILE_UNAVAILABLE",
     "SELF_DEMOTION_BLOCKED", "LAST_ADMIN_BLOCKED", "INVALID_PROFILE", "SELF_DELETE_BLOCKED", "SELF_DISABLE_BLOCKED",
@@ -324,7 +337,9 @@ function safeCode(value: Record<string, unknown>): string {
     "ACCOUNT_NOT_REENABLEABLE", "ACCOUNT_NOT_DELETABLE", "NODE_NOT_FOUND", "TARGET_NOT_FOUND",
     "RUNNER_NOT_FOUND", "CONFIRMATION_MISMATCH", "INVENTORY_DUPLICATE",
     "INVALID_CONTROL_PLANE_INPUT", "RUNNER_BUSY", "RUNNER_OFFLINE", "OPERATION_NOT_AUTHORIZED",
-    "TARGET_NOT_AUTHORIZED", "OPERATION_NOT_READY", "STORAGE_CRITICAL", "ALREADY_ACTIVE"]).has(value.error.code)
+    "TARGET_NOT_AUTHORIZED", "OPERATION_NOT_READY", "STORAGE_CRITICAL", "ALREADY_ACTIVE",
+    "INVALID_HEALTH_HISTORY_REQUEST", "HEALTH_HISTORY_TARGET_UNAVAILABLE", "HEALTH_HISTORY_RESPONSE_TOO_LARGE",
+    "HEALTH_HISTORY_QUERY_FAILED"]).has(value.error.code)
     ? value.error.code : "LOCAL_APPLICATION_UNAVAILABLE";
 }
 

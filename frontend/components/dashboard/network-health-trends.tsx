@@ -1,463 +1,141 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  Area,
-} from "recharts";
-
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
-import type { NetworkHealthTarget, NetworkHealthSample } from "@/lib/network-health";
+import { loadHealthSamples } from "@/lib/network-health";
+import type { HealthTrendRange, NetworkHealthTarget } from "@/lib/network-health-client";
+import { HEALTH_HISTORY_MAX_TARGETS, HealthHistoryController, healthChartPoints, healthMetricState,
+  healthHistoryDefaultTarget, healthHistorySelection, historyKey,
+  type HealthHistoryResult } from "@/lib/health-history";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
-      <h2 className="text-section font-semibold">{title}</h2>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
+type HealthTrendsProps = { targets: NetworkHealthTarget[]; initialHistory: HealthHistoryResult };
 
-type HealthTrendsProps = {
-  targets: NetworkHealthTarget[];
-  samples: NetworkHealthSample[];
-};
-
-interface SamplePoint {
-  time: string;
-  [targetId: string]: string | number | null;
-}
-
-function HealthTrendChart({ samples, targets, metric, range, onRangeChange }: {
-  samples: { target_id: string; sampled_at: string; latency_ms: number | null; packet_loss_percent: number; status: string; sample_count: number }[];
-  targets: { id: string; name: string; ip_address: string }[];
-  metric: "latency" | "loss";
-  range: string;
-  onRangeChange: (range: string) => void;
-}) {
-  const { t, i18n } = useTranslation("dashboard");
-  const ranges = [
-    { value: "1h", label: "1h" },
-    { value: "6h", label: "6h" },
-    { value: "24h", label: "24h" },
-    { value: "7d", label: "7d" },
-  ];
-
-  const isLatency = metric === "latency";
-  const yUnit = isLatency ? "ms" : "%";
-  const domain = isLatency ? [0, "auto"] : [0, 100];
-
-  function formatTooltipTime(value: string) {
-    return new Intl.DateTimeFormat(i18n.language === "en" ? "en-US" : "id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
-  }
-
-  if (!samples.length) {
-    return (
-      <div className="rounded-control border border-border bg-bg-base p-6 text-center">
-        <p className="text-text-secondary">{t("trends.noHistory")}</p>
-        <p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
-      </div>
-    );
-  }
-
-  const targetIds = [...new Set(samples.map((s) => s.target_id))];
-  const colorMap = new Map<string, string>();
-  const hueStep = 360 / Math.max(1, targetIds.length);
-  targetIds.forEach((id, i) => {
-    colorMap.set(id, `hsl(${(i * hueStep) % 360}, 70%, 50%)`);
-  });
-
-  const dataByTime = new Map<string, SamplePoint>();
-  samples.forEach((s) => {
-    const bucket = s.sampled_at;
-    if (!dataByTime.has(bucket)) {
-      dataByTime.set(bucket, { time: bucket });
-    }
-    const point = dataByTime.get(bucket)!;
-    const key = `target_${s.target_id}`;
-    if (isLatency) {
-      point[key] = s.latency_ms;
-    } else {
-      point[key] = s.packet_loss_percent;
-    }
-  });
-
-  const chartData = Array.from(dataByTime.values()).sort((a, b) => a.time.localeCompare(b.time));
-
-  const hasData = chartData.some((d) => targetIds.some((id) => d[`target_${id}`] !== null && d[`target_${id}`] !== undefined));
-
-  if (!hasData) {
-    return (
-      <div className="rounded-control border border-border bg-bg-base p-6 text-center">
-        <p className="text-text-secondary">{t("trends.noMetric", { metric: t(isLatency ? "trends.latency" : "trends.packetLoss") })}</p>
-        <p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-meta font-medium text-text-secondary">{t("trends.target")}</span>
-          <span className="font-data text-text-primary">{t("trends.allTargetsCount", { count: targets.length })}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {ranges.map((r) => (
-            <Button
-              key={r.value}
-              variant={range === r.value ? "primary" : "secondary"}
-              onClick={() => onRangeChange(r.value)}
-              className="px-2 py-1 text-sm"
-            >
-              {r.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-control border border-border bg-bg-base p-4" style={{ height: 320 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis
-              dataKey="time"
-              tickFormatter={formatTooltipTime}
-              tick={{ fill: "hsl(var(--text-secondary))", fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              tickCount={6}
-            />
-            <YAxis
-              domain={domain as [number, number] | [number, "auto"]}
-              tickFormatter={(v) => `${v}${yUnit}`}
-              tick={{ fill: "hsl(var(--text-secondary))", fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              width={isLatency ? 50 : 40}
-            />
-            <Tooltip
-              contentStyle={{ backgroundColor: "hsl(var(--bg-surface))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
-            />
-            <Legend
-              layout="vertical"
-              align="right"
-              verticalAlign="top"
-              iconType="line"
-              iconSize={12}
-              formatter={(value: string) => {
-                const target = targets.find((t) => `target_${t.id}` === value);
-                return target ? `${target.name} (${target.ip_address})` : value;
-              }}
-            />
-            {targetIds.map((targetId) => {
-              const target = targets.find((t) => t.id === targetId);
-              if (!target) return null;
-              const color = colorMap.get(targetId) ?? "hsl(var(--accent))";
-              return (
-                <Area
-                  key={`area-${targetId}`}
-                  type="monotone"
-                  dataKey={`target_${targetId}`}
-                  stroke={color}
-                  fill={color.replace("70%, 50%", "70%, 10%")}
-                  strokeWidth={2}
-                  connectNulls={false}
-                  dot={false}
-                />
-              );
-            })}
-            {targetIds.map((targetId) => {
-              const target = targets.find((t) => t.id === targetId);
-              if (!target) return null;
-              const color = colorMap.get(targetId) ?? "hsl(var(--accent))";
-              return (
-                <Line
-                  key={`line-${targetId}`}
-                  type="monotone"
-                  dataKey={`target_${targetId}`}
-                  stroke={color}
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls={false}
-                />
-              );
-            })}
-            {!hasData && isLatency && (
-              <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fill="hsl(var(--text-muted))" fontSize={12}>
-                Tidak ada data latency (target offline/timeout)
-              </text>
-            )}
-            {!hasData && !isLatency && (
-              <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fill="hsl(var(--text-muted))" fontSize={12}>
-                Tidak ada packet loss tercatat
-              </text>
-            )}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="flex items-center gap-4 text-meta text-text-secondary">
-        <span>{isLatency ? "Latency dihitung dari sampel yang merespons ICMP. Gap = target offline/timeout." : "Packet loss dihitung dari window pendek (5 probe)."}</span>
-      </div>
-    </div>
-  );
-}
-
-function SingleTargetChart({ samples, target, metric, range, onRangeChange }: {
-  samples: { target_id: string; sampled_at: string; latency_ms: number | null; packet_loss_percent: number; status: string; sample_count: number }[];
-  target: { name: string; ip_address: string } | null;
-  metric: "latency" | "loss";
-  range: string;
-  onRangeChange: (range: string) => void;
-}) {
-  const { t, i18n } = useTranslation("dashboard");
-  const ranges = [
-    { value: "1h", label: "1h" },
-    { value: "6h", label: "6h" },
-    { value: "24h", label: "24h" },
-    { value: "7d", label: "7d" },
-  ];
-
-  const data = samples
-    .filter((s) => s.status !== "offline" || metric === "loss")
-    .map((s) => ({
-      time: s.sampled_at,
-      latency: s.latency_ms,
-      loss: s.packet_loss_percent,
-      status: s.status,
-      sample_count: s.sample_count,
-    }));
-
-  const hasLatencyData = data.some((d) => d.latency !== null);
-  const hasLossData = data.some((d) => d.loss !== null && d.loss > 0);
-
-  if (!data.length) {
-    return (
-      <div className="rounded-control border border-border bg-bg-base p-6 text-center">
-        <p className="text-text-secondary">{t("trends.noHistory")}</p>
-        <p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
-      </div>
-    );
-  }
-
-  const isLatency = metric === "latency";
-  const yUnit = isLatency ? "ms" : "%";
-  const domain = isLatency ? [0, "auto"] : [0, 100];
-
-  function formatTooltipTime(value: string) {
-    return new Intl.DateTimeFormat(i18n.language === "en" ? "en-US" : "id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-meta font-medium text-text-secondary">{t("trends.target")}</span>
-          <span className="font-data text-text-primary">{target?.name ?? t("trends.unknown")} ({target?.ip_address})</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {ranges.map((r) => (
-            <Button
-              key={r.value}
-              variant={range === r.value ? "primary" : "secondary"}
-              onClick={() => onRangeChange(r.value)}
-              className="px-2 py-1 text-sm"
-            >
-              {r.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-control border border-border bg-bg-base p-4" style={{ height: 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis
-              dataKey="time"
-              tickFormatter={formatTooltipTime}
-              tick={{ fill: "hsl(var(--text-secondary))", fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              tickCount={6}
-            />
-            <YAxis
-              domain={domain as [number, number] | [number, "auto"]}
-              tickFormatter={(v) => `${v}${yUnit}`}
-              tick={{ fill: "hsl(var(--text-secondary))", fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              width={isLatency ? 50 : 40}
-            />
-            <Tooltip
-              formatter={(value: number, name: string) => [
-                name === "latency" ? `${value.toFixed(1)} ms` : `${value.toFixed(1)}%`,
-                name === "latency" ? "Latency" : "Loss",
-              ]}
-            />
-            <Legend />
-            {isLatency && hasLatencyData && (
-              <Area
-                type="monotone"
-                dataKey="latency"
-                stroke="hsl(var(--accent))"
-                fill="hsl(var(--accent) / 0.1)"
-                strokeWidth={2}
-                connectNulls={false}
-              />
-            )}
-            {isLatency && hasLatencyData && (
-              <Line
-                type="monotone"
-                dataKey="latency"
-                stroke="hsl(var(--accent))"
-                strokeWidth={2}
-                dot={false}
-                connectNulls={false}
-              />
-            )}
-            {!isLatency && hasLossData && (
-              <Area
-                type="monotone"
-                dataKey="loss"
-                stroke="hsl(var(--severity-medium))"
-                fill="hsl(var(--severity-medium) / 0.1)"
-                strokeWidth={2}
-                connectNulls={true}
-              />
-            )}
-            {!isLatency && hasLossData && (
-              <Line
-                type="monotone"
-                dataKey="loss"
-                stroke="hsl(var(--severity-medium))"
-                strokeWidth={2}
-                dot={false}
-                connectNulls={true}
-              />
-            )}
-            {!hasLatencyData && isLatency && (
-              <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fill="hsl(var(--text-muted))" fontSize={12}>
-                Tidak ada data latency (target offline/timeout)
-              </text>
-            )}
-            {!hasLossData && !isLatency && (
-              <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fill="hsl(var(--text-muted))" fontSize={12}>
-                Tidak ada packet loss tercatat
-              </text>
-            )}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="flex items-center gap-4 text-meta text-text-secondary">
-        <span>{isLatency ? "Latency dihitung dari sampel yang merespons ICMP. Gap = target offline/timeout." : "Packet loss dihitung dari window pendek (5 probe)."}</span>
-      </div>
-    </div>
-  );
-}
-
-interface TargetOption {
-  id: string;
-  name: string;
-  ip_address: string;
-}
-
-export function NetworkHealthTrends({ targets, samples }: HealthTrendsProps) {
-  const { t } = useTranslation("dashboard");
-  const [selectedTargetId, setSelectedTargetId] = useState<string>("__all__");
-  const [range, setRange] = useState<"1h" | "6h" | "24h" | "7d">("1h");
+export function NetworkHealthTrends({ targets, initialHistory }: HealthTrendsProps) {
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
+  const [selectedTargetId, setSelectedTargetId] = useState(() => healthHistoryDefaultTarget(targets.map((target) => target.id)));
+  const [range, setRange] = useState<HealthTrendRange>("1h");
   const [metric, setMetric] = useState<"latency" | "loss">("latency");
+  const allIds = useMemo(() => targets.map((target) => target.id).sort(), [targets]);
+  const allTargetsAllowed = allIds.length <= HEALTH_HISTORY_MAX_TARGETS;
+  const effectiveTargetId = selectedTargetId === "__all__" ? healthHistoryDefaultTarget(allIds) : selectedTargetId;
+  const [controller] = useState(() => new HealthHistoryController(loadHealthSamples, allIds, initialHistory));
+  const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const selection = useMemo(() => healthHistorySelection(allIds, effectiveTargetId), [allIds, effectiveTargetId]);
+  const missingTarget = selection.missing;
+  const ids = selection.ids;
+  const key = historyKey(ids, range);
+  useEffect(() => {
+    controller.update(ids, range, initialHistory, allIds);
+  }, [controller, ids, range, initialHistory, allIds]);
+  useEffect(() => () => controller.cancel(), [controller]);
 
-  const targetOptions = useMemo<TargetOption[]>(() => [
-    { id: "__all__", name: t("trends.allTargets"), ip_address: "" },
-    ...targets.map((t) => ({ id: t.id, name: t.node.name, ip_address: t.node.ip_address })),
-  ], [targets, t]);
+  const loading = !missingTarget && (snapshot.loading || snapshot.key !== key);
+  const result = snapshot.result;
+  const samples = result.data;
+  const state = healthMetricState(samples, metric);
+  const chartData = useMemo(() => healthChartPoints(samples), [samples]);
+  const chartTargets = targets.filter((target) => ids.includes(target.id));
+  const unit = metric === "latency" ? "ms" : "%";
+  const formatTime = (value: string, detailed = false) => new Intl.DateTimeFormat(
+    i18n.language === "en" ? "en-US" : "id-ID", {
+      ...(detailed || range === "7d" || range === "24h" ? { month: "short", day: "numeric" } as const : {}),
+      hour: "2-digit", minute: "2-digit", ...(detailed ? { second: "2-digit" } as const : {}),
+    }).format(new Date(value));
+  const measurement = (value: number | null, suffix: string) => value === null ? "-" : `${value.toFixed(1)} ${suffix}`;
+  const errorKey = result.code === "HEALTH_HISTORY_TARGET_UNAVAILABLE" ? "trends.targetUnavailable"
+    : result.code === "INVALID_HEALTH_HISTORY_REQUEST" || result.code === "HEALTH_HISTORY_RESPONSE_TOO_LARGE"
+      ? "trends.boundedRequest" : result.code === "UNAUTHORIZED" ? "trends.authError" : "trends.queryError";
 
-  const selectedTarget = targetOptions.find((t) => t.id === selectedTargetId) ?? targetOptions[0];
-  const isAllTargets = selectedTargetId === "__all__";
-
-  const targetSamples = samples.filter((s) => isAllTargets || s.target_id === selectedTargetId);
-  const targetListForChart = isAllTargets ? targets.map(t => ({ id: t.id, name: t.node.name, ip_address: t.node.ip_address })) : [selectedTarget];
-
-  return (
-    <Section title={t("trends.title")}>
-      <p className="mt-2 text-text-secondary">{t("trends.description")}</p>
-
-      <div className="mt-4 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <label className="text-meta text-text-secondary">{t("trends.target")}</label>
-            <select
-              className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
-              value={selectedTargetId}
-              onChange={(e) => setSelectedTargetId(e.target.value as string)}
-            >
-              {targetOptions.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.id === "__all__" ? t.name : `${t.name} (${t.ip_address})`}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-meta text-text-secondary">{t("trends.metric")}</label>
-            <div className="flex gap-2">
-              {["latency", "loss"].map((m) => (
-                <Button
-                  key={m}
-                  variant={metric === m ? "primary" : "secondary"}
-                  onClick={() => setMetric(m as "latency" | "loss")}
-                  className="px-2 py-1 text-sm"
-                >
-                  {t(m === "latency" ? "trends.latency" : "trends.packetLoss")}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-meta text-text-secondary">{t("trends.range")}</label>
-            <select
-              className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
-              value={range}
-              onChange={(e) => setRange(e.target.value as "1h" | "6h" | "24h" | "7d")}
-            >
-              <option value="1h">{t("trends.oneHour")}</option>
-              <option value="6h">{t("trends.hours", { count: 6 })}</option>
-              <option value="24h">{t("trends.hours", { count: 24 })}</option>
-              <option value="7d">{t("trends.days", { count: 7 })}</option>
-            </select>
-          </div>
-        </div>
-
-        {isAllTargets ? (
-          <HealthTrendChart
-            samples={targetSamples}
-            targets={targetListForChart}
-            metric={metric}
-            range={range}
-            onRangeChange={(r) => setRange(r as "1h" | "6h" | "24h" | "7d")}
-          />
-        ) : (
-          <SingleTargetChart
-            samples={targetSamples}
-            target={selectedTarget ? { name: selectedTarget.name, ip_address: selectedTarget.ip_address } : null}
-            metric={metric}
-            range={range}
-            onRangeChange={(r) => setRange(r as "1h" | "6h" | "24h" | "7d")}
-          />
-        )}
+  return <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
+    <h2 className="text-section font-semibold">{t("trends.title")}</h2>
+    <p className="mt-2 text-text-secondary">{t("trends.description")}</p>
+    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <label className="flex items-center gap-3 text-meta text-text-secondary">
+        {t("trends.target")}
+        <select className="min-w-0 rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
+          value={effectiveTargetId} onChange={(event) => setSelectedTargetId(event.target.value)}>
+          {allTargetsAllowed ? <option value="__all__">{t("trends.allTargetsCount", { count: targets.length })}</option> : null}
+          {missingTarget ? <option value={selectedTargetId}>{t("trends.targetUnavailable")}</option> : null}
+          {targets.map((target) => <option key={target.id} value={target.id}>{target.node.name} ({target.node.ip_address})</option>)}
+        </select>
+      </label>
+      <div className="flex items-center gap-2">
+        <span className="text-meta text-text-secondary">{t("trends.metric")}</span>
+        {(["latency", "loss"] as const).map((value) => <Button key={value}
+          variant={metric === value ? "primary" : "secondary"} aria-pressed={metric === value}
+          onClick={() => setMetric(value)} className="px-2 py-1 text-sm">
+          {t(value === "latency" ? "trends.latency" : "trends.packetLoss")}
+        </Button>)}
       </div>
-    </Section>
-  );
+      <label className="flex items-center gap-3 text-meta text-text-secondary">
+        {t("trends.range")}
+        <select className="rounded-control border border-border bg-bg-base px-3 py-2 text-text-primary"
+          value={range} onChange={(event) => setRange(event.target.value as HealthTrendRange)}>
+          <option value="1h">{t("trends.oneHour")}</option>
+          <option value="6h">{t("trends.hours", { count: 6 })}</option>
+          <option value="24h">{t("trends.hours", { count: 24 })}</option>
+          <option value="7d">{t("trends.days", { count: 7 })}</option>
+        </select>
+      </label>
+      <Button variant="secondary" disabled={loading || missingTarget || !ids.length}
+        onClick={() => controller.refresh()} title={t("trends.refreshHint")}>
+        {t(loading ? "trends.loading" : "trends.refresh")}
+      </Button>
+    </div>
+    {!allTargetsAllowed ? <p className="mt-3 text-meta text-text-secondary">{t("trends.allTargetsLimit", { limit: HEALTH_HISTORY_MAX_TARGETS })}</p> : null}
+    <div className="mt-4" aria-busy={loading}>
+      {missingTarget ? <p role="status" className="rounded-control border border-border p-6 text-text-secondary">{t("trends.targetUnavailable")}</p>
+        : loading ? <p role="status" className="rounded-control border border-border p-6 text-text-secondary">{t("trends.loading")}</p>
+        : result.error ? <p role="alert" className="rounded-control border border-severity-medium p-6 text-text-secondary">{t(errorKey)}</p>
+        : state === "empty" ? <div className="rounded-control border border-border p-6 text-center">
+          <p>{t("trends.noHistory")}</p><p className="mt-2 text-meta text-text-muted">{t("trends.wait")}</p>
+        </div>
+        : state === "metric_unavailable" ? <p role="status" className="rounded-control border border-border p-6 text-text-secondary">
+          {t("trends.metricUnavailable", { count: samples.length })}
+        </p>
+        : <div className="rounded-control border border-border bg-bg-base p-4" style={{ height: 320 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2A2F38" />
+              <XAxis dataKey="time" tickFormatter={(value: string) => formatTime(value)} tick={{ fill: "#9AA1AC", fontSize: 11 }} tickLine={false} axisLine={false} tickCount={6} />
+              <YAxis domain={metric === "latency" ? [0, "auto"] : [0, 100]} tickFormatter={(value: number) => `${value}${unit}`}
+                tick={{ fill: "#9AA1AC", fontSize: 11 }} tickLine={false} axisLine={false} width={metric === "latency" ? 50 : 40} />
+              <Tooltip content={({ active, label }) => {
+                if (!active || typeof label !== "string") return null;
+                const rows = samples.filter((sample) => sample.sampled_at === label);
+                return <div className="max-w-xs rounded-control border border-border bg-bg-surface p-3 text-meta text-text-primary">
+                  <p>{formatTime(label, true)}</p>
+                  {rows.map((row) => <div className="mt-2" key={row.target_id}>
+                    <p>{targets.find((target) => target.id === row.target_id)?.node.name ?? row.target_id}</p>
+                    <p>{measurement(metric === "latency" ? row.latency_ms : row.packet_loss_percent, unit)}</p>
+                    <p>{t("trends.extent", { min: measurement(metric === "latency" ? row.latency_min_ms : row.packet_loss_min_percent, unit),
+                      max: measurement(metric === "latency" ? row.latency_max_ms : row.packet_loss_max_percent, unit), count: row.observation_count })}</p>
+                    <p>{t("trends.actualWindow", { from: formatTime(row.first_sample_at, true), to: formatTime(row.last_sample_at, true) })}</p>
+                    <p>{t(`common:status.${row.status}`)}</p>
+                  </div>)}
+                </div>;
+              }} />
+              <Legend formatter={(value: string) => {
+                const target = chartTargets.find((item) => `${metric}_${item.id}` === value);
+                return target ? `${target.node.name} (${target.node.ip_address})` : value;
+              }} />
+              {chartTargets.map((target, index) => <Line key={target.id} type="linear" dataKey={`${metric}_${target.id}`}
+                stroke={index === 0 ? "#3E9C8A" : `hsl(${index * 137.5 % 360}, 50%, 60%)`} strokeWidth={2}
+                dot={samples.filter((sample) => sample.target_id === target.id &&
+                  (metric !== "latency" || sample.latency_ms !== null)).length === 1 ? { r: 4 } : false}
+                connectNulls={false} isAnimationActive={false} />)}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>}
+    </div>
+    {!loading && !result.error && !missingTarget && result.metadata ? <p className="mt-3 text-meta text-text-muted">
+      {t("trends.aggregation", { seconds: result.metadata.bucket_seconds })}
+    </p> : null}
+    <p className="mt-3 text-meta text-text-secondary">{t(metric === "latency" ? "trends.latencyHelp" : "trends.lossHelp")}</p>
+    <p className="mt-2 text-meta text-text-muted">{t("trends.intervals", {
+      intervals: [...new Set(chartTargets.map((target) => target.probe_interval_seconds))].sort((a, b) => a - b).join(", ") || "-",
+    })}</p>
+  </section>;
 }

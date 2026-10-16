@@ -56,11 +56,12 @@ test("mutation forms retain safe inputs on failure, confirm before invoking and 
 test("notifications are app-wired, bounded, accessible, allowlisted and not emitted on routine updates", () => {
   const feedback = source("../components/ui/action-feedback.tsx");
   assert.match(source("../app/layout.tsx"), /<AppI18nProvider[^>]*><ActionFeedbackProvider>/);
-  assert.match(feedback, /current\.slice\(-3\)/);
+  assert.match(feedback, /appendFeedback\(current, \{ id, action, success, errorKey \}\)/);
   assert.match(feedback, /role=\{item\.success \? "status" : "alert"\} aria-atomic="true"/);
   assert.match(feedback, /lifecycleErrors\.has\(code\)/);
   assert.match(feedback, /"mutation\.failed"/);
-  assert.doesNotMatch(feedback, /JSON\.stringify|\.message|console\.|fetch\(|setInterval|useEffect/);
+  assert.doesNotMatch(feedback, /JSON\.stringify|\.message|console\.|fetch\(|setInterval/);
+  assert.match(feedback, /useEffect\(\(\) => \{\s*timer\.start\(\);\s*return \(\) => \{ timer\.stop\(\); swipe\.cancel\(\); \};/);
   const traffic = source("../components/traffic/traffic-live-page.tsx");
   const beforeActions = traffic.slice(0, traffic.indexOf("async function runAction"));
   assert.doesNotMatch(beforeActions, /notify\(/);

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { isMonitoringInterval } from "../monitoring-intervals.js";
+import { HealthHistoryError, validateHealthHistoryQuery, type HealthHistoryRepository } from "./health-history.js";
 
 import { validRunnerBearerToken } from "../runner-heartbeat/auth.js";
 import { InventoryPersistenceError, type HealthTargetInput, type InventoryNodeInput,
@@ -22,6 +23,7 @@ export type ApplicationRouteOptions = Readonly<{
   token: string;
   profiles: PostgresProfilesRepository;
   inventory: PostgresNetworkInventoryRepository;
+  healthHistory?: HealthHistoryRepository;
   diagnosticJobs?: PostgresDiagnosticJobsRepository;
   networkDiscovery?: PostgresNetworkDiscoveryRepository;
   deviceInspection?: PostgresDeviceInspectionRepository;
@@ -137,6 +139,24 @@ export function registerApplicationRoutes(server: FastifyInstance, options: Appl
     try { return reply.code(200).send({ data: await options.inventory.listHealthTargets(AbortSignal.timeout(7_000)) }); }
     catch (error) { return persistenceFailure(reply, error); }
   });
+
+  if (options.healthHistory) {
+    const repository = options.healthHistory;
+    server.get("/api/application/network-health-samples", async (request, reply) => {
+      if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);
+      const query = validateHealthHistoryQuery(request.query);
+      if (!query) return reply.code(400).send({ error: { code: "INVALID_HEALTH_HISTORY_REQUEST" } });
+      try {
+        const data = await repository.read(query, new Date(), AbortSignal.timeout(7_000));
+        return reply.header("cache-control", "private, no-store").code(200).send({ data });
+      } catch (error) {
+        const code = error instanceof HealthHistoryError ? error.code : "HEALTH_HISTORY_QUERY_FAILED";
+        const status = code === "HEALTH_HISTORY_TARGET_UNAVAILABLE" ? 404
+          : code === "HEALTH_HISTORY_RESPONSE_TOO_LARGE" ? 422 : code === "INVALID_HEALTH_HISTORY_REQUEST" ? 400 : 503;
+        return reply.code(status).send({ error: { code } });
+      }
+    });
+  }
 
   server.get("/api/application/managed-targets", async (request, reply) => {
     if (!authorize(request.headers.authorization)) return reply.code(401).send(unauthorized);

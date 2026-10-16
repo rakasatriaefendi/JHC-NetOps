@@ -8,6 +8,7 @@ import { getDiagnosticsAction } from "@/app/actions/diagnostics";
 import { loadDiscoveryRunners, loadDiscoverySessions } from "@/lib/network-discovery";
 import { observedTrafficIps } from "@/lib/network-discovery-client";
 import { loadNetworkHealth, loadHealthSamples } from "@/lib/network-health";
+import { healthHistorySelection } from "@/lib/health-history";
 import { loadAuthoritativeNetworkNodes } from "@/lib/network-nodes-source";
 import { loadAuthoritativeTrafficState } from "@/lib/traffic-source";
 import { canOperateNetwork } from "@/lib/authorization";
@@ -21,12 +22,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const params = await searchParams;
   const canOperate = canOperateNetwork(profile.role);
   const health = await loadNetworkHealth();
+  const historyTargetIds = healthHistorySelection(health.data.map((target) => target.id), "__all__").ids;
   const [diagnostics, traffic, nodes, discovery, samples] = await Promise.all([
     getDiagnosticsAction(),
     loadAuthoritativeTrafficState(profile.role),
     loadAuthoritativeNetworkNodes(),
     loadDiscoverySessions(canOperate),
-    loadHealthSamples(health.data.map((t) => t.id), "1h"),
+    loadHealthSamples(historyTargetIds, "1h"),
   ]);
   const discoveryRunners = await loadDiscoveryRunners(traffic.data.runners);
 
@@ -47,6 +49,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           targets={health.data}
           events={health.events}
           samples={samples.data ?? []}
+          history={samples}
           loadError={health.error || discovery.error}
           isAdmin={canOperate}
           manualPingIsAdmin={profile.role === "admin"}

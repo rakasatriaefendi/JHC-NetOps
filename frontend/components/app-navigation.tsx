@@ -43,13 +43,13 @@ export function AppNavigation({ fullName, email, role }: AppNavigationProps) {
     : navigation;
 
   const sidebar = (
-    <div data-sidebar="shell" className="flex h-full min-h-0 flex-col overflow-y-auto bg-bg-surface p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div data-sidebar="shell" className="flex h-full min-h-0 flex-col overflow-y-auto sidebar-scrollbar bg-bg-surface p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="shrink-0 border-b border-border pb-4 pr-8">
         <p className="text-section font-semibold">{t("appName")}</p>
         <p className="mt-1 text-meta text-text-muted">{t("networkVisibility")}</p>
       </div>
 
-      <nav data-sidebar="navigation" className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain [@media(max-height:480px)]:flex-none [@media(max-height:480px)]:overflow-visible" aria-label={t("nav.main")}>
+      <nav data-sidebar="navigation" className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto sidebar-scrollbar overscroll-contain [@media(max-height:480px)]:flex-none [@media(max-height:480px)]:overflow-visible" aria-label={t("nav.main")}>
         {groups.map((group, groupIndex) => <div className={groupIndex ? "mt-4" : ""} key={group.key}>
           <p className="mb-1 px-3 text-meta font-medium uppercase tracking-wide text-text-muted">{t(`nav.${group.key}`)}</p>
           <div className="flex flex-col gap-1">{group.items.map((link) => {

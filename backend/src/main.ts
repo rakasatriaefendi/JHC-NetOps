@@ -20,6 +20,7 @@ import { PoolPostgresQuery } from "./persistence/postgres-query.js";
 import { PostgresProfilesRepository } from "./persistence/profiles.js";
 import { PostgresNetworkInventoryRepository } from "./persistence/inventory.js";
 import { PostgresNetworkHealthRepository } from "./persistence/network-health.js";
+import { PostgresHealthHistoryRepository } from "./persistence/health-history.js";
 import { PostgresManagedTelemetryRepository } from "./persistence/managed-telemetry.js";
 import { PostgresTrafficRepository } from "./persistence/traffic.js";
 import { PostgresRunnerHeartbeatRepository } from "./persistence/runner-heartbeat.js";
@@ -169,6 +170,7 @@ async function main(): Promise<void> {
       token: config.frontendApiToken,
       profiles: localRepos.profiles,
       inventory: localRepos.inventory,
+      healthHistory: new PostgresHealthHistoryRepository(new PoolPostgresQuery(appPool)),
       diagnosticJobs: localRepos.diagnosticJobs,
       networkDiscovery: localRepos.networkDiscovery,
       deviceInspection: localRepos.deviceInspection,
