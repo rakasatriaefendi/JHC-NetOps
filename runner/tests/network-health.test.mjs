@@ -35,6 +35,34 @@ test("state transitions require three failures and two recovery successes", () =
   assert.deepEqual(service.pendingTransitions.map((event) => event.new_status), ["degraded", "offline", "online"]);
 });
 
+test("quiet empty Health Watch resumes target discovery from heartbeat without a restart", async () => {
+  let idle = true; let now = 1_000; let gets = 0; let probes = 0; let publishes = 0;
+  const item = target({ probe_interval_seconds: 1800 });
+  const service = watch({
+    monitoringIdle: (kind) => kind === "health" && idle,
+    healthTargets: async () => { gets += 1; return { targets: [item] }; },
+    publishHealth: async () => { publishes += 1; return {}; },
+  });
+  service.now = () => now; service.running = true;
+  service.ping = async () => { probes += 1; return { success: true, latency_ms: 1 }; };
+  for (; now < 301_000; now += 1_000) await service.tick();
+  assert.equal(gets, 0); assert.equal(probes, 0); assert.equal(publishes, 0);
+  idle = false; await service.tick(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gets, 1); assert.equal(probes, 1);
+  assert.equal(service.states[item.id].nextProbeAt, now + 1_800_000);
+  await service.stop();
+});
+
+test("missing or expired idle hint retains Health GET refresh and failure retry", async () => {
+  let now = 1_000; let gets = 0;
+  const service = watch({ monitoringIdle: () => false,
+    healthTargets: async () => { gets += 1; if (gets === 2) throw new Error("offline"); return { targets: [] }; },
+    publishHealth: async () => ({}) });
+  service.now = () => now; service.running = true;
+  await service.tick(); now += 60_000; await service.tick(); now += 10_000; await service.tick();
+  assert.equal(gets, 3); await service.stop();
+});
+
 test("short window retains five samples and detects degraded latency", () => {
   const service = watch(); const item = target({ latency_warning_ms: 20 });
   for (let index = 0; index < 7; index += 1) service.applySample(item, { success: true, latency_ms: index === 6 ? 100 : 10 }, index * 1000);

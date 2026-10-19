@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { validRunnerBearerToken } from "../runner-heartbeat/auth.js";
-import { workRunner } from "./contract.js";
+import { requestedWorkWait, workRunner } from "./contract.js";
 import { RunnerNotRegistered } from "./repository.js";
 import { RunnerWorkService, WorkWaitLimit } from "./service.js";
 
@@ -43,7 +43,7 @@ export function registerRunnerWorkRoute(server: FastifyInstance, options: Runner
     // Only this authenticated bounded wait may exceed the ordinary 5s idle timeout.
     socket?.setTimeout?.(0);
     try {
-      const data = await options.service.wait(runnerId, controller.signal);
+      const data = await options.service.wait(runnerId, controller.signal, requestedWorkWait(request.body));
       return reply.code(200).header("cache-control", "no-store").send({ data });
     } catch (error) {
       const code = error instanceof RunnerNotRegistered ? "RUNNER_NOT_REGISTERED"

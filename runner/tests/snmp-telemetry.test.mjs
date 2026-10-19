@@ -84,6 +84,35 @@ test("counterDelta returns deltas, null on reset, and supports 32-bit wrap", () 
   assert.equal(counterDelta(5, -1, 32), null);
 });
 
+test("quiet empty telemetry resumes a newly enabled assignment from heartbeat without restart", async () => {
+  let idle = true; let now = 1_000; let gets = 0; let polls = 0; let publishes = 0;
+  const service = watch({ now: () => now,
+    backend: {
+      monitoringIdle: (kind) => kind === "telemetry" && idle,
+      managedTelemetryTargets: async () => { gets += 1; return { targets: [target({ poll_interval_seconds: 1800 })] }; },
+      publishManagedTelemetry: async () => { publishes += 1; return {}; },
+    },
+    runAgent: async (_config, _target, _credentials, onEvent) => { polls += 1; onEvent({ type: "telemetry_result", payload: payload() }); },
+  });
+  service.running = true;
+  for (; now < 301_000; now += 1_000) await service.tick();
+  assert.equal(gets, 0); assert.equal(polls, 0); assert.equal(publishes, 0);
+  idle = false; await service.tick(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gets, 1); assert.equal(polls, 1);
+  assert.equal(service.states[TARGET_ID].nextPollAt, now + 1_800_000);
+  await service.stop();
+});
+
+test("telemetry without idle hint retains assignment refresh and network-failure retry", async () => {
+  let now = 1_000; let gets = 0;
+  const service = watch({ now: () => now, backend: {
+    managedTelemetryTargets: async () => { gets += 1; if (gets === 2) throw new Error("offline"); return { targets: [] }; },
+    publishManagedTelemetry: async () => ({}),
+  } });
+  service.running = true; await service.tick(); now += 60_000; await service.tick(); now += 10_000; await service.tick();
+  assert.equal(gets, 3); await service.stop();
+});
+
 test("SNMP target validation and successful/failed schedules support exactly five monitoring intervals", () => {
   for (const interval of [15, 30, 60, 900, 1800]) {
     const item = target({ poll_interval_seconds: interval });

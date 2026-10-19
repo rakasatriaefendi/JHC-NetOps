@@ -11,21 +11,47 @@ export class BackendClient {
     this.localDiscoveryEndpoint = `${localBackend.url}/api/runner/network-discovery`;
     this.localInspectionEndpoint = `${localBackend.url}/api/runner/device-inspector`;
     this.localWorkEndpoint = `${localBackend.url}/api/runner/work/wait`;
+    this.shortWorkWaitUntil = 0;
+    this.assignmentHint = null;
     this.localBackendHeaders = localBackend ? {
       Authorization: `Bearer ${localBackend.token}`,
       "Content-Type": "application/json",
     } : null;
   }
 
-  heartbeat(runner) { return this.#postLocalHeartbeat({ runner }); }
+  async heartbeat(runner) {
+    const data = await this.#postLocalHeartbeat({ runner });
+    const hints = data?.monitoring_assignments;
+    this.assignmentHint = data?.id === runner.id && hints && Object.keys(hints).length === 2 &&
+      typeof hints.health === "boolean" && typeof hints.telemetry === "boolean"
+      ? { ...hints, receivedAt: Date.now() } : null;
+    return data;
+  }
+  monitoringIdle(kind, now = Date.now()) {
+    const hint = this.assignmentHint;
+    const age = hint ? now - hint.receivedAt : Infinity;
+    return ["health", "telemetry"].includes(kind) && hint?.[kind] === false && age >= 0 && age <= 120_000;
+  }
   async waitForWork(runnerId, signal) {
+    const quietWait = Date.now() >= this.shortWorkWaitUntil;
     const response = await fetch(this.localWorkEndpoint, {
       method: "POST", headers: this.localBackendHeaders,
-      body: JSON.stringify({ runner_id: runnerId }),
-      signal: AbortSignal.any([AbortSignal.timeout(20_000), ...(signal ? [signal] : [])]),
+      body: JSON.stringify({ runner_id: runnerId, ...(quietWait ? { wait_seconds: 60 } : {}) }),
+      signal: AbortSignal.any([AbortSignal.timeout(quietWait ? 70_000 : 20_000), ...(signal ? [signal] : [])]),
     });
     // Capability fallback only: auth, capacity and transport failures never downgrade.
     if (response.status === 404 || response.status === 405) return { supported: false };
+    if (quietWait && response.status === 400) {
+      const errorBody = await response.text();
+      let code;
+      if (errorBody.length <= 4_096) {
+        try { code = JSON.parse(errorBody)?.error?.code; } catch { /* no raw error propagation */ }
+      }
+      if (code === "INVALID_WORK_WAIT") {
+        this.shortWorkWaitUntil = Date.now() + 60_000;
+        return this.waitForWork(runnerId, signal);
+      }
+    }
     if (!response.ok) {
       const error = new Error(`Local work wait failed with HTTP ${response.status}`);
       error.status = response.status;

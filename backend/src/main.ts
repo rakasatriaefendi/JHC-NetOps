@@ -119,16 +119,18 @@ async function main(): Promise<void> {
   if (!config.candidateReadOnly && assetScanController) await assetScanController.initialize();
   const appPool = applicationRepositories._pool;
   const administrativeAudit = new PostgresAdministrativeAuditRepository(new PoolPostgresQuery(appPool));
+  const runnerWorkRepository = new PostgresRunnerWorkRepository(new PoolPostgresQuery(appPool));
   const buildServerOptions: Record<string, unknown> = {
     candidateReadOnly: config.candidateReadOnly,
-    runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat },
+    runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat,
+      monitoringAssignments: (runnerId: string, signal: AbortSignal) => runnerWorkRepository.assignments(runnerId, signal) },
     networkHealth: { token: config.runnerApiToken, repository: applicationRepositories.health },
     traffic: { token: config.runnerApiToken, repository: applicationRepositories.traffic },
     managedTelemetry: { token: config.runnerApiToken, repository: applicationRepositories.telemetry },
     administrativeAudit: { token: config.frontendApiToken, repository: administrativeAudit },
     ...(!config.candidateReadOnly ? { runnerWork: {
       token: config.runnerApiToken,
-      service: new RunnerWorkService(new PostgresRunnerWorkRepository(new PoolPostgresQuery(appPool))),
+      service: new RunnerWorkService(runnerWorkRepository),
     } } : {}),
   };
 

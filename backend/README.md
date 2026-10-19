@@ -77,6 +77,51 @@ rolling back the backend first is also compatible through that bounded fallback.
 Do not change Health/SNMP intervals, capture privileges, or shared infrastructure.
 These are source-level expectations; runtime acceptance is still required.
 
+## P17-D4A quiet idle (supersedes the D2B default for upgraded runners)
+
+Upgraded runners opt into `{ "runner_id": "...", "wait_seconds": 60 }`; no
+caller-selected arbitrary duration is allowed. Legacy bodies retain the 10-second
+wait and existing response shape. Only the wait route overrides the socket idle
+timeout; upgraded runner deadline is 70 seconds (20 seconds for legacy wait).
+Waiter bounds, authorization, cancellation and independent 10-second maintenance
+are unchanged. Queue reads still run at most 10 seconds apart **inside** a quiet
+HTTP wait, preserving detection before a 30-second Ping lease expires even when
+an enqueue hint is lost, a response disconnects, or another backend process wrote
+the queue. Normal committed enqueue hints still wake immediately. No volatile
+hint is an assignment; the four existing atomic claim routes remain authoritative.
+
+Reviewed enqueue paths remain Ping POST, Traffic POST, Discovery POST/PATCH and
+Inspector POST in the application route. Their successful responses follow
+repository commit; failure responses never wake. Target configuration uses the
+existing network-target POST/promote/delete and managed-target POST/interval/delete
+paths and is detected independently through the heartbeat, not a browser action
+or a work-wait callback that could be blocked by an active Traffic capture.
+
+Heartbeat responses optionally include `monitoring_assignments: { health,
+telemetry }`: two enabled-assignment existence booleans scoped to the authenticated
+runner ID, not target rows, credentials or a new authority. A failed hint query
+omits the hint and does not fail a successfully persisted heartbeat. On fresh
+explicit false hints, completely empty Health/SNMP watches skip their periodic
+empty assignment GETs. Cached targets/states and pending buffers never qualify
+for this shortcut. Active targets retain all existing refresh/probe/poll/retry
+semantics. A new assignment is detected by the next successful heartbeat (normally
+within 60 seconds plus one local tick/read latency); failure/missing/malformed or
+older-than-120-second hints restore ordinary assignment GETs. Heartbeat cadence
+and 120-second runner offline tolerance are unchanged. SNMP disabled in local
+config still never starts its watch; assignment hints cannot enable it.
+
+Healthy zero-target idle at a 60-second heartbeat is expected to use about **2 HTTP
+requests/minute**: one work wait and one heartbeat; initial startup, mutations,
+failures and active monitoring add legitimate requests. This is a source-derived
+expectation, not a production measurement. PostgreSQL still performs bounded
+queue/expiry work every 10 seconds and one assignment-existence query per
+heartbeat: HTTP reduction does not imply near-zero database work. Backend-first
+rollout preserves old runners. A new runner with a D2B backend negotiates the
+legacy body only for bounded `400 INVALID_WORK_WAIT`, retries quiet support after
+60 seconds and keeps ordinary monitoring refresh without hints. 404/405 retains
+the previous authenticated claim fallback. Other failures never downgrade auth.
+No migration, dependency, credential or shared runtime configuration change.
+
 ## P17-B asset identity
 
 Migration 019 is an explicit prerequisite for this release; startup never applies

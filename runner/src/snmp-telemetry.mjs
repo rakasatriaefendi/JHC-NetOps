@@ -70,7 +70,9 @@ export class ManagedTelemetryWatch {
     this.ticking = true;
     try {
       const now = this.now();
-      if (now >= this.refreshDueAt) await this.refreshTargets(now);
+      const quiet = this.targets.size === 0 && Object.keys(this.states).length === 0 &&
+        this.pendingEvents.length === 0 && this.backend.monitoringIdle?.("telemetry", now) === true;
+      if (now >= this.refreshDueAt && !quiet) await this.refreshTargets(now);
       const capacity = Math.max(0, this.concurrency - this.inFlight.size);
       const due = [...this.targets.values()].filter((target) => {
         const state = this.stateFor(target.id);

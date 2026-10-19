@@ -26,8 +26,10 @@ Monitoring target memakai preset Aggressive (15/30/60 detik), Moderate
 Health/SNMP mengatur probe/poll target, bukan claim loop atau heartbeat.
 Contoh deployment memakai `poll_interval_ms=60000` dan
 `heartbeat_interval_ms=60000`; validasi keduanya tetap 1000-60000 ms.
-Control-plane idle memakai authenticated `POST /api/runner/work/wait` (sekitar
-10 detik, HTTP deadline 20 detik). Respons timeout tanpa work tidak menjalankan
+Control-plane idle memakai authenticated `POST /api/runner/work/wait` dengan
+opt-in `wait_seconds=60` (HTTP deadline 70 detik). Backend tetap mengecek antrean
+durable setiap maksimal 10 detik tanpa HTTP tambahan agar hint yang hilang tidak
+melewatkan lease Ping 30 detik. Respons timeout tanpa work tidak menjalankan
 claim kosong. Work hint hanya memicu atomic claim lama untuk jenis yang tersedia,
 dengan prioritas Manual Ping -> Traffic -> Discovery -> Device Inspector.
 Loop tetap serial: Traffic yang sedang berjalan menahan claim/wait berikutnya
@@ -42,11 +44,22 @@ HTTP 503/network/auth failure memakai exponential backoff berjitter (awal sekita
 0,8-1,2 detik, maksimum 30 detik), bukan fallback auth/transport. Hanya 404/405
 menandakan backend lama: gunakan claim lokal dengan bearer yang sama setiap
 `min(poll_interval_ms, 2000)` ms, dan cek dukungan wait lagi setelah 60 detik.
-`--once` tetap satu rangkaian claim bounded tanpa long wait.
+Backend D2B yang menolak field baru dengan `400 INVALID_WORK_WAIT` dinegosiasi
+ke body lama (wait 10 detik/deadline 20 detik); quiet support dicoba kembali setelah
+60 detik. Error 400 lain tidak dianggap compatibility. `--once` tetap satu
+rangkaian claim bounded tanpa long wait.
 
-Ekspektasi source (bukan benchmark): idle healthy sekitar 6 wait HTTP/menit vs
-120 claim/menit sebelumnya jika Manual Ping aktif (90 jika nonaktif), di luar
-heartbeat/Health/SNMP. Saat capture aktif, tidak ada wait/claim control-plane;
+Ekspektasi source (bukan benchmark): zero-target idle healthy sekitar 2 HTTP/menit
+pada heartbeat 60 detik: satu wait dan satu heartbeat, dibanding baseline D2B
+sekitar 9 HTTP/menit (6 wait + heartbeat + Health GET + SNMP GET). Heartbeat kini
+membawa dua flag assignment enabled. Hanya empty watch tanpa cache/pending buffer
+dan dengan hint explicit false yang fresh <=120 detik yang menekan GET kosong.
+Target baru terdeteksi pada heartbeat berikutnya (biasanya <=60 detik + satu tick
+lokal/latensi read), termasuk saat capture aktif. Hint hilang/invalid/stale
+mengembalikan refresh/retry lama; cached targets tetap diproses normal. SNMP lokal
+disabled tetap tidak membuat watch. Tidak ada perubahan heartbeat/freshness,
+credential, probe 1800 detik, counter, enrichment, atau publish buffer.
+Saat capture aktif, tidak ada wait/claim control-plane;
 request snapshot dan stop tetap seperti sebelumnya. Saat backend terus gagal,
 steady-state retry sekitar 2-2,5/menit ditambah ramp-up awal dan durasi HTTP.
 Backend lama mempertahankan 90/120 claim/menit ditambah sekitar 1 support check

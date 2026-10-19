@@ -15,6 +15,7 @@ export type RunnerHeartbeatRouteOptions = Readonly<{
   token: string;
   repository: RunnerHeartbeatRepository;
   now?: () => Date;
+  monitoringAssignments?: (runnerId: string, signal: AbortSignal) => Promise<{ health: boolean; telemetry: boolean }>;
 }>;
 
 export function registerRunnerHeartbeatRoute(
@@ -45,7 +46,17 @@ export function registerRunnerHeartbeatRoute(
       const persistenceSignal = AbortSignal.timeout(RUNNER_HEARTBEAT_PERSISTENCE_TIMEOUT_MS);
       const stored = await options.repository.upsertHeartbeat(row, persistenceSignal);
       await options.repository.expireStaleTrafficSessions(row.id, persistenceSignal);
-      return reply.code(200).send({ data: stored });
+      let assignments: { health: boolean; telemetry: boolean } | undefined;
+      if (options.monitoringAssignments) {
+        try {
+          assignments = await options.monitoringAssignments(row.id, persistenceSignal);
+        } catch {
+          // Optional optimization must never turn a persisted heartbeat into
+          // failure or invent an empty assignment. Runner resumes ordinary GETs.
+          request.log.warn({ error_code: "MONITORING_ASSIGNMENTS_UNAVAILABLE" }, "monitoring hint unavailable");
+        }
+      }
+      return reply.code(200).send({ data: { ...stored, ...(assignments ? { monitoring_assignments: assignments } : {}) } });
     } catch (error) {
       const code = error instanceof RunnerHeartbeatPersistenceError
         ? error.code

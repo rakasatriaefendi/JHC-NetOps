@@ -10,7 +10,7 @@ test("work wait uses the same local runner bearer, exact identity, and shutdown 
   t.mock.method(globalThis, "fetch", async (input, options) => {
     assert.equal(String(input), `${local.url}/api/runner/work/wait`);
     assert.equal(options.headers.Authorization, `Bearer ${local.token}`);
-    assert.deepEqual(JSON.parse(options.body), { runner_id: "it-lt8" });
+    assert.deepEqual(JSON.parse(options.body), { runner_id: "it-lt8", wait_seconds: 60 });
     shutdown.abort(); assert.equal(options.signal.aborted, true);
     return Response.json({ data: { runner_id: "it-lt8", available: [], timed_out: true } });
   });
@@ -45,6 +45,48 @@ test("runner accepts only explicit local PostgreSQL authority and local backend 
   assert.throws(() => new BackendClient(local, "remote"), /local_postgres/);
   assert.throws(() => new BackendClient(null, "local_postgres"), /Local backend/);
   assert.deepEqual(loadLocalBackendConfig({ LOCAL_BACKEND_URL: local.url, LOCAL_BACKEND_TOKEN: local.token }), local);
+});
+
+test("older work-wait backend negotiates the 10s body without weakening authentication", async (t) => {
+  const bodies = [];
+  const deadlines = [];
+  t.mock.method(AbortSignal, "timeout", (ms) => { deadlines.push(ms); return new AbortController().signal; });
+  t.mock.method(globalThis, "fetch", async (_input, options) => {
+    assert.equal(options.headers.Authorization, `Bearer ${local.token}`);
+    const body = JSON.parse(options.body); bodies.push(body);
+    if (body.wait_seconds) return Response.json({ error: { code: "INVALID_WORK_WAIT" } }, { status: 400 });
+    return Response.json({ data: { runner_id: "it-lt8", available: [], timed_out: true } });
+  });
+  const client = new BackendClient(local, "local_postgres");
+  await client.waitForWork("it-lt8"); await client.waitForWork("it-lt8");
+  assert.deepEqual(bodies, [{ runner_id: "it-lt8", wait_seconds: 60 }, { runner_id: "it-lt8" }, { runner_id: "it-lt8" }]);
+  assert.deepEqual(deadlines, [70_000, 20_000, 20_000]);
+});
+
+test("arbitrary 400 is not treated as quiet-wait compatibility", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls += 1; return Response.json({ error: { code: "OTHER" } }, { status: 400 }); });
+  await assert.rejects(new BackendClient(local, "local_postgres").waitForWork("it-lt8"), /HTTP 400/);
+  assert.equal(calls, 1);
+});
+
+test("only fresh, validated, runner-bound heartbeat hints suppress empty assignment GETs", async (t) => {
+  let data = { id: "it-lt8", monitoring_assignments: { health: false, telemetry: false } };
+  t.mock.method(globalThis, "fetch", async () => Response.json({ data }));
+  const client = new BackendClient(local, "local_postgres");
+  assert.equal(client.monitoringIdle("health"), false);
+  await client.heartbeat({ id: "it-lt8" });
+  const received = client.assignmentHint.receivedAt;
+  assert.equal(client.monitoringIdle("health", received + 60_000), true);
+  assert.equal(client.monitoringIdle("telemetry", received + 120_000), true);
+  assert.equal(client.monitoringIdle("health", received + 120_001), false);
+  assert.equal(client.monitoringIdle("health", received - 1), false);
+  data = { id: "it-lt8", monitoring_assignments: { health: true, telemetry: true } };
+  await client.heartbeat({ id: "it-lt8" }); assert.equal(client.monitoringIdle("health"), false);
+  data = { id: "other", monitoring_assignments: { health: false, telemetry: false } };
+  await client.heartbeat({ id: "it-lt8" }); assert.equal(client.monitoringIdle("health"), false);
+  data = { id: "it-lt8" };
+  await client.heartbeat({ id: "it-lt8" }); assert.equal(client.monitoringIdle("telemetry"), false);
 });
 
 test("all recurring and on-demand runner operations use loopback local routes", async (t) => {

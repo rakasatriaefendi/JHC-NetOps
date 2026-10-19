@@ -42,8 +42,98 @@ class Repository implements RunnerWorkRepository {
 
 test("work contract accepts exactly one bounded runner id", () => {
   assert.equal(workRunner({ runner_id: "it-lt8" }), "it-lt8");
+  assert.equal(workRunner({ runner_id: "it-lt8", wait_seconds: 60 }), "it-lt8");
   for (const input of [null, [], {}, { runner_id: "../other" }, { runner_id: "a".repeat(65) },
-    { runner_id: "it-lt8", token: "extra" }]) assert.equal(workRunner(input), null);
+    { runner_id: "it-lt8", token: "extra" }, { runner_id: "it-lt8", wait_seconds: 59 },
+    { runner_id: "it-lt8", wait_seconds: 120 }, { runner_id: "it-lt8", wait_seconds: "60" }]) assert.equal(workRunner(input), null);
+});
+
+test("quiet HTTP wait stays open for 60s, rechecks queues every 10s and repeats without claims", async () => {
+  const clock = new Clock(); const repository = new Repository(); const service = new RunnerWorkService(repository, clock);
+  const server = buildServer({ logger: false, runnerWork: { token: TOKEN, service } });
+  let requests = 0;
+  server.addHook("onRequest", async () => { requests += 1; });
+  try {
+    await server.ready();
+    const check = repository.available.bind(repository);
+    for (let minute = 0; minute < 3; minute += 1) {
+      const expectedChecks = repository.checks.length;
+      let entered!: () => void;
+      const registered = new Promise<void>((resolve) => { entered = resolve; });
+      repository.available = async (id, signal) => { const result = await check(id, signal); entered(); return result; };
+      const response = server.inject({ method: "POST", url: "/api/runner/work/wait", headers: AUTH,
+        payload: { runner_id: "it-lt8", wait_seconds: 60 } }).then((value) => value);
+      // Wait for the actual repository call, not elapsed wall-clock time.
+      await registered; await flush();
+      assert.equal(service.waiterCount, 1);
+      await clock.advance(59_999); assert.equal(service.waiterCount, 1);
+      await clock.advance(1);
+      const result = await response;
+      assert.equal(result.statusCode, 200); assert.equal(result.json().data.timed_out, true);
+      assert.equal(repository.checks.length - expectedChecks, 7);
+    }
+    assert.equal(requests, 3); assert.equal(repository.recoveries, 19);
+  } finally { await server.close(); }
+});
+
+test("quiet wait detects a lost Ping hint within 10s, before the 30s lease", async () => {
+  const clock = new Clock(); const repository = new Repository(); const service = new RunnerWorkService(repository, clock);
+  const waiting = service.wait("a", new AbortController().signal, 60_000); await repository.firstCheck; await flush();
+  await clock.advance(1_000); repository.queues.set("a", ["manual_ping"]);
+  await clock.advance(9_000);
+  assert.deepEqual((await waiting).available, ["manual_ping"]);
+  assert.equal(clock.time, 10_000); await service.stop();
+});
+
+test("all interactive work kinds wake quiet waits promptly after a committed hint", async () => {
+  for (const kind of ["manual_ping", "traffic", "discovery", "device_inspector"] as const) {
+    const clock = new Clock(); const repository = new Repository(); const service = new RunnerWorkService(repository, clock);
+    const waiting = service.wait("a", new AbortController().signal, 60_000); await repository.firstCheck; await flush();
+    await clock.advance(1_000);
+    repository.queues.set("a", [kind]); service.wake("a"); await flush();
+    assert.deepEqual((await waiting).available, [kind]); assert.equal(clock.time, 1_000);
+    await service.stop();
+  }
+});
+
+test("quiet wait still releases promptly on cancellation and restart sees durable work", async () => {
+  const repository = new Repository(); const service = new RunnerWorkService(repository);
+  const cancel = new AbortController(); const waiting = service.wait("a", cancel.signal, 60_000);
+  const rejected = assert.rejects(waiting); await repository.firstCheck;
+  cancel.abort(); await rejected; assert.equal(service.waiterCount, 0); await service.stop();
+  repository.queues.set("a", ["discovery"]);
+  const restarted = new RunnerWorkService(repository);
+  assert.deepEqual((await restarted.wait("a", new AbortController().signal, 60_000)).available, ["discovery"]);
+  await restarted.stop();
+});
+
+test("Traffic, Discovery prepare/start and Inspector routes wake quiet waits only after commit", async () => {
+  const paths = [
+    { method: "POST", url: "/api/application/traffic-live-sessions", kind: "traffic" },
+    { method: "POST", url: "/api/application/network-discovery", kind: "discovery" },
+    { method: "PATCH", url: "/api/application/network-discovery/:runnerId", kind: "discovery" },
+    { method: "POST", url: "/api/application/device-inspection", kind: "device_inspector" },
+  ] as const;
+  for (const path of paths) {
+    const clock = new Clock(); const repository = new Repository(); const service = new RunnerWorkService(repository, clock);
+    const server = buildServer({ logger: false, runnerWork: { token: TOKEN, service } });
+    let commit!: () => void;
+    const committed = new Promise<void>((resolve) => { commit = resolve; });
+    server.route({ method: path.method, url: path.url, handler: async (_request, reply) => {
+      await committed; repository.queues.set("it-lt8", [path.kind]); return reply.code(200).send({ data: {} });
+    } });
+    try {
+      await server.ready();
+      const waiting = server.inject({ method: "POST", url: "/api/runner/work/wait", headers: AUTH,
+        payload: { runner_id: "it-lt8", wait_seconds: 60 } }).then((response) => response);
+      await repository.firstCheck; await flush();
+      const enqueue = server.inject({ method: path.method, url: path.url.replace(":runnerId", "it-lt8"),
+        payload: { input: { runner_id: "it-lt8" } } }).then((response) => response);
+      await flush(); assert.equal(repository.checks.length, 1);
+      commit(); await enqueue; await clock.advance(100);
+      assert.deepEqual((await waiting).json().data.available, [path.kind]);
+    } finally { await server.close(); }
+  }
 });
 
 test("actual work route requires bearer auth, exact body, and registered identity", async () => {
@@ -322,6 +412,25 @@ test("work wait holds no repository transaction between durable queue checks", a
   await flush(); assert.equal(database.openTransactions, 0); assert.equal(database.transactions, 1);
   await clock.advance(9_999); assert.equal(database.openTransactions, 0);
   cancel.abort(); await rejected; await service.stop();
+});
+
+test("heartbeat assignment query is enabled-only, runner-scoped and contains no credential material", async () => {
+  const calls: { sql: string; values: readonly unknown[] }[] = [];
+  const database: PostgresTransactionalQuery = {
+    async rows(sql, values) {
+      calls.push({ sql, values });
+      return sql.includes("AS health") ? [{ health: false, telemetry: true }] : [];
+    },
+    async transaction<T>(_signal: AbortSignal, action: (query: PostgresQuery) => Promise<T>) {
+      _signal.throwIfAborted(); return action(database);
+    },
+  };
+  const result = await new PostgresRunnerWorkRepository(database).assignments("it-lt8", new AbortController().signal);
+  assert.deepEqual(result, { health: false, telemetry: true });
+  const query = calls.find((call) => call.sql.includes("AS health")); assert.ok(query);
+  assert.deepEqual(query.values, ["it-lt8"]);
+  assert.equal([...query.sql.matchAll(/runner_id=\$1 AND enabled=true/g)].length, 2);
+  assert.doesNotMatch(query.sql, /UPDATE|INSERT|DELETE|credential|password|community/i);
 });
 
 test("D2A source and read-only candidate protections remain present", () => {

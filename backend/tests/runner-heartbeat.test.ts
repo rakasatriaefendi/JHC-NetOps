@@ -69,6 +69,35 @@ function serverWith(repository = new FakeHeartbeatRepository()) {
   };
 }
 
+test("heartbeat piggybacks scoped assignment hints without changing liveness or stored capabilities", async () => {
+  const repository = new FakeHeartbeatRepository();
+  const server = buildServer({ logger: false, runnerHeartbeat: { token: TOKEN, repository, now: () => NOW,
+    monitoringAssignments: async (id, signal) => {
+      assert.equal(id, "raka-local-wsl"); assert.equal(signal.aborted, false);
+      return { health: false, telemetry: true };
+    } } });
+  try {
+    const response = await server.inject({ method: "POST", url: "/api/runner/heartbeat", headers: AUTHORIZATION, payload: heartbeat() });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().data.monitoring_assignments, { health: false, telemetry: true });
+    assert.equal(response.json().data.last_seen_at, NOW.toISOString());
+    assert.equal(repository.rows.length, 1);
+    assert.equal("monitoring_assignments" in repository.rows[0]!, false);
+  } finally { await server.close(); }
+});
+
+test("assignment read failure never fails a persisted heartbeat or invents an empty hint", async () => {
+  const repository = new FakeHeartbeatRepository();
+  const server = buildServer({ logger: false, runnerHeartbeat: { token: TOKEN, repository, now: () => NOW,
+    monitoringAssignments: async () => { throw new Error("private database failure"); } } });
+  try {
+    const response = await server.inject({ method: "POST", url: "/api/runner/heartbeat", headers: AUTHORIZATION, payload: heartbeat() });
+    assert.equal(response.statusCode, 200);
+    assert.equal("monitoring_assignments" in response.json().data, false);
+    assert.equal(repository.rows.length, 1); assert.doesNotMatch(response.body, /private database/);
+  } finally { await server.close(); }
+});
+
 test("valid authenticated heartbeat is normalized, persisted, recovered, and returned", async () => {
   const { repository, server } = serverWith();
   const response = await server.inject({

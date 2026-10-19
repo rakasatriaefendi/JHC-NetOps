@@ -18,6 +18,17 @@ export class PostgresRunnerWorkRepository implements RunnerWorkRepository {
     });
   }
 
+  async assignments(runnerId: string, signal: AbortSignal): Promise<{ health: boolean; telemetry: boolean }> {
+    const rows = await this.bounded(signal, (query) => query.rows(`
+      SELECT
+        EXISTS(SELECT 1 FROM public.network_targets WHERE runner_id=$1 AND enabled=true) AS health,
+        EXISTS(SELECT 1 FROM public.managed_telemetry_targets WHERE runner_id=$1 AND enabled=true) AS telemetry
+    `, [runnerId], signal));
+    const row = rows[0];
+    if (!row || typeof row.health !== "boolean" || typeof row.telemetry !== "boolean") throw new Error("Invalid assignments");
+    return { health: row.health, telemetry: row.telemetry };
+  }
+
   async available(runnerId: string, signal: AbortSignal): Promise<readonly WorkKind[]> {
     // One bounded read; never claims a job or holds a connection while waiting.
     const rows = await this.bounded(signal, (query) => query.rows(`

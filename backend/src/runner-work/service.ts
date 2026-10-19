@@ -1,6 +1,6 @@
 import type { RunnerWorkRepository } from "./repository.js";
 import { performance } from "node:perf_hooks";
-import { WORK_MAINTENANCE_MS, WORK_QUERY_TIMEOUT_MS, WORK_WAIT_MS, type WorkKind } from "./contract.js";
+import { QUIET_WORK_WAIT_MS, WORK_MAINTENANCE_MS, WORK_QUERY_TIMEOUT_MS, WORK_WAIT_MS, type WorkKind } from "./contract.js";
 
 export type WorkClock = {
   now: () => number;
@@ -43,7 +43,7 @@ export class RunnerWorkService {
     private readonly waitMs = WORK_WAIT_MS,
     private readonly maximumWaiters = 32,
   ) {
-    if (waitMs < 1 || waitMs > WORK_WAIT_MS || !Number.isInteger(waitMs) ||
+    if (waitMs < 1 || waitMs > QUIET_WORK_WAIT_MS || !Number.isInteger(waitMs) ||
       maximumWaiters < 1 || maximumWaiters > 64 || !Number.isInteger(maximumWaiters)) throw new Error("Invalid work wait bounds");
   }
 
@@ -67,7 +67,8 @@ export class RunnerWorkService {
     else for (const waiter of this.waiters.values()) waiter.wake();
   }
 
-  async wait(runnerId: string, requestSignal: AbortSignal): Promise<{ runner_id: string; available: readonly WorkKind[]; timed_out: boolean }> {
+  async wait(runnerId: string, requestSignal: AbortSignal, waitMs = this.waitMs): Promise<{ runner_id: string; available: readonly WorkKind[]; timed_out: boolean }> {
+    if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > QUIET_WORK_WAIT_MS) throw new Error("Invalid work wait bound");
     if (this.shutdown.signal.aborted) throw new Error("Work wait stopped");
     if (this.waiters.has(runnerId) || this.waiters.size >= this.maximumWaiters) throw new WorkWaitLimit();
     const signal = AbortSignal.any([requestSignal, this.shutdown.signal]);
@@ -78,7 +79,7 @@ export class RunnerWorkService {
     // Register BEFORE checking PostgreSQL, closing both pre-subscription and
     // enqueue-during-check races. No event can supply an assignment.
     this.waiters.set(runnerId, waiter);
-    const deadline = this.clock.now() + this.waitMs;
+    const deadline = this.clock.now() + waitMs;
     let timer: unknown = null;
     let nextCheck = 0;
     const aborted = () => release?.();
@@ -109,7 +110,9 @@ export class RunnerWorkService {
         if (remaining <= 0) return { runner_id: runnerId, available: [], timed_out: true };
         // Coalesce wake bursts and cap hint-driven queue reads at 10/second.
         if (observed !== revision) continue;
-        await pause(remaining, true);
+        // A lost/cross-process hint must not hide a 30s Ping lease behind a
+        // 60s HTTP wait. Recheck durably without generating another HTTP request.
+        await pause(Math.min(remaining, WORK_WAIT_MS), true);
       }
     } finally {
       if (timer !== null) this.clock.clearTimeout(timer);
