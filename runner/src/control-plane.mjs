@@ -36,6 +36,7 @@ export async function runControlPlane({ backend, runnerId, manualPingEnabled, ex
         const claimed = await backend[CLAIMS[kind]](runnerId);
         if (!claimed) continue; // Lost an atomic claim race; never execute the hint.
         await execute[kind](claimed);
+        backend.control?.reconcile?.(); // Next durable queue read, not another empty HTTP claim.
         executed = true;
         break;
       }

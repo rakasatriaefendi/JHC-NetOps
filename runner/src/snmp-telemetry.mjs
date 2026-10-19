@@ -47,6 +47,8 @@ export class ManagedTelemetryWatch {
     this.publishDueAt = 0;
     this.publishBackoffMs = 5_000;
     this.retryAt = 0;
+    this.monitoringEnabled = true;
+    this.activationPending = false;
   }
 
   start() {
@@ -70,9 +72,31 @@ export class ManagedTelemetryWatch {
     this.ticking = true;
     try {
       const now = this.now();
+      if (!this.monitoringEnabled) {
+        if (!this.inFlight.size && now >= (this.retryAt ?? 0)) await this.publish(now);
+        return;
+      }
+      if (this.activationPending) {
+        if (this.inFlight.size || now < (this.retryAt ?? 0)) return;
+        if (!this.activationTargetsLoaded) {
+          if (now < this.refreshDueAt || !await this.refreshTargets(now) || !this.monitoringEnabled) return;
+          this.activationTargetsLoaded = true;
+        }
+        await this.publish(now);
+        if (this.pendingEvents.length || Object.values(this.states).some((state) => state?.dirty)) return;
+        if (!this.monitoringEnabled) return;
+        let index = 0;
+        for (const target of this.targets.values()) {
+          const state = this.stateFor(target.id);
+          state.resumeBaseline = true;
+          state.nextPollAt = now + index++ * 500;
+        }
+        this.activationPending = false;
+      }
       const quiet = this.targets.size === 0 && Object.keys(this.states).length === 0 &&
         this.pendingEvents.length === 0 && this.backend.monitoringIdle?.("telemetry", now) === true;
       if (now >= this.refreshDueAt && !quiet) await this.refreshTargets(now);
+      if (!this.monitoringEnabled) return;
       const capacity = Math.max(0, this.concurrency - this.inFlight.size);
       const due = [...this.targets.values()].filter((target) => {
         const state = this.stateFor(target.id);
@@ -81,6 +105,15 @@ export class ManagedTelemetryWatch {
       for (const target of due) void this.poll(target);
       if ((this.pendingEvents.length || now >= this.publishDueAt) && now >= (this.retryAt ?? 0)) await this.publish(now);
     } finally { this.ticking = false; }
+  }
+
+  setMonitoring(enabled) {
+    if (enabled === this.monitoringEnabled) return;
+    this.monitoringEnabled = enabled;
+    if (enabled) { this.activationPending = true; this.activationTargetsLoaded = false; this.refreshDueAt = 0; }
+  }
+  get draining() {
+    return this.inFlight.size > 0 || Boolean(this.ticking) || this.pendingEvents.length > 0 || Object.values(this.states).some((state) => state?.dirty);
   }
 
   async refreshTargets(now = this.now()) {
@@ -100,9 +133,11 @@ export class ManagedTelemetryWatch {
       this.pendingEvents = this.pendingEvents.filter((event) => this.targets.has(event.target_id));
       this.refreshDueAt = now + TARGET_REFRESH_MS;
       this.persist();
+      return true;
     } catch {
       this.refreshDueAt = now + 10_000;
       this.log("Managed telemetry target refresh failed; cached targets retained");
+      return false;
     }
   }
 
@@ -140,6 +175,15 @@ export class ManagedTelemetryWatch {
 
   applyResult(target, payload, now = this.now(), netbiosOffset = null) {
     const state = this.stateFor(target.id);
+    if (state.resumeBaseline) {
+      // The gap is not continuous observation: establish fresh counter/status
+      // baselines without manufacturing down/recovery/utilization events.
+      state.counters = {}; state.lastPoll = null;
+      for (const condition of Object.values(state.alertConditions)) {
+        condition.interfaceDown.consecutive = 0;
+        condition.utilization.highSince = null;
+      }
+    }
     const device = payload.device;
     const previous = state.lastPoll;
     const rebooted = Boolean(previous?.uptime_seconds != null && device.uptime_seconds != null && device.uptime_seconds < previous.uptime_seconds);
@@ -168,7 +212,8 @@ export class ManagedTelemetryWatch {
         delete state.alertConditions[id];
       }
     }
-    for (const evaluation of evaluations) this.detectTransitions(target, evaluation, now);
+    if (!state.resumeBaseline) for (const evaluation of evaluations) this.detectTransitions(target, evaluation, now);
+    state.resumeBaseline = false;
     const failed = device.status !== "connected" && device.status !== "partial";
     state.lastPoll = { uptime_seconds: device.uptime_seconds, interfaces: interfaces.map((row) => ({
       if_index: row.if_index, admin_status: row.admin_status, oper_status: row.oper_status, speed_bps: row.speed_bps,

@@ -42,6 +42,7 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   const [runners, setRunners] = useState(initialState.runners);
   const [jobs, setJobs] = useState(initialState.jobs);
   const [now, setNow] = useState(() => Date.now());
+  const [visible, setVisible] = useState(true);
   const [runnerId, setRunnerId] = useState(initialState.runners[0]?.id ?? "");
   const [source, setSource] = useState("");
   const [targetId, setTargetId] = useState("");
@@ -72,6 +73,13 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   ])).filter((label) => label !== "Local Development").slice(0, 12), [capabilities?.source_locations, jobs]);
 
   useEffect(() => {
+    const update = () => setVisible(document.visibilityState !== "hidden");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
     const clock = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(clock);
   }, []);
@@ -79,6 +87,7 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   useEffect(() => {
     let disposed = false;
     async function refetchState() {
+      if (document.visibilityState === "hidden") return;
       const result = await getDiagnosticJobStateAction().catch(() => null);
       if (!disposed && result?.ok) {
         setAuthority(result.authority);
@@ -106,7 +115,7 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
   }, [authority, onDiagnosticsChange]);
 
   useEffect(() => {
-    if (!canOperateNetwork(role) || !runnerOnline || !runner || !target || jobActive) return;
+    if (!visible || !canOperateNetwork(role) || !runnerOnline || !runner || !target || jobActive) return;
     const key = `${runner.id}:${target.id}`;
     const freshComplete = preflight?.status === "completed" && preflight.completed_at && now - Date.parse(preflight.completed_at) < 80_000;
     if (requestedPreflight.current === key && (preflight?.status === "queued" || preflight?.status === "running" || freshComplete)) return;
@@ -114,7 +123,7 @@ export function OneClickDiagnostics({ initialState, diagnostics, onDiagnosticsCh
     void requestDiagnosticPreflightAction(runner.id, target.id).then(({ ok }) => {
       if (!ok) setFormError(t("workspace.requestFailed"));
     });
-  }, [jobActive, now, preflight?.completed_at, preflight?.status, role, runner, runnerOnline, t, target]);
+  }, [jobActive, now, preflight?.completed_at, preflight?.status, role, runner, runnerOnline, t, target, visible]);
 
   async function createJob() {
     const location = source.trim();

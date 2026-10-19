@@ -1,5 +1,10 @@
 # Network Monitoring Frontend
 
+The protected layout owns an authenticated visible-tab presence SSE stream and
+localized monitoring-state banner. This does not replace feature invalidation
+SSE. See [P18 on-demand monitoring](../docs/P18_ZERO_IDLE.md) for standby semantics,
+session checks, backend-first rollout and limitations.
+
 Next.js App Router untuk dashboard, Network Health, Traffic, diagnostics,
 Discovery, Device Inspector, Managed SNMP, Asset Inventory, Medical Equipment,
 administrasi, dan reporting.

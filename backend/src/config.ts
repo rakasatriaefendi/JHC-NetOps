@@ -8,6 +8,7 @@ const DEFAULT_PORT = 3402;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 
 export type BackendConfig = Readonly<{
+  standbyGraceMs: number;
   host: string;
   port: number;
   runnerApiToken: string;
@@ -74,6 +75,7 @@ export function loadBackendConfig(
     })
     : null;
   return Object.freeze({ host, port, runnerApiToken, frontendApiToken, persistenceAuthority, candidateReadOnly,
+    standbyGraceMs: boundedInteger(environment.MONITORING_STANDBY_GRACE_MS, 30_000, 0, 300_000, "MONITORING_STANDBY_GRACE_MS"),
     applicationDatabaseUrl, assets });
 }
 

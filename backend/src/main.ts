@@ -41,6 +41,7 @@ import { PostgresAdministrativeAuditRepository } from "./persistence/administrat
 import { AuditedReportBranding } from "./report-branding/audited-mutations.js";
 import { PostgresRunnerWorkRepository } from "./runner-work/repository.js";
 import { RunnerWorkService } from "./runner-work/service.js";
+import { MonitoringRuntime } from "./runner-control/runtime.js";
 
 async function main(): Promise<void> {
   const config = loadBackendConfig();
@@ -120,6 +121,8 @@ async function main(): Promise<void> {
   const appPool = applicationRepositories._pool;
   const administrativeAudit = new PostgresAdministrativeAuditRepository(new PoolPostgresQuery(appPool));
   const runnerWorkRepository = new PostgresRunnerWorkRepository(new PoolPostgresQuery(appPool));
+  const runnerWorkService = new RunnerWorkService(runnerWorkRepository);
+  const monitoringRuntime = new MonitoringRuntime(config.standbyGraceMs);
   const buildServerOptions: Record<string, unknown> = {
     candidateReadOnly: config.candidateReadOnly,
     runnerHeartbeat: { token: config.runnerApiToken, repository: applicationRepositories.heartbeat,
@@ -130,7 +133,14 @@ async function main(): Promise<void> {
     administrativeAudit: { token: config.frontendApiToken, repository: administrativeAudit },
     ...(!config.candidateReadOnly ? { runnerWork: {
       token: config.runnerApiToken,
-      service: new RunnerWorkService(runnerWorkRepository),
+      service: runnerWorkService,
+    }, runnerControl: {
+      token: config.runnerApiToken, heartbeat: applicationRepositories.heartbeat,
+      work: runnerWorkRepository, service: runnerWorkService, runtime: monitoringRuntime,
+      busy: async (signal: AbortSignal) => (await runnerWorkRepository.busy(signal)) || assetScanController?.hasActiveWork === true,
+    }, presence: {
+      token: config.frontendApiToken, runtime: monitoringRuntime,
+      session: (token: string, signal: AbortSignal) => applicationRepositories.localAuth.approvedPresence(token, signal),
     } } : {}),
   };
 

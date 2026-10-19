@@ -22,6 +22,7 @@ export const ASSET_SCAN_DEFAULT_CONCURRENCY = 4;
 export const ASSET_SCAN_PERSIST_TIMEOUT_MS = 7_000;
 
 export class AssetScanController {
+  get hasActiveWork(): boolean { return this.#starting || this.#active !== null; }
   #active: { record: AssetScanRecord; routeKind: "direct" | "routed"; abort: AbortController; done: Promise<void> } | null = null;
   #starting = false;
 

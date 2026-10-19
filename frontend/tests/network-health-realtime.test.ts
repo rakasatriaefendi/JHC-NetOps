@@ -47,6 +47,36 @@ test("Network Health uses same-origin local invalidations and coalesces a health
   assert.equal(timers.timerCount, 0);
 });
 
+test("hidden tab closes SSE and fallback; visibility resumes one authoritative reconciliation", () => {
+  const timers = new FakeTimers();
+  const streams: FakeEventStream[] = [];
+  let visible = true;
+  const change = { listener: null as (() => void) | null };
+  let refreshes = 0;
+  const stop = startLocalRealtimeInvalidation({
+    topics: ["network_health"], debounceMs: 250, fallbackIntervalMs: 60_000,
+    refresh: () => { refreshes += 1; }, onStatus: () => {}, timers,
+    visibility: { visible: () => visible, subscribe: (listener) => { change.listener = listener; return () => { change.listener = null; }; } },
+    createEventStream: () => { const stream = new FakeEventStream(); streams.push(stream); return stream; },
+  });
+  streams[0]?.emit("error");
+  assert.equal(timers.intervalCount, 1);
+  visible = false; change.listener?.();
+  assert.equal(streams[0]?.closed, true);
+  assert.equal(timers.timerCount, 0);
+  streams[0]?.emitInvalidation("network_health");
+  timers.flushTimeouts(); timers.tickIntervals();
+  assert.equal(refreshes, 0);
+  visible = true; change.listener?.();
+  assert.equal(streams.length, 2);
+  assert.equal(timers.timeoutCount, 1);
+  timers.flushTimeouts();
+  assert.equal(refreshes, 1);
+  stop();
+  assert.equal(streams[1]?.closed, true);
+  assert.equal(change.listener, null);
+});
+
 test("degraded local SSE enables bounded fallback and reconnect sync restores healthy mode", () => {
   const stream = new FakeEventStream();
   const timers = new FakeTimers();

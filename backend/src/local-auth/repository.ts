@@ -165,6 +165,19 @@ export class PostgresLocalAuthRepository {
     return profile;
   }
 
+  async approvedPresence(token: string, signal: AbortSignal): Promise<{ expires_at: string }> {
+    const digest = sessionDigest(token);
+    if (!digest) throw new LocalAuthError("SESSION_INVALID");
+    const rows = await this.database.rows(`
+      SELECT s.expires_at FROM public.local_auth_sessions s
+      JOIN public.profiles p ON p.id=s.user_id
+      WHERE s.token_digest=$1 AND s.expires_at > now() AND p.status='approved'
+      LIMIT 1
+    `, [digest], signal);
+    if (!rows[0]?.expires_at) throw new LocalAuthError("SESSION_INVALID");
+    return { expires_at: iso(rows[0].expires_at) };
+  }
+
   async logout(token: string, signal: AbortSignal): Promise<void> {
     const digest = sessionDigest(token);
     if (!digest) return;

@@ -2,6 +2,7 @@ export type LocalRealtimeProxyDependencies = Readonly<{
   authenticate: () => Promise<boolean>;
   backend: () => { origin: string; token: string } | null;
   fetchImpl?: typeof fetch;
+  upstream?: () => Promise<{ path: "/api/application/presence"; sessionToken: string } | null>;
 }>;
 
 export function createLocalRealtimeProxy(dependencies: LocalRealtimeProxyDependencies) {
@@ -9,6 +10,8 @@ export function createLocalRealtimeProxy(dependencies: LocalRealtimeProxyDepende
     if (!await dependencies.authenticate().catch(() => false)) return errorResponse(401, "UNAUTHORIZED");
     const backend = dependencies.backend();
     if (!backend) return errorResponse(503, "LOCAL_REALTIME_UNAVAILABLE");
+    const upstreamOptions = dependencies.upstream ? await dependencies.upstream().catch(() => null) : null;
+    if (dependencies.upstream && !upstreamOptions) return errorResponse(401, "UNAUTHORIZED");
 
     const upstreamController = new AbortController();
     const abortUpstream = () => upstreamController.abort();
@@ -17,11 +20,12 @@ export function createLocalRealtimeProxy(dependencies: LocalRealtimeProxyDepende
 
     let upstream: Response;
     try {
-      upstream = await (dependencies.fetchImpl ?? fetch)(new URL("/api/realtime/events", backend.origin), {
+      upstream = await (dependencies.fetchImpl ?? fetch)(new URL(upstreamOptions?.path ?? "/api/realtime/events", backend.origin), {
         method: "GET",
         headers: {
           authorization: `Bearer ${backend.token}`,
           accept: "text/event-stream",
+          ...(upstreamOptions ? { "x-netops-session": upstreamOptions.sessionToken } : {}),
         },
         cache: "no-store",
         signal: upstreamController.signal,

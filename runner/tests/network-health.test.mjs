@@ -19,6 +19,48 @@ function watch(backend = { healthTargets: async () => ({ targets: [] }), publish
     ping: async () => ({ success: true, latency_ms: 1 }), now: () => 1_000 });
 }
 
+test("standby retains enabled Health assignments and pending buffers, resumes from authoritative targets without gap transitions", async () => {
+  let gets = 0; let probes = 0; let publishes = 0; let now = 1_000;
+  const item = target({ probe_interval_seconds: 1800 });
+  const service = watch({ healthTargets: async () => { gets++; return { targets: [item] }; },
+    publishHealth: async () => { publishes++; } });
+  service.now = () => now; service.running = true;
+  service.targets.set(item.id, item);
+  service.applySample(item, { success: true, latency_ms: 1 }, now);
+  service.setMonitoring(false);
+  service.ping = async () => { probes++; return { success: false, latency_ms: null }; };
+  await service.tick(); assert.equal(publishes, 1, "accepted result drains once");
+  for (; now < 301_000; now += 1000) await service.tick();
+  assert.equal(gets, 0); assert.equal(probes, 0); assert.equal(publishes, 1);
+  assert.equal(service.targets.size, 1); assert.equal(service.draining, false);
+  service.setMonitoring(true); await service.tick(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gets, 1); assert.equal(probes, 1);
+  assert.equal(service.pendingTransitions.length, 0, "standby gap does not create a transition");
+  assert.equal(service.states[item.id].samples.length, 1);
+  assert.equal(service.states[item.id].nextProbeAt, now + 1_800_000);
+  await service.stop();
+});
+
+test("pause during Health target reload cannot start a new probe; failed resume reload is bounded", async () => {
+  let finish; let gets = 0; let probes = 0; let now = 1000;
+  const service = watch({ healthTargets: async () => { gets++; if (gets > 1) throw new Error("offline"); return new Promise((resolve) => { finish = resolve; }); }, publishHealth: async () => {} });
+  service.running = true; service.now = () => now; service.ping = async () => { probes++; return { success: true, latency_ms: 1 }; };
+  const tick = service.tick(); service.setMonitoring(false); finish({ targets: [target()] }); await tick;
+  assert.equal(probes, 0);
+  service.setMonitoring(true); await service.tick();
+  for (let index = 0; index < 9; index++) { now += 1000; await service.tick(); }
+  assert.equal(gets, 2); assert.equal(probes, 0);
+  await service.stop();
+});
+
+test("Health target disabled while paused is not probed on resume, including a cached target", async () => {
+  let probes = 0; const service = watch(); const item = target();
+  service.targets.set(item.id, item); service.running = true;
+  service.ping = async () => { probes++; throw new Error("Must not probe disabled assignment"); };
+  service.setMonitoring(false); await service.tick(); service.setMonitoring(true); await service.tick();
+  assert.equal(service.targets.size, 0); assert.equal(probes, 0); await service.stop();
+});
+
 test("state transitions require three failures and two recovery successes", () => {
   const service = watch(); const item = target();
   service.applySample(item, { success: true, latency_ms: 2 }, 1_000);

@@ -11,6 +11,18 @@ export class RunnerNotRegistered extends Error {}
 export class PostgresRunnerWorkRepository implements RunnerWorkRepository {
   constructor(private readonly database: PostgresTransactionalQuery) {}
 
+  async busy(signal: AbortSignal): Promise<boolean> {
+    const rows = await this.bounded(signal, (query) => query.rows(`
+      SELECT EXISTS(SELECT 1 FROM public.network_health_ping_jobs WHERE status IN ('queued','running'))
+        OR EXISTS(SELECT 1 FROM public.traffic_live_sessions WHERE status IN ('queued','running','stopping'))
+        OR EXISTS(SELECT 1 FROM public.network_discovery_sessions WHERE status IN ('queued','running'))
+        OR EXISTS(SELECT 1 FROM public.device_inspection_sessions WHERE status IN ('queued','running'))
+        OR EXISTS(SELECT 1 FROM public.diagnostic_jobs WHERE status IN ('queued','running')) AS busy
+    `, [], signal));
+    if (typeof rows[0]?.busy !== "boolean") throw new Error("Work evidence unavailable");
+    return rows[0].busy;
+  }
+
   private bounded<T>(signal: AbortSignal, action: (query: PostgresQuery) => Promise<T>): Promise<T> {
     return this.database.transaction(signal, async (query) => {
       await query.rows("SELECT set_config('statement_timeout','3000',true)", [], signal);

@@ -16,11 +16,17 @@ export type NetworkHealthRealtimeTimers = Readonly<{
   clearInterval: (handle: unknown) => void;
 }>;
 
+export type RealtimeVisibility = Readonly<{
+  visible: () => boolean;
+  subscribe: (listener: () => void) => () => void;
+}>;
+
 export type NetworkHealthRealtimeOptions = Readonly<{
   refresh: () => void | Promise<void>;
   onStatus: (status: NetworkHealthRealtimeStatus) => void;
   createEventStream?: (url: string) => NetworkHealthEventStream;
   timers?: NetworkHealthRealtimeTimers;
+  visibility?: RealtimeVisibility;
 }>;
 
 export type LocalRealtimeTopic = "network_health" | "diagnostics" | "device_inspector" | "traffic" | "managed_telemetry";
@@ -33,6 +39,7 @@ export type LocalRealtimeInvalidationOptions = Readonly<{
   fallbackIntervalMs: number;
   createEventStream?: (url: string) => NetworkHealthEventStream;
   timers?: NetworkHealthRealtimeTimers;
+  visibility?: RealtimeVisibility;
 }>;
 
 const SYSTEM_TIMERS: NetworkHealthRealtimeTimers = {
@@ -53,6 +60,8 @@ export function startNetworkHealthRealtime(options: NetworkHealthRealtimeOptions
 
 export function startLocalRealtimeInvalidation(options: LocalRealtimeInvalidationOptions): () => void {
   const timers = options.timers ?? SYSTEM_TIMERS;
+  const visibility = options.visibility ?? browserVisibility();
+  let visible = visibility.visible();
   const topics = new Set(options.topics);
   let disposed = false;
   let refreshTimer: unknown | null = null;
@@ -62,12 +71,12 @@ export function startLocalRealtimeInvalidation(options: LocalRealtimeInvalidatio
   let refreshAgain = false;
 
   const scheduleRefresh = () => {
-    if (disposed) return;
+    if (disposed || !visible) return;
     if (refreshing) { refreshAgain = true; return; }
     if (refreshTimer !== null) return;
     refreshTimer = timers.setTimeout(() => {
       refreshTimer = null;
-      if (disposed) return;
+      if (disposed || !visible) return;
       refreshing = true;
       const finish = () => {
         refreshing = false;
@@ -88,13 +97,13 @@ export function startLocalRealtimeInvalidation(options: LocalRealtimeInvalidatio
     fallbackTimer = null;
   };
   const startFallback = () => {
-    if (disposed) return;
+    if (disposed || !visible) return;
     options.onStatus("fallback");
     if (fallbackTimer !== null) return;
     fallbackTimer = timers.setInterval(scheduleRefresh, options.fallbackIntervalMs);
   };
   const onOpen = () => {
-    if (disposed) return;
+    if (disposed || !visible) return;
     stopFallback();
     options.onStatus("connected");
   };
@@ -104,27 +113,61 @@ export function startLocalRealtimeInvalidation(options: LocalRealtimeInvalidatio
     if (topic === "sync" || (topic !== null && topics.has(topic))) scheduleRefresh();
   };
 
-  options.onStatus("connecting");
-  try {
-    stream = (options.createEventStream ?? browserEventStream)("/api/realtime/events");
-    stream.addEventListener("open", onOpen);
-    stream.addEventListener("error", onError);
-    stream.addEventListener("invalidation", onInvalidation);
-  } catch {
-    startFallback();
-  }
-
-  return () => {
-    if (disposed) return;
-    disposed = true;
-    if (refreshTimer !== null) timers.clearTimeout(refreshTimer);
-    refreshTimer = null;
-    stopFallback();
+  const closeStream = () => {
     stream?.removeEventListener("open", onOpen);
     stream?.removeEventListener("error", onError);
     stream?.removeEventListener("invalidation", onInvalidation);
     stream?.close();
     stream = null;
+  };
+  const openStream = () => {
+    options.onStatus("connecting");
+    try {
+      stream = (options.createEventStream ?? browserEventStream)("/api/realtime/events");
+      stream.addEventListener("open", onOpen);
+      stream.addEventListener("error", onError);
+      stream.addEventListener("invalidation", onInvalidation);
+    } catch { startFallback(); }
+  };
+  const onVisibility = () => {
+    const next = visibility.visible();
+    if (disposed || next === visible) return;
+    visible = next;
+    if (!visible) {
+      if (refreshTimer !== null) timers.clearTimeout(refreshTimer);
+      refreshTimer = null;
+      refreshAgain = false;
+      stopFallback();
+      closeStream();
+      options.onStatus("connecting");
+    } else {
+      openStream();
+      scheduleRefresh(); // Reconcile changes missed while hidden, even if SSE is unavailable.
+    }
+  };
+  if (visible) openStream();
+  else options.onStatus("connecting");
+  const stopVisibility = visibility.subscribe(onVisibility);
+
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    stopVisibility();
+    if (refreshTimer !== null) timers.clearTimeout(refreshTimer);
+    refreshTimer = null;
+    stopFallback();
+    closeStream();
+  };
+}
+
+function browserVisibility(): RealtimeVisibility {
+  if (typeof document === "undefined") return { visible: () => true, subscribe: () => () => {} };
+  return {
+    visible: () => document.visibilityState !== "hidden",
+    subscribe: (listener) => {
+      document.addEventListener("visibilitychange", listener);
+      return () => document.removeEventListener("visibilitychange", listener);
+    },
   };
 }
 

@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:postgres:assets": "node --import tsx --test tests/integration/assets-postgres.integration.ts",
+    "test:postgres:integration": "node --import tsx --test tests/integration/*-postgres.test.ts",
     "lint": "eslint src tests scripts",
     "preflight:postgres": "node --env-file-if-exists=.env --import tsx scripts/postgres-foundation-preflight.ts",
     "auth:enroll-existing": "node --env-file-if-exists=.env --import tsx scripts/enroll-local-auth.ts",
@@ -21,11 +22,13 @@
   "dependencies": {
     "@excel.js/exceljs": "0.15.0",
     "fastify": "^5.12.3",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
     "@types/pg": "^8.15.5",
+    "@types/ws": "^8.18.2",
     "eslint": "^10.10.0",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3",

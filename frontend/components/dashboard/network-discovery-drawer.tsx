@@ -49,6 +49,7 @@ export function NetworkDiscoveryDrawer({
   const [promotedNodes, setPromotedNodes] = useState<Set<string>>(new Set());
   const [recentTrafficIps, setRecentTrafficIps] = useState<Set<string>>(() => new Set(trafficIps));
   const [freshnessNow, setFreshnessNow] = useState(() => Date.now());
+  const [visible, setVisible] = useState(true);
   const prepared = useRef<Set<string>>(new Set());
   const { nodes } = useNetworkNodes();
   const runner = eligibleRunners.find((item) => item.id === runnerId) ?? eligibleRunners[0];
@@ -59,7 +60,14 @@ export function NetworkDiscoveryDrawer({
   const runnerLastSeenAt = runner?.last_seen_at;
 
   useEffect(() => {
-    if (!open) return;
+    const update = () => setVisible(document.visibilityState !== "hidden");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !visible) return;
     let active = true;
     let refreshing = false;
     async function refreshRunners() {
@@ -88,7 +96,7 @@ export function NetworkDiscoveryDrawer({
       active = false;
       window.clearInterval(interval);
     };
-  }, [open]);
+  }, [open, visible]);
 
   useEffect(() => {
     if (!open || !runnerLastSeenAt) return;
@@ -125,7 +133,7 @@ export function NetworkDiscoveryDrawer({
   }, [open, runner?.id, runnerAuthority]);
 
   useEffect(() => {
-    if (!open || runnerAuthority !== "local_postgres" || !runner?.id) return;
+    if (!open || !visible || runnerAuthority !== "local_postgres" || !runner?.id) return;
     const selectedRunnerId = runner.id;
     let active = true;
     let refreshing = false;
@@ -150,15 +158,15 @@ export function NetworkDiscoveryDrawer({
       active = false;
       if (interval !== null) window.clearInterval(interval);
     };
-  }, [open, runner?.id, runnerAuthority, sessionStatus]);
+  }, [open, visible, runner?.id, runnerAuthority, sessionStatus]);
 
   useEffect(() => {
-    if (!open || !runnerOnline || !runner || session || prepared.current.has(runner.id)) return;
+    if (!open || !visible || !runnerOnline || !runner || session || prepared.current.has(runner.id)) return;
     prepared.current.add(runner.id);
     void invoke("prepare_session", runner.id);
   // invoke is intentionally driven only by drawer/runner/session identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, runnerOnline, runner?.id, session?.session_id]);
+  }, [open, visible, runnerOnline, runner?.id, session?.session_id]);
 
   async function invoke(action: "prepare_session" | "start_session", targetRunnerId = runner?.id) {
     if (!targetRunnerId || inFlight.current) return;

@@ -1,5 +1,9 @@
 # JHC NetOps Local Backend
 
+P18 adds authenticated loopback runner WebSocket control and approved-session
+presence-driven standby. Legacy HTTP routes remain for DEGRADED compatibility;
+see [P18 lifecycle, verification and rollback](../docs/P18_ZERO_IDLE.md).
+
 Fastify berjalan pada loopback dan menjadi satu-satunya application boundary ke
 PostgreSQL NetOps. Runtime hanya menerima `PERSISTENCE_AUTHORITY=local_postgres`;
 nilai kosong atau selain itu gagal tertutup. Tidak ada remote repository,

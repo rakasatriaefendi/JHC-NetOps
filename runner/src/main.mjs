@@ -11,6 +11,7 @@ import { runAgent, runInspectionAgent, runPreflight, runTrafficAgent } from "./w
 import { manualPingCompletionLog, NetworkHealthWatch } from "./network-health.mjs";
 import { ManagedTelemetryWatch } from "./snmp-telemetry.mjs";
 import { runControlPlane } from "./control-plane.mjs";
+import { RunnerControlSocket } from "./control-socket.mjs";
 
 const RUNNER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
@@ -57,7 +58,7 @@ for (let attempt = 1; attempt <= 3; attempt += 1) {
   }
 }
 
-await sendHeartbeat().catch((error) => logHeartbeatFailure(error));
+if (once || preflightOnly) await sendHeartbeat().catch((error) => logHeartbeatFailure(error));
 if (preflightOnly) process.exit(healthStatus === "online" ? 0 : 2);
 if (healthStatus !== "online") process.exit(2);
 
@@ -73,6 +74,7 @@ const healthWatch = new NetworkHealthWatch({
   platform: config.runtime_platform,
   log,
 });
+healthWatch.setMonitoring(false);
 if (!once && runtimeCapabilities.ping !== false) healthWatch.start();
 else if (!once) log("Health Watch is unavailable because platform ping is missing");
 let telemetryWatch = null;
@@ -85,9 +87,26 @@ if (config.enable_snmp_telemetry === true) {
     log,
     concurrency: config.snmp_max_concurrent,
   });
+  telemetryWatch.setMonitoring(false);
   if (!once) telemetryWatch.start();
 }
 const controlShutdown = new AbortController();
+const monitoringStatus = () => {
+  const watches = [runtimeCapabilities.ping !== false ? healthWatch : null, telemetryWatch].filter(Boolean);
+  return { ready: watches.every((watch) => watch.monitoringEnabled && !watch.activationPending),
+    busy: watches.some((watch) => watch.draining) };
+};
+if (!once) {
+  backend.control = new RunnerControlSocket({
+    url: new URL(backend.localHeartbeatEndpoint).origin, headers: backend.localBackendHeaders,
+    runner: heartbeatPayload, status: monitoringStatus, log,
+    onMode: ({ monitoring }) => {
+      if (runtimeCapabilities.ping !== false) healthWatch.setMonitoring(monitoring);
+      telemetryWatch?.setMonitoring(monitoring);
+    },
+  });
+  backend.control.start();
+}
 const stopControl = () => controlShutdown.abort();
 process.once("SIGINT", stopControl);
 process.once("SIGTERM", stopControl);
@@ -103,6 +122,7 @@ try {
   await healthWatch.stop();
   if (telemetryWatch) await telemetryWatch.stop();
   stopHeartbeat();
+  await backend.control?.stop();
 }
 
 async function executeManualPing(rawJob) {
@@ -306,13 +326,16 @@ async function fail(jobId, error) {
 }
 
 async function sendHeartbeat() {
-  await backend.heartbeat({
+  await backend.heartbeat(heartbeatPayload());
+}
+function heartbeatPayload() {
+  return {
     id: config.runner_id,
     display_name: config.display_name,
     health_status: healthStatus,
     health_error_code: healthErrorCode,
     capabilities: publicCapabilities(config, runtimeCapabilities),
-  });
+  };
 }
 
 function logHeartbeatFailure(error) {

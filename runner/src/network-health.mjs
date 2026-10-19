@@ -35,6 +35,8 @@ export class NetworkHealthWatch {
     this.refreshDueAt = 0;
     this.publishDueAt = 0;
     this.publishBackoffMs = 5_000;
+    this.monitoringEnabled = true;
+    this.activationPending = false;
   }
 
   start() {
@@ -58,9 +60,32 @@ export class NetworkHealthWatch {
     this.ticking = true;
     try {
       const now = this.now();
+      if (!this.monitoringEnabled) {
+        // Drain accepted probes/results; never abort them or erase cached targets.
+        if (!this.inFlight.size && now >= (this.retryAt ?? 0)) await this.publish(now);
+        return;
+      }
+      if (this.activationPending) {
+        if (this.inFlight.size || now < (this.retryAt ?? 0)) return;
+        if (!this.activationTargetsLoaded) {
+          if (now < this.refreshDueAt || !await this.refreshTargets(now) || !this.monitoringEnabled) return;
+          this.activationTargetsLoaded = true;
+        }
+        await this.publish(now);
+        if (this.pendingTransitions.length || Object.values(this.states).some((state) => state?.dirty)) return;
+        if (!this.monitoringEnabled) return;
+        let index = 0;
+        for (const target of this.targets.values()) {
+          const state = this.stateFor(target.id);
+          state.resumeBaseline = true;
+          state.nextProbeAt = now + index++ * 250;
+        }
+        this.activationPending = false;
+      }
       const quiet = this.targets.size === 0 && Object.keys(this.states).length === 0 &&
         this.pendingTransitions.length === 0 && this.backend.monitoringIdle?.("health", now) === true;
       if (now >= this.refreshDueAt && !quiet) await this.refreshTargets(now);
+      if (!this.monitoringEnabled) return;
       const capacity = Math.max(0, this.concurrency - this.inFlight.size);
       const due = [...this.targets.values()].filter((target) => {
         const state = this.stateFor(target.id);
@@ -69,6 +94,15 @@ export class NetworkHealthWatch {
       for (const target of due) void this.probe(target);
       if ((this.pendingTransitions.length || now >= this.publishDueAt) && now >= (this.retryAt ?? 0)) await this.publish(now);
     } finally { this.ticking = false; }
+  }
+
+  setMonitoring(enabled) {
+    if (enabled === this.monitoringEnabled) return;
+    this.monitoringEnabled = enabled;
+    if (enabled) { this.activationPending = true; this.activationTargetsLoaded = false; this.refreshDueAt = 0; }
+  }
+  get draining() {
+    return this.inFlight.size > 0 || Boolean(this.ticking) || this.pendingTransitions.length > 0 || Object.values(this.states).some((state) => state?.dirty);
   }
 
   async refreshTargets(now = this.now()) {
@@ -88,9 +122,11 @@ export class NetworkHealthWatch {
       this.pendingTransitions = this.pendingTransitions.filter((event) => this.targets.has(event.target_id));
       this.refreshDueAt = now + TARGET_REFRESH_MS;
       this.persist();
+      return true;
     } catch {
       this.refreshDueAt = now + 10_000;
       this.log("Network health target refresh failed; cached targets retained");
+      return false;
     }
   }
 
@@ -129,6 +165,11 @@ export class NetworkHealthWatch {
 
   applySample(target, sample, now = this.now()) {
     const state = this.stateFor(target.id);
+    const resumed = state.resumeBaseline === true;
+    if (resumed) {
+      state.samples = []; state.latencies = []; state.consecutiveFailures = 0; state.consecutiveSuccesses = 0;
+      state.resumeBaseline = false;
+    }
     const checkedAt = new Date(now).toISOString();
     state.samples = [...state.samples, Boolean(sample.success)].slice(-WINDOW_SIZE);
     state.latencies = [...state.latencies, sample.success ? sample.latency_ms : null].slice(-WINDOW_SIZE);
@@ -136,7 +177,7 @@ export class NetworkHealthWatch {
     state.consecutiveSuccesses = sample.success ? state.consecutiveSuccesses + 1 : 0;
     state.lastCheckedAt = checkedAt;
     if (sample.success) state.lastSuccessAt = checkedAt;
-    const previous = state.status ?? null;
+    const previous = resumed ? null : state.status ?? null;
     if (sample.success && previous === "offline" && state.consecutiveSuccesses >= target.recovery_threshold) {
       state.samples = state.samples.slice(-target.recovery_threshold);
       state.latencies = state.latencies.slice(-target.recovery_threshold);

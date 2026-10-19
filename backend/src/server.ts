@@ -17,6 +17,8 @@ import { registerLocalRealtimeRoute, type LocalRealtimeRouteOptions } from "./re
 import { registerLocalAuthRoutes, type LocalAuthRouteOptions } from "./local-auth/route.js";
 import { registerAdministrativeAuditRoute } from "./persistence/administrative-audit-route.js";
 import { registerRunnerWorkRoute, type RunnerWorkRouteOptions } from "./runner-work/route.js";
+import { registerRunnerControl, type RunnerControlOptions } from "./runner-control/route.js";
+import { registerPresenceRoute, type PresenceRouteOptions } from "./runner-control/presence-route.js";
 
 export const BACKEND_SERVICE_NAME = "jhc-netops-backend";
 export const REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -42,6 +44,8 @@ type BuildServerOptions = Readonly<{
   localAuth?: LocalAuthRouteOptions;
   administrativeAudit?: Parameters<typeof registerAdministrativeAuditRoute>[1];
   runnerWork?: RunnerWorkRouteOptions;
+  runnerControl?: RunnerControlOptions;
+  presence?: PresenceRouteOptions;
 }>;
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -60,6 +64,8 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
           "req.headers.cookie",
           "request.headers.authorization",
           "request.headers.cookie",
+          "req.headers.x-netops-session",
+          "request.headers.x-netops-session",
         ],
         censor: "[REDACTED]",
       },
@@ -95,6 +101,8 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   }));
 
   if (options.runnerWork && !options.candidateReadOnly) registerRunnerWorkRoute(server, options.runnerWork);
+  if (options.runnerControl && !options.candidateReadOnly) registerRunnerControl(server, options.runnerControl);
+  if (options.presence && !options.candidateReadOnly) registerPresenceRoute(server, options.presence);
   if (options.runnerHeartbeat) {
     registerRunnerHeartbeatRoute(server, options.runnerHeartbeat);
   }

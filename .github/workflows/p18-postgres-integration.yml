@@ -1,0 +1,123 @@
+name: P18 PostgreSQL 16 Integration Tests
+
+on:
+  push:
+    branches: [p18-zero-idle-websocket]
+  workflow_dispatch:
+  pull_request:
+    branches: [p18-zero-idle-websocket]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/p18-postgres-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-integration:
+    name: PostgreSQL 16 Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: jhc_netops
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d jhc_netops"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres -d jhc_netops; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "PostgreSQL failed to become ready"
+          exit 1
+
+      - name: Run database migrations
+        run: |
+          export PGPASSWORD=postgres
+          for migration in backend/migrations/0*.sql; do
+            echo "Applying $migration"
+            psql -h localhost -p 5432 -U postgres -d jhc_netops -v ON_ERROR_STOP=1 -f "$migration"
+          done
+        env:
+          PGPASSWORD: postgres
+
+      - name: Create test database user and grant permissions
+        run: |
+          export PGPASSWORD=postgres
+          psql -h localhost -p 5432 -U postgres -d jhc_netops -v ON_ERROR_STOP=1 -c "
+            CREATE ROLE jhc_netops_app WITH LOGIN PASSWORD 'test_password';
+            GRANT USAGE ON SCHEMA public TO jhc_netops_app;
+            GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO jhc_netops_app;
+            GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA public TO jhc_netops_app;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO jhc_netops_app;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT,UPDATE ON SEQUENCES TO jhc_netops_app;
+            REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON public.application_schema_migrations FROM jhc_netops_app;
+          "
+
+      - name: Run PostgreSQL integration tests
+        run: npm run test:postgres:integration
+        working-directory: backend
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGDATABASE: jhc_netops
+          PGUSER: jhc_netops_app
+          PGPASSWORD: test_password
+          RUNNER_CONTROL_TOKEN: test-control-token-not-a-real-credential
+          RUNNER_HEARTBEAT_TOKEN: test-heartbeat-token-not-a-real-credential
+          PRESENCE_TOKEN: test-presence-token-not-a-real-credential
+
+      - name: Run full test suite with real PostgreSQL
+        run: npm test
+        working-directory: backend
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGDATABASE: jhc_netops
+          PGUSER: jhc_netops_app
+          PGPASSWORD: test_password
+          RUNNER_CONTROL_TOKEN: test-control-token-not-a-real-credential
+          RUNNER_HEARTBEAT_TOKEN: test-heartbeat-token-not-a-real-credential
+          PRESENCE_TOKEN: test-presence-token-not-a-real-credential
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: backend
+
+      - name: Lint
+        run: npm run lint
+        working-directory: backend
+
+      - name: Build
+        run: npm run build
+        working-directory: backend

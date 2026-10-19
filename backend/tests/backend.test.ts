@@ -48,6 +48,7 @@ test("configuration defaults to the private loopback endpoint", () => {
     frontendApiToken: VALID_ENVIRONMENT.FRONTEND_API_TOKEN,
     persistenceAuthority: "local_postgres",
     candidateReadOnly: false,
+    standbyGraceMs: 30_000,
     applicationDatabaseUrl: VALID_ENVIRONMENT.APPLICATION_DATABASE_URL,
     assets: {
       databaseUrl: VALID_ENVIRONMENT.DATABASE_URL,
@@ -60,6 +61,14 @@ test("configuration defaults to the private loopback endpoint", () => {
       },
     },
   });
+});
+
+test("standby grace is explicitly configurable and bounded", () => {
+  assert.equal(loadBackendConfig({ ...VALID_ENVIRONMENT, MONITORING_STANDBY_GRACE_MS: "0" }).standbyGraceMs, 0);
+  assert.equal(loadBackendConfig({ ...VALID_ENVIRONMENT, MONITORING_STANDBY_GRACE_MS: "300000" }).standbyGraceMs, 300_000);
+  for (const value of ["-1", "300001", "1.5", "invalid"]) {
+    assert.throws(() => loadBackendConfig({ ...VALID_ENVIRONMENT, MONITORING_STANDBY_GRACE_MS: value }));
+  }
 });
 
 test("application persistence authority is explicit and rejects missing or unknown modes", () => {

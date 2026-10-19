@@ -14,7 +14,7 @@ const systemClock: WorkClock = {
 export class WorkWaitLimit extends Error {}
 type Waiter = { wake: () => void };
 
-async function persistenceCall<T>(parent: AbortSignal, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
+export async function persistenceCall<T>(parent: AbortSignal, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const signal = AbortSignal.any([parent, AbortSignal.timeout(WORK_QUERY_TIMEOUT_MS)]);
   signal.throwIfAborted();
   let cancel!: () => void;
@@ -31,6 +31,7 @@ async function persistenceCall<T>(parent: AbortSignal, action: (signal: AbortSig
 }
 
 export class RunnerWorkService {
+  private readonly listeners = new Set<(runnerId?: string) => void>();
   private readonly waiters = new Map<string, Waiter>();
   private readonly shutdown = new AbortController();
   private maintenanceTimer: unknown = null;
@@ -63,8 +64,14 @@ export class RunnerWorkService {
 
   /** Hints only. Called after successful enqueue responses (repository COMMIT completed). */
   wake(runnerId?: string): void {
+    for (const listener of this.listeners) listener(runnerId);
     if (runnerId) this.waiters.get(runnerId)?.wake();
     else for (const waiter of this.waiters.values()) waiter.wake();
+  }
+
+  subscribeWake(listener: (runnerId?: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   async wait(runnerId: string, requestSignal: AbortSignal, waitMs = this.waitMs): Promise<{ runner_id: string; available: readonly WorkKind[]; timed_out: boolean }> {

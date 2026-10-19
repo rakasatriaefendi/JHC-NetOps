@@ -27,11 +27,19 @@ export function AssetScanControl({ initialState, initialError, canScan }: Props)
   const [pending, setPending] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
+  const [visible, setVisible] = useState(true);
   const running = state?.current?.status === "running" ? state.current : null;
   const locale = i18n.language === "en" ? "en-US" : "id-ID";
 
   useEffect(() => {
-    if (!running) return;
+    const update = () => setVisible(document.visibilityState !== "hidden");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    if (!running || !visible) return;
     let cancelled = false;
     let timer = 0;
     const poll = () => {
@@ -49,7 +57,7 @@ export function AssetScanControl({ initialState, initialError, canScan }: Props)
     };
     poll();
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [router, running]);
+  }, [router, running, visible]);
 
   useEffect(() => {
     if (!running) return;

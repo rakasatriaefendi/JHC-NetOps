@@ -8,5 +8,8 @@
     "preflight": "node src/main.mjs --preflight-only",
     "once": "node src/main.mjs --once",
     "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
   }
 }

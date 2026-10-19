@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { ObservedLanHostsSummary } from "@/components/snmp/observed-lan-hosts";
+import { useMonitoringRuntime } from "@/components/monitoring-presence";
+import { isMonitoringLive } from "@/lib/monitoring-runtime";
 import { loadManagedTelemetryForNodeAction } from "@/app/actions/snmp";
 import {
   MANAGED_TELEMETRY_STATUS_LABELS,
@@ -40,6 +42,7 @@ type Props = { nodeId: string; runnerProfiles: { runnerId: string; profiles: str
 
 export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
   const { t, i18n } = useTranslation("snmp");
+  const runtime = useMonitoringRuntime();
   const [target, setTarget] = useState<ManagedTelemetryTarget | null>(null);
   const [device, setDevice] = useState<ManagedDeviceLatest | null>(null);
   const [rows, setRows] = useState<ManagedInterfaceLatest[]>([]);
@@ -119,8 +122,10 @@ export function ManagedTelemetrySection({ nodeId, runnerProfiles }: Props) {
   const profileStatus = credentialProfileStatus(profile?.profiles, target.credential_profile_ref);
   const status = device?.status ?? "not_configured";
   const physicalDown = summarized.physical_down;
+  const monitoringLive = isMonitoringLive(runtime);
 
   return <Section title={t("profile.title")}>
+    {!monitoringLive ? <p role="status" className="mb-3 rounded-control border border-severity-medium bg-bg-base p-3 text-meta text-severity-medium"><strong>{t(`common:monitoringRuntime.${runtime?.state ?? "UNAVAILABLE"}`)}</strong> · {t("common:monitoringRuntime.notLive")} {t("common:monitoringRuntime.lastObservation")}</p> : null}
     <div className="flex flex-wrap items-center gap-3">
       <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-meta font-medium ${STATUS_STYLE[status]}`}>● {t(`common:telemetryStatus.${status}`, { defaultValue: MANAGED_TELEMETRY_STATUS_LABELS[status] })}</span>
       <span className="text-meta text-text-secondary">{t("profile.cadence", { version: target.snmp_version, port: target.snmp_port, seconds: target.poll_interval_seconds })}</span>

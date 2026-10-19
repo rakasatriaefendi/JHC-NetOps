@@ -71,6 +71,35 @@ function watch(overrides = {}) {
   return new ManagedTelemetryWatch({ ...defaults, ...overrides });
 }
 
+test("standby preserves telemetry cache and drains once; resume reloads assignments and rebaselines rates without gap alerts", async () => {
+  let gets = 0; let polls = 0; let publishes = 0; let now = 1000;
+  const item = target({ poll_interval_seconds: 1800 });
+  const service = watch({ now: () => now, backend: {
+    managedTelemetryTargets: async () => { gets++; return { targets: [item] }; },
+    publishManagedTelemetry: async () => { publishes++; },
+  }, runAgent: async (_config, _target, _credentials, onEvent) => { polls++; onEvent({ type: "telemetry_result", payload: payload() }); } });
+  service.running = true; service.targets.set(item.id, item); service.applyResult(item, payload(), now);
+  service.setMonitoring(false); await service.tick();
+  assert.equal(publishes, 1);
+  for (; now < 301_000; now += 1000) await service.tick();
+  assert.equal(gets, 0); assert.equal(polls, 0); assert.equal(publishes, 1);
+  assert.equal(service.targets.size, 1); assert.equal(service.draining, false);
+  service.setMonitoring(true); await service.tick(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gets, 1); assert.equal(polls, 1); assert.equal(service.pendingEvents.length, 0);
+  assert.equal(service.states[item.id].interfaces[0].rx_rate_bps, null);
+  assert.equal(service.states[item.id].nextPollAt, now + 1_800_000);
+  await service.stop();
+});
+
+test("disabled SNMP assignment is not resurrected from cache after standby", async () => {
+  let polls = 0; const item = target();
+  const service = watch({ backend: { managedTelemetryTargets: async () => ({ targets: [target({ enabled: false })] }), publishManagedTelemetry: async () => {} },
+    runAgent: async () => { polls++; throw new Error("Must not poll disabled assignment"); } });
+  service.targets.set(item.id, item); service.running = true; service.setMonitoring(false);
+  await service.tick(); service.setMonitoring(true); await service.tick();
+  assert.equal(service.targets.size, 0); assert.equal(polls, 0); await service.stop();
+});
+
 test("counterDelta returns deltas, null on reset, and supports 32-bit wrap", () => {
   assert.equal(counterDelta(100, 500, 64), 400);
   assert.equal(counterDelta(100, 500, 32), 400);

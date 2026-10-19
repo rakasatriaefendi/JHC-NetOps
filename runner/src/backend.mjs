@@ -20,6 +20,7 @@ export class BackendClient {
   }
 
   async heartbeat(runner) {
+    if (this.control?.healthy) { this.control.sendHealth(); return; }
     const data = await this.#postLocalHeartbeat({ runner });
     const hints = data?.monitoring_assignments;
     this.assignmentHint = data?.id === runner.id && hints && Object.keys(hints).length === 2 &&
@@ -33,6 +34,10 @@ export class BackendClient {
     return ["health", "telemetry"].includes(kind) && hint?.[kind] === false && age >= 0 && age <= 120_000;
   }
   async waitForWork(runnerId, signal) {
+    if (this.control?.healthy) {
+      const work = await this.control.wait(signal);
+      if (work || signal?.aborted) return work ?? { supported: true, available: [], timed_out: true };
+    }
     const quietWait = Date.now() >= this.shortWorkWaitUntil;
     const response = await fetch(this.localWorkEndpoint, {
       method: "POST", headers: this.localBackendHeaders,

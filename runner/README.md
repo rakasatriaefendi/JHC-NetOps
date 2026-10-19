@@ -1,5 +1,11 @@
 # Local Runner
 
+P18 uses persistent authenticated WebSocket control in healthy operation, and
+pauses scheduled Health/SNMP without visible approved dashboard presence. Install
+runner dependencies with `npm ci` in the candidate release. See
+[P18 policy, degraded fallback and rollout](../docs/P18_ZERO_IDLE.md); the P17 HTTP
+behavior below remains the compatibility path, not healthy P18 standby.
+
 Runner mengorkestrasi job NetOps pada Windows/WSL atau native Ubuntu dan
 berkomunikasi hanya dengan Fastify loopback.
 

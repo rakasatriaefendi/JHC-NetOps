@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { AppNavigation } from "@/components/app-navigation";
+import { MonitoringPresence } from "@/components/monitoring-presence";
 import { requireApprovedProfile } from "@/lib/auth";
 
 export default async function ProtectedLayout({
@@ -17,7 +18,7 @@ export default async function ProtectedLayout({
         email={profile.email}
         role={profile.role}
       />
-      <div className="min-w-0 md:pl-64">{children}</div>
+      <div className="min-w-0 md:pl-64"><MonitoringPresence>{children}</MonitoringPresence></div>
     </div>
   );
 }
