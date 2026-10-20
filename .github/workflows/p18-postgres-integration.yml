@@ -61,6 +61,10 @@ jobs:
           # Create jhc_netops_owner role required by migrations 007+
           psql -p 5433 -U postgres -c "CREATE ROLE jhc_netops_owner WITH LOGIN SUPERUSER;"
 
+          # Create jhc_netops_app role as NOLOGIN so it exists for migration GRANTs (007, 008, 011, 015, 016, 017, 019)
+          # It will be ALTERed to LOGIN with password after all migrations complete.
+          psql -p 5433 -U postgres -c "CREATE ROLE jhc_netops_app WITH NOLOGIN;"
+
           # Create database jhc_netops
           psql -p 5433 -U postgres -c "CREATE DATABASE jhc_netops;"
 
@@ -105,7 +109,7 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -p 5433 -U postgres -d jhc_netops -v ON_ERROR_STOP=1 -c "
-            CREATE ROLE jhc_netops_app WITH LOGIN PASSWORD 'test_password';
+            ALTER ROLE jhc_netops_app WITH LOGIN PASSWORD 'test_password';
             GRANT USAGE ON SCHEMA public TO jhc_netops_app;
             GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO jhc_netops_app;
             GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA public TO jhc_netops_app;
