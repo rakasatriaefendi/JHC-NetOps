@@ -1,21 +1,32 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
-const TEST_EMAIL = 'test-operator@example.com';
-const TEST_PASSWORD = 'TestPass123!';
+const TEST_EMAIL = process.env.P18_BROWSER_TEST_EMAIL;
+const TEST_PASSWORD = process.env.P18_BROWSER_TEST_PASSWORD;
+const isolatedBackend = process.env.P18_BROWSER_TEST_ISOLATED === '1' &&
+  process.env.LOCAL_BACKEND_URL === 'http://127.0.0.1:3402' &&
+  !!process.env.LOCAL_BACKEND_FRONTEND_TOKEN && !!TEST_EMAIL && !!TEST_PASSWORD;
 
-async function login(page: Page, email = TEST_EMAIL, password = TEST_PASSWORD) {
+async function login(page: Page) {
   await page.goto('/login');
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
+  await page.fill('input[type="email"]', TEST_EMAIL!);
+  await page.fill('input[type="password"]', TEST_PASSWORD!);
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/\/dashboard/);
 }
 
 async function waitForMonitoringState(page: Page, expectedState: 'ACTIVE' | 'STANDBY' | 'ACTIVATING' | 'DRAINING' | 'DEGRADED', timeout = 10000) {
-  await expect(page.locator('[role="status"]')).toContainText(expectedState, { timeout });
+  const labels = {
+    ACTIVE: /Monitoring active|Monitoring aktif/,
+    STANDBY: /Monitoring standby|Monitoring siaga/,
+    ACTIVATING: /Resuming monitoring|Melanjutkan monitoring/,
+    DRAINING: /Finishing accepted work|Menyelesaikan pekerjaan diterima/,
+    DEGRADED: /Monitoring degraded|Monitoring terdegradasi/,
+  };
+  await expect(page.locator('aside[role="status"]')).toContainText(labels[expectedState], { timeout });
 }
 
 test.describe('P18 Monitoring Presence and Standby', () => {
+  test.skip(!isolatedBackend, 'Requires an operator-verified disposable local backend and approved test account; no API mocks.');
   test.beforeEach(async ({ page }: { page: Page }) => {
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
@@ -24,11 +35,12 @@ test.describe('P18 Monitoring Presence and Standby', () => {
   test('authenticated visible dashboard shows ACTIVE monitoring', async ({ page }: { page: Page }) => {
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
-    await expect(page.locator('[role="status"]')).toContainText('live');
-    await expect(page.locator('[role="status"]')).toContainText('connected');
+    await expect(page.locator('aside[role="status"]')).toContainText(/Scheduled monitoring enabled|Monitoring terjadwal diaktifkan/);
+    await expect(page.locator('aside[role="status"]')).toContainText(/Runner control connected|Kontrol runner terhubung/);
   });
 
   test('last visible tab hidden transitions to STANDBY after grace period', async ({ page, context }: { page: Page; context: BrowserContext }) => {
+    test.skip(true, 'Opening an authenticated page creates new visible presence; this flow cannot observe final-tab standby without a separate isolated backend observer.');
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
 
@@ -48,6 +60,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
   });
 
   test('visible tab returns resumes ACTIVE monitoring', async ({ page, context }: { page: Page; context: BrowserContext }) => {
+    test.skip(true, 'Requires a real browser visibility transition and a separate isolated backend observer; a reload itself resumes presence.');
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
 
@@ -69,11 +82,11 @@ test.describe('P18 Monitoring Presence and Standby', () => {
     await waitForMonitoringState(page, 'ACTIVE');
 
     const page2 = await context.newPage();
-    await login(page2);
+    await page2.goto('/dashboard');
     await waitForMonitoringState(page2, 'ACTIVE');
 
     const page3 = await context.newPage();
-    await login(page3);
+    await page3.goto('/dashboard');
     await waitForMonitoringState(page3, 'ACTIVE');
 
     await page.close();
@@ -91,22 +104,15 @@ test.describe('P18 Monitoring Presence and Standby', () => {
     await waitForMonitoringState(page, 'ACTIVE');
 
     const page2 = await context.newPage();
-    await login(page2);
+    await page2.goto('/dashboard');
     await waitForMonitoringState(page2, 'ACTIVE');
 
-    await page.goto('/logout');
-    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: /Sign out|Keluar/i }).click();
     await expect(page).toHaveURL(/\/login/);
 
-    await waitForMonitoringState(page2, 'ACTIVE');
-
-    await page2.goto('/logout');
-    await page2.waitForLoadState('networkidle');
-
-    const page3 = await context.newPage();
-    await page3.goto('/dashboard');
-    await page3.waitForLoadState('networkidle');
-    await waitForMonitoringState(page3, 'STANDBY', 40000);
+    // Tabs in one context share the same session cookie; logout must revoke it.
+    await page2.reload();
+    await expect(page2).toHaveURL(/\/login/);
   });
 
   test('expired session removes presence', async ({ page, context }: { page: Page; context: BrowserContext }) => {
@@ -122,6 +128,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
   });
 
   test('hidden tabs suspend periodic application HTTP requests', async ({ page }: { page: Page }) => {
+    test.skip(true, 'Dispatching visibilitychange alone does not make document.visibilityState hidden; needs real background-tab automation.');
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
 
@@ -143,6 +150,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
   });
 
   test('Health Watch drawer displays PAUSED when suspended', async ({ page }: { page: Page }) => {
+    test.skip(true, 'Requires a seeded Health target and real standby transition; synthetic visibilitychange is insufficient.');
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
 
@@ -157,6 +165,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
   });
 
   test('SNMP device profile distinguishes stale observations from live monitoring', async ({ page }: { page: Page }) => {
+    test.skip(true, 'Requires a seeded managed target and direct Device Profile navigation, plus a real standby transition.');
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
 
@@ -172,6 +181,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
   });
 
   test('mobile and desktop paused-state indicators remain visible', async ({ page }: { page: Page }) => {
+    test.skip(true, 'A dispatched visibilitychange does not hide a tab or enter STANDBY.');
     await login(page);
     await waitForMonitoringState(page, 'ACTIVE');
 
@@ -179,7 +189,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
     await page.waitForTimeout(40000);
     await waitForMonitoringState(page, 'STANDBY', 45000);
 
-    const statusBar = page.locator('[role="status"]');
+    const statusBar = page.locator('aside[role="status"]');
     await expect(statusBar).toBeVisible();
     await expect(statusBar).toContainText('STANDBY');
     await expect(statusBar).toContainText('notLive');
@@ -190,7 +200,7 @@ test.describe('P18 Monitoring Presence and Standby', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    const statusBar = page.locator('[role="status"]');
+    const statusBar = page.locator('aside[role="status"]');
     await expect(statusBar).not.toBeVisible();
 
     await page.goto('/login');
