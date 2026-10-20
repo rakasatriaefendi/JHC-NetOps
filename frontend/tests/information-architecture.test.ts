@@ -23,7 +23,8 @@ test("Admin is account-only and monitoring configuration moved to approved-user 
   const devices = source("../app/(protected)/devices/page.tsx");
   const snmp = source("../app/(protected)/snmp/page.tsx");
   assert.doesNotMatch(admin, /NetworkHealthTargets|ManagedTelemetryTargets|network_targets|managed_telemetry_targets/);
-  assert.match(admin, /UserAccessControl/);
+  assert.match(admin, /UserAccessTable/);
+  assert.match(admin, /AdministrativeAuditCompact/);
   assert.match(devices, /requireApprovedProfile|DeviceInventory/);
   assert.doesNotMatch(devices, /NetworkHealthTargets/);
   assert.match(snmp, /requireApprovedProfile|ManagedTelemetryTargets|ManagedTelemetryDetail/);
