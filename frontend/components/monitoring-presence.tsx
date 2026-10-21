@@ -42,7 +42,7 @@ export function MonitoringPresence({ children }: { children: ReactNode }) {
     return () => { disposed = true; clearTimeout(reconnect); document.removeEventListener("visibilitychange", visibility); stream?.close(); };
   }, []);
   const active = isMonitoringLive(state);
-  return <MonitoringRuntimeContext.Provider value={state}><aside role="status" className="border-b border-border bg-bg-surface px-4 py-2 text-meta text-text-secondary">
+  return <MonitoringRuntimeContext.Provider value={state}><aside role="status" className="border-b border-border bg-bg-surface px-4 py-2 text-meta text-text-secondary min-h-[64px]">
     <span className="font-medium text-text-primary">{t(`monitoringRuntime.${state?.state ?? "UNAVAILABLE"}`)}</span>
     {" · "}{t(active ? "monitoringRuntime.live" : "monitoringRuntime.notLive")}
     {" · "}{t(state?.control === "websocket" ? "monitoringRuntime.connected" : "monitoringRuntime.degraded")}
