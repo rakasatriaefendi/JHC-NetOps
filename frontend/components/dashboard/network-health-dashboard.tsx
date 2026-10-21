@@ -2,16 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense, lazy } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { useDeviceProfile } from "@/components/device-profile/device-profile-provider";
 import { ManualPingProvider, useManualPing } from "./manual-ping-provider";
 import { LoadingSpinner } from "@/components/ui/action-feedback";
-import { ReachabilityMap } from "./reachability-map";
-import { NetworkHealthTrends } from "./network-health-trends";
-import { NetworkDiscoveryDrawer } from "@/components/dashboard/network-discovery-drawer";
 import { useMonitoringRuntime } from "@/components/monitoring-presence";
 import { isMonitoringLive } from "@/lib/monitoring-runtime";
 import type { DiscoverySession } from "@/lib/network-discovery";
@@ -20,6 +17,22 @@ import { startNetworkHealthRealtime, type NetworkHealthRealtimeStatus } from "@/
 import type { HealthHistoryResult } from "@/lib/health-history";
 
 type DiscoveryRunner = { id: string; display_name: string; last_seen_at: string; health_status: "online" | "degraded"; capabilities: { operations?: string[] } };
+
+const ReachabilityMap = lazy(() => import("./reachability-map").then((mod) => ({ default: mod.ReachabilityMap })));
+const NetworkHealthTrends = lazy(() => import("./network-health-trends").then((mod) => ({ default: mod.NetworkHealthTrends })));
+const NetworkDiscoveryDrawer = lazy(() => import("@/components/dashboard/network-discovery-drawer").then((mod) => ({ default: mod.NetworkDiscoveryDrawer })));
+
+function ReachabilityMapSkeleton() {
+  return <div className="mt-6 rounded-panel border border-border bg-bg-surface p-6" style={{ height: 680 }} aria-busy="true" />;
+}
+
+function NetworkHealthTrendsSkeleton() {
+  return <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6" aria-busy="true"><div className="rounded-control border border-border bg-bg-base p-4 animate-pulse" style={{ height: 320 }} /></section>;
+}
+
+function NetworkDiscoveryDrawerSkeleton() {
+  return null;
+}
 
 export function NetworkHealthDashboard({ targets, events, samples, history, loadError, isAdmin, manualPingIsAdmin, discoveryRunners, discoverySessions, trafficIps, initialTargetId }: { targets: NetworkHealthTarget[]; events: NetworkHealthEvent[]; samples: NetworkHealthSample[]; history: HealthHistoryResult; loadError: boolean; isAdmin: boolean; manualPingIsAdmin: boolean; discoveryRunners: DiscoveryRunner[]; discoverySessions: DiscoverySession[]; trafficIps: string[]; initialTargetId?: string }) {
   const { t, i18n } = useTranslation("dashboard");
@@ -78,9 +91,15 @@ export function NetworkHealthDashboard({ targets, events, samples, history, load
 
       {selected ? <Detail target={selected} onClose={() => setSelectedId(null)} /> : null}
 
-      <NetworkHealthTrends targets={targets} initialHistory={history} />
+      <Suspense fallback={<NetworkHealthTrendsSkeleton />}>
+        <NetworkHealthTrends targets={targets} initialHistory={history} />
+      </Suspense>
 
-      <ReachabilityMap key={targets.map((target) => target.id).sort().join(":")} targets={targets} samples={samples} events={events} runnerId="raka-local-wsl" />
+      {targets.length > 0 && (
+        <Suspense fallback={<ReachabilityMapSkeleton />}>
+          <ReachabilityMap key={targets.map((target) => target.id).sort().join(":")} targets={targets} samples={samples} events={events} runnerId="raka-local-wsl" />
+        </Suspense>
+      )}
 
       <section className="mt-6 rounded-panel border border-border bg-bg-surface p-4 md:p-6">
         <h2 className="text-section font-semibold">{t("health.recentTitle")}</h2>
@@ -88,7 +107,11 @@ export function NetworkHealthDashboard({ targets, events, samples, history, load
         {events.length ? <div className="mt-4 divide-y divide-border">{events.map((event) => <article className="py-3" key={event.id}><div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between"><div><p className="font-medium"><span className={severityColor(event.severity)}>●</span> {event.title}</p><p className="mt-1 text-meta text-text-secondary">{event.description}</p></div><time className="shrink-0 font-data text-meta text-text-muted">{formatTime(event.created_at, i18n.language)}</time></div></article>)}</div> : <p className="mt-4 text-text-muted">{t("health.recentEmpty")}</p>}
       </section>
 
-      {isAdmin ? <NetworkDiscoveryDrawer open={discoveryOpen} onClose={() => setDiscoveryOpen(false)} runners={discoveryRunners} initialSessions={discoverySessions} targets={targets} trafficIps={trafficIps} /> : null}
+      {isAdmin && (
+        <Suspense fallback={<NetworkDiscoveryDrawerSkeleton />}>
+          <NetworkDiscoveryDrawer open={discoveryOpen} onClose={() => setDiscoveryOpen(false)} runners={discoveryRunners} initialSessions={discoverySessions} targets={targets} trafficIps={trafficIps} />
+        </Suspense>
+      )}
     </ManualPingProvider>
   );
 }

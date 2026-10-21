@@ -133,6 +133,8 @@ export function ReportBrandingSettings({ initial }: { initial: ReportBranding })
                 alt={t("branding.logoPreview")}
                 className="max-h-28 w-auto object-contain transition-opacity duration-200"
                 src={buildLogoSrc()}
+                width={140}
+                height={140}
                 style={{ maxWidth: "100%" }}
               />
             ) : (

@@ -13,7 +13,7 @@ const config: Config = {
         border: "#2A2F38",
         "text-primary": "#E4E6EA",
         "text-secondary": "#9AA1AC",
-        "text-muted": "#6B7280",
+        "text-muted": "#8C8C8C",
         accent: "#3E9C8A",
         light: {
           "bg-base": "#F5F4F0",
@@ -28,7 +28,7 @@ const config: Config = {
           low: "#4C9A6A",
           medium: "#C79A45",
           high: "#C67C4E",
-          critical: "#B0524A",
+          critical: "#C3645A",
         },
       },
       fontFamily: {
