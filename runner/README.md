@@ -1,106 +1,190 @@
-# Local Runner
+# JHC NetOps Local Runner
 
-P18 uses persistent authenticated WebSocket control in healthy operation, and
-pauses scheduled Health/SNMP without visible approved dashboard presence. Install
-runner dependencies with `npm ci` in the candidate release. See
-[P18 policy, degraded fallback and rollout](../docs/P18_ZERO_IDLE.md); the P17 HTTP
-behavior below remains the compatibility path, not healthy P18 standby.
+Runner adalah proses Node.js yang menjembatani job tersimpan di backend dengan
+tool pada mesin lokal. Ia memeriksa identitas runner, scope target, capability,
+dan lease sebelum mengeksekusi agent. Runner tidak membuka HTTP endpoint publik
+dan tidak menerima arbitrary command dari browser.
 
-Runner mengorkestrasi job NetOps pada Windows/WSL atau native Ubuntu dan
-berkomunikasi hanya dengan Fastify loopback.
+Runtime didukung pada **native Ubuntu** dan **Windows dengan agent di WSL**.
+Gunakan [agent README](../agent/README.md) untuk instalasi Python/tool; production
+normal tidak perlu menjalankan Python collector sebagai aplikasi PM2 tersendiri.
 
-## Konfigurasi
+## Cara kerja P18
 
-- `LOCAL_BACKEND_URL` harus menunjuk loopback backend.
-- `LOCAL_BACKEND_TOKEN` adalah bearer token runner dan tidak boleh dicetak.
-- `PERSISTENCE_AUTHORITY` harus `local_postgres`.
-- `config.local.json`/config production berisi allow-list target dan profil
-  credential lokal; file nyata tidak boleh di-commit.
-
-Konfigurasi kosong, parsial, atau authority lain gagal tertutup. Tidak ada remote
-fallback atau dual-write.
-
-## Runtime
-
-Runner mempertahankan heartbeat, Health Watch, Traffic, Managed Telemetry,
-Discovery, Device Inspector, Manual Ping, dan diagnostics melalui route lokal yang
-bounded. Perintah agent tetap terstruktur; browser tidak dapat memasok command,
-subnet, OID, timeout, atau capture filter arbitrer.
-
-Monitoring target memakai preset Aggressive (15/30/60 detik), Moderate
-(900 detik, default target baru), atau Resource Saver (1800 detik). Interval
-Health/SNMP mengatur probe/poll target, bukan claim loop atau heartbeat.
-Contoh deployment memakai `poll_interval_ms=60000` dan
-`heartbeat_interval_ms=60000`; validasi keduanya tetap 1000-60000 ms.
-Control-plane idle memakai authenticated `POST /api/runner/work/wait` dengan
-opt-in `wait_seconds=60` (HTTP deadline 70 detik). Backend tetap mengecek antrean
-durable setiap maksimal 10 detik tanpa HTTP tambahan agar hint yang hilang tidak
-melewatkan lease Ping 30 detik. Respons timeout tanpa work tidak menjalankan
-claim kosong. Work hint hanya memicu atomic claim lama untuk jenis yang tersedia,
-dengan prioritas Manual Ping -> Traffic -> Discovery -> Device Inspector.
-Loop tetap serial: Traffic yang sedang berjalan menahan claim/wait berikutnya
-sampai selesai; snapshot dan stop handling agent tidak berubah. Manual Ping
-tetap ditolak dengan `RUNNER_BUSY` ketika pekerjaan lain aktif.
-
-Heartbeat, Health Watch dan SNMP tetap independen; probe 1800 detik tidak menjadi
-claim 1800 detik atau berubah menjadi probe 10 detik. SIGINT/SIGTERM membatalkan
-wait/backoff. Pekerjaan agent yang sudah berjalan tetap menyelesaikan jalur
-bounded existing sebelum cleanup; tidak ada paralelisasi atau requeue baru.
-HTTP 503/network/auth failure memakai exponential backoff berjitter (awal sekitar
-0,8-1,2 detik, maksimum 30 detik), bukan fallback auth/transport. Hanya 404/405
-menandakan backend lama: gunakan claim lokal dengan bearer yang sama setiap
-`min(poll_interval_ms, 2000)` ms, dan cek dukungan wait lagi setelah 60 detik.
-Backend D2B yang menolak field baru dengan `400 INVALID_WORK_WAIT` dinegosiasi
-ke body lama (wait 10 detik/deadline 20 detik); quiet support dicoba kembali setelah
-60 detik. Error 400 lain tidak dianggap compatibility. `--once` tetap satu
-rangkaian claim bounded tanpa long wait.
-
-Ekspektasi source (bukan benchmark): zero-target idle healthy sekitar 2 HTTP/menit
-pada heartbeat 60 detik: satu wait dan satu heartbeat, dibanding baseline D2B
-sekitar 9 HTTP/menit (6 wait + heartbeat + Health GET + SNMP GET). Heartbeat kini
-membawa dua flag assignment enabled. Hanya empty watch tanpa cache/pending buffer
-dan dengan hint explicit false yang fresh <=120 detik yang menekan GET kosong.
-Target baru terdeteksi pada heartbeat berikutnya (biasanya <=60 detik + satu tick
-lokal/latensi read), termasuk saat capture aktif. Hint hilang/invalid/stale
-mengembalikan refresh/retry lama; cached targets tetap diproses normal. SNMP lokal
-disabled tetap tidak membuat watch. Tidak ada perubahan heartbeat/freshness,
-credential, probe 1800 detik, counter, enrichment, atau publish buffer.
-Saat capture aktif, tidak ada wait/claim control-plane;
-request snapshot dan stop tetap seperti sebelumnya. Saat backend terus gagal,
-steady-state retry sekitar 2-2,5/menit ditambah ramp-up awal dan durasi HTTP.
-Backend lama mempertahankan 90/120 claim/menit ditambah sekitar 1 support check
-per menit. Deploy backend dahulu, lalu runner; rollback runner dahulu disarankan.
-Semua endpoint claim lama tetap tersedia. Recovery lease kini juga dijalankan
-backend secara bounded tanpa bergantung pada claim idle; lihat backend README.
-Scheduler internal 1 detik hanya memeriksa pekerjaan yang sudah jatuh tempo;
-baseline counter SNMP tetap relatif terhadap interval target. Timeout SNMP
-tidak diubah. Perubahan interval diterapkan saat target di-refresh (hingga
-60 detik); pekerjaan yang sudah berjalan tetap diselesaikan secara bounded.
-
-Record 15/30/60 yang ada tetap Aggressive tanpa rewrite otomatis. Interval
-Health kustom lama dalam rentang 15-3600 tetap dapat dibaca/dijalankan; form
-edit memilih Moderate jika nilai tidak termasuk preset dan hanya menyimpan
-perubahan setelah submit. SNMP 900/1800/15 memerlukan migration 018 yang
-diterapkan operator terlebih dahulu. UI Operator hanya dapat mengubah interval
-SNMP; konfigurasi penuh/assignment credential dan delete tetap Admin-only.
-Preset tidak memperbarui target lama ke 900 secara otomatis: operator harus
-memilih Moderate/Resource Saver untuk mengurangi aktivitas target tersebut.
-
-Freshness heartbeat frontend (Discovery, Diagnostics, dan Traffic) serta gate
-control-plane backend memakai toleransi tetap 120 detik. Heartbeat 60 detik
-tetap fresh di antara pengiriman, dengan satu interval tambahan sebagai grace.
-Tanpa heartbeat baru, runner menjadi stale setelah usia heartbeat melewati
-120 detik saat predicate dievaluasi; status online/capability tetap diperlukan.
-Toleransi ini tidak mengubah preset, cadence claim loop, atau konfigurasi produksi.
-
-Windows:
-
-```powershell
-npm.cmd ci
-npm.cmd test
-powershell -ExecutionPolicy Bypass -File task.ps1 status
+```mermaid
+flowchart TD
+  C[Load config dan preflight platform] --> W[Control WebSocket ke backend loopback]
+  W --> H[Health report dan policy acknowledgment]
+  H --> P{Monitoring policy}
+  P -->|Aktif| M[Load assignment lalu jadwalkan Health/SNMP]
+  P -->|Siaga| S[Pause probe baru; selesaikan buffer/in-flight]
+  W --> Q[Work-kind hint atau durable reconciliation]
+  Q --> A[Atomic HTTP claim]
+  A --> X[Validasi ulang job dan eksekusi serial]
+  X --> R[Publish progress/hasil; reconcile lagi]
+  W -->|Terputus| F[Reconnect/backoff dan HTTP compatibility yang dibatasi]
 ```
 
-Native Ubuntu memakai launcher `deploy/run-runner.sh` dan config shared yang
-direview. Credential SNMP hanya di-resolve di runner dan tidak dikirim ke browser,
-database, atau log.
+Job tidak disimpan dalam socket. PostgreSQL tetap menjadi antrean durable;
+socket hanya mengirim hint dan policy. Priority dispatch adalah:
+
+1. Manual Ping.
+2. Traffic Live.
+3. Network Discovery.
+4. Device Inspector.
+
+Pelaksanaan pekerjaan tersebut tetap serial. Capture Traffic yang aktif dapat
+menahan dispatch berikutnya; snapshot dan stop handling capture tetap berjalan.
+Job/capability/busy gate harus diperiksa sebelum pengguna diberi janji eksekusi.
+Menambah frekuensi loop tidak membuat pekerjaan agent yang panjang menjadi paralel.
+
+Heartbeat, watch Health, dan watch SNMP mempunyai lifecycle sendiri. Preset
+interval target bukan interval claim atau heartbeat. Scheduled monitoring dipause
+ketika policy meminta standby; pekerjaan yang sudah diterima dan dirty buffer
+tidak dibuang. Aktivasi me-reload assignments sebelum membuat observasi baru.
+
+## Config dan environment
+
+Mulai dari [config.example.json](config.example.json) untuk development atau
+[deployment example](../deploy/runner-config.example.json) untuk memahami
+struktur native Ubuntu. Keduanya template; path/interface/profile contoh belum
+berarti perangkat atau autentikasi siap dipakai.
+
+Dari root repository:
+
+```powershell
+if (!(Test-Path runner/config.local.json)) {
+  Copy-Item runner/config.example.json runner/config.local.json
+}
+if (!(Test-Path runner/.env)) {
+  Copy-Item runner/.env.example runner/.env
+}
+npm.cmd --prefix runner ci
+```
+
+| Field config | Makna |
+| --- | --- |
+| `runner_id` | ID stabil yang dipakai assignment dan session; jangan memakai ID sama untuk dua runner aktif |
+| `display_name` | Nama yang terlihat di UI |
+| `native_project_root` | Root project pada Linux native |
+| `wsl_distro`, `wsl_project_root` | Distro dan path project dari sudut pandang WSL pada Windows |
+| `agent_executable` | Path relatif executable agent dari root project platform |
+| `environment_file` | File env; path relatif dihitung dari direktori file config |
+| `data_directory`, `log_directory` | State dan log; path relatif juga dihitung dari direktori config |
+| `source_locations` | Label lokasi yang diiklankan secara aman |
+| `targets` | Allowlist **LAN Diagnostics**, bukan assignment Health atau SNMP |
+| `durations` | Durasi diagnostik yang diizinkan |
+| `traffic_interface`, `traffic_durations_seconds` | Interface capture dan durasi yang dibatasi |
+| `enable_manual_ping` | Capability Manual Ping; action pengguna tetap Admin-only |
+| `enable_diagnostic_demo` | Demo localhost eksplisit; bukan izin scan LAN |
+| `poll_interval_ms`, `heartbeat_interval_ms` | Konfigurasi 1000–60000 ms; contoh deployment 60000 |
+| `enable_snmp_telemetry` | Mengaktifkan watch SNMP lokal, bukan otomatis mengaktifkan target |
+| `snmp_max_concurrent` | Batas collector SNMP bersamaan |
+| `snmp_timeout_seconds` | Timeout SNMP dalam detik, bukan millisecond |
+| `snmp_poll_intervals_seconds` | Nilai interval target yang runner dukung |
+| `snmp_credential_profiles` | Credential lokal berdasarkan profile ref |
+
+Environment [.env.example](.env.example):
+
+- `PERSISTENCE_AUTHORITY=local_postgres`.
+- `LOCAL_BACKEND_URL` menuju Fastify loopback.
+- `LOCAL_BACKEND_TOKEN` cocok dengan `RUNNER_API_TOKEN` backend.
+- `ENABLE_DIAGNOSTIC_DEMO` adalah override demo eksplisit bila digunakan.
+
+Config memuat env yang dirujuk `environment_file`; variable yang sudah ada di
+process environment tidak ditimpa. Deployment launcher juga memuat shared env.
+Jangan mencetak seluruh config/env untuk diagnosis karena credential ada di dalamnya.
+
+Credential SNMP hanya di-resolve di runner dan diberikan ke agent melalui jalur
+yang direview. Backend hanya mengetahui `credential_profile_ref`, bukan password
+auth/priv atau community. Placeholder yang valid secara sintaks bukan bukti
+credential resmi/operasional. `SNMP_PROFILE_*` environment tidak didukung.
+
+## Menjalankan runner
+
+Default config adalah `runner/config.local.json`, independen dari working
+directory. Dari root repository:
+
+```powershell
+npm.cmd --prefix runner start
+```
+
+Memakai path config lain:
+
+```powershell
+node runner/src/main.mjs --config '<PATH_CONFIG_LOKAL>'
+```
+
+Windows memerlukan WSL dan venv **Linux** di path yang sesuai. Jangan menunjuk
+executable Windows ke runner yang mengharapkan binary Linux. Native Ubuntu
+memerlukan `native_project_root` yang valid dan interface capture yang benar.
+
+| Perintah | Efek |
+| --- | --- |
+| `npm.cmd --prefix runner run preflight` | Memeriksa tool/platform dan mencoba heartbeat; bukan pemeriksaan offline/read-only |
+| `npm.cmd --prefix runner run once` | Menjalankan satu rangkaian dispatch; **dapat mengklaim dan mengeksekusi job**, bukan dry run |
+| `npm.cmd --prefix runner test` | Test runner; tidak sama dengan acceptance perangkat nyata |
+
+Preflight yang gagal membuat runner degraded dan menghentikan runtime normal
+sesuai kontrak. Tool opsional dapat memengaruhi capability fitur tanpa berarti
+setiap pemeriksaan dasar tersedia. Jangan mengiklankan capability hanya karena
+nama binary atau profile ref tercantum pada config.
+
+## Interval, liveness, dan fallback
+
+| Mekanisme | Perilaku source |
+| --- | --- |
+| Health/SNMP target interval | Preset Aggressive 15/30/60 detik, Moderate 900, Resource Saver 1800; Health custom lama dalam rentang valid tetap dibaca |
+| HTTP heartbeat compatibility | Mengikuti config, contoh 60 detik; freshness tolerance aplikasi 120 detik |
+| Control sehat P18 | Satu socket; health report berkala, policy revision, ping/pong, dan durable reconciliation backend |
+| HTTP work-wait compatibility | Quiet wait 60 detik/deadline 70; body lama wait 10/deadline 20 |
+| Wait timeout tanpa work | Tidak menjalankan empat empty claim |
+| Socket endpoint 404/405 | Dapat menegosiasikan backend lama dan policy legacy yang didokumentasikan |
+| Auth/network/DB/socket failure lain | Backoff dan DEGRADED; jangan mengaktifkan scheduled monitoring tanpa policy sah |
+| Reconnect/backoff | Jitter, mulai sekitar 0,8–1,2 detik dan dibatasi sekitar 30 detik |
+
+Dalam fallback HTTP, fresh assignment hint false dapat menekan assignment GET
+pada watch yang benar-benar kosong. Cache/pending buffer, hint stale/missing,
+atau assignment baru tetap harus diperiksa kembali. Pada resume P18, assignments
+dibaca ulang; runner tidak boleh selamanya tidak mengetahui target baru.
+
+P18 standby sehat/buffer bersih menargetkan nol HTTP periodik. HTTP saat startup,
+claim, result, active monitoring, atau recovery adalah aktivitas yang sah.
+Database dan frame socket tetap aktif. Lihat [spesifikasi P18](../docs/P18_ZERO_IDLE.md)
+untuk timer/limit dan bukti pengukuran beserta batasnya.
+
+## State, recovery, dan shutdown
+
+`data_directory` berisi state Health/SNMP yang memungkinkan retry dan baseline
+tetap konsisten. Buffer agent berada di lokasinya sendiri. Jangan menghapus
+state sebagai cara rutin menyelesaikan publish failure; periksa kode error dan
+kompatibilitas payload terlebih dahulu.
+
+SIGINT/SIGTERM membatalkan wait/backoff dan membersihkan socket/timer. Pekerjaan
+yang sudah diterima mengikuti jalur penyelesaian bounded existing; shutdown
+bukan izin menjalankan ulang job atau menghapus lease. Backend tetap memiliki
+expiry/recovery berdasarkan row persisted.
+
+Setelah pause, baseline kontinuitas Health/counter SNMP diinisialisasi dengan
+benar; jangan membuat rate/alert seolah-olah seluruh periode standby terobservasi.
+Nilai terakhir tetap dapat dibaca dengan timestamp yang jujur.
+
+## Troubleshooting dan operasi
+
+| Gejala | Pemeriksaan |
+| --- | --- |
+| `Runner configuration is invalid` | Path config, JSON, field wajib, authority/token/URL; jangan dump file |
+| WSL/venv tidak ditemukan | Distro, root WSL, Linux venv, executable; lihat preflight log terbatas |
+| `DUPLICATE_RUNNER` | Dua proses memakai runner ID sama; identifikasi proses sebelum menghentikannya |
+| `INVALID_RUNNER` / control unavailable | Schema capability/health, handshake, backend persistence dan safe close code |
+| Job queued | ID assignment, online/capability, TTL, busy gate, serta atomic claim |
+| SNMP tidak berjalan | Policy monitoring, watch flag, target enabled, interval due, profile ref dan tool availability |
+| Capture gagal | Interface serta reviewed Traffic helper/CAP_NET_RAW; jangan menjalankan seluruh runtime sebagai root untuk memintasnya |
+| Publish retry terus | Backend status/error bounded dan cache pending; jangan mengubah data/credential tanpa diagnosis |
+
+Production menggunakan [launcher runner](../deploy/run-runner.sh) dan shared
+config/state. Install dependency runner dengan `npm ci` pada setiap candidate.
+P18 rollout: backend → frontend → runner; rollback runner dahulu. Gunakan satu
+process manager dan nama service NetOps yang tepat. Perubahan file config
+memerlukan restart melalui prosedur yang direview; jangan menjalankan dua runner
+dengan ID sama untuk mencoba config baru.

@@ -1,8 +1,36 @@
 # Dedicated JHC NetOps PostgreSQL cluster
 
-> **Current P16 runtime:** local PostgreSQL, Local Auth, and local SSE are
-> authoritative. P12/P13/P15 sections below are retained as historical rollout
-> evidence. They do not authorize a remote fallback or compatibility authority.
+> **Runtime source saat ini:** PostgreSQL lokal, Local Auth, dan local SSE menjadi
+> authority; P18 menambahkan control WebSocket dan monitoring berbasis presence.
+> P12/P13/P15 di bawah dipertahankan sebagai riwayat cutover, bukan konfigurasi
+> authority alternatif.
+
+## Panduan memilih prosedur
+
+| Tujuan operator | Baca / lakukan |
+| --- | --- |
+| Memahami database runtime saat ini | [Backend README](../../backend/README.md) dan [index migration 001–019](../../backend/migrations/README.md) |
+| Update source P18 pada schema yang sudah memenuhi prasyarat | [P18 rollout dan acceptance](../../docs/P18_ZERO_IDLE.md); P18 sendiri tidak membuat migration |
+| Provision host baru atau disaster recovery | Review prosedur cluster/role/backup di dokumen ini; jangan mengeksekusi ulang baseline pada host existing |
+| Menguji read-only preflight | Gunakan bagian P11 preflight yang menunjuk immutable candidate; ini bukan full P18 acceptance |
+| Menelusuri rehearsal/cutover lama | Runbook P12/P13 beserta evidence; bukan operasi rutin release berikutnya |
+
+Schema version yang aktif harus diverifikasi operator pada lingkungan tujuan;
+paragraf fondasi 001–006 di bawah menjelaskan fase awal P10/P11, bukan klaim bahwa
+source sekarang hanya memerlukan enam migration. Migrations tetap operator-run;
+startup backend dapat melakukan job recovery/config bootstrap meski tidak
+menjalankan schema migration, sehingga startup candidate ke DB live bukan uji
+read-only.
+
+Identitas dedicated tetap database `jhc_netops`, cluster `16/jhcnetops`, port
+`5433`, data directory `/var/lib/postgresql/16/jhcnetops`, owner
+`jhc_netops_owner` (`NOLOGIN`), dan runtime `jhc_netops_app`. Sesi administratif
+menggunakan `postgres`, termasuk peer-authenticated Unix socket yang diterima
+guard migration 007/008 jika seluruh identitas exact cocok. Browser tidak pernah
+memegang DSN. Jangan mengubah cluster `16/main:5432` atau role/database proyek lain.
+
+Contoh provisioning GitHub Actions hanya untuk runner CI ephemeral. Role/privilege
+test tidak boleh disalin sebagai konfigurasi production.
 
 
 These files are the reviewed provisioning/recovery path for the established
@@ -20,7 +48,7 @@ foundation. They are **not** executed by the application or by repository tests.
 - Only the local Fastify backend connects. The Next.js browser bundle never
   receives the PostgreSQL connection string.
 
-## Current foundation state
+## P10/P11 foundation state (historical)
 
 The operator has already created `16/jhcnetops` on port 5433 and established the
 local migrations `001`-`006`. Do **not** recreate that cluster or reapply the
