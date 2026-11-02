@@ -94,7 +94,7 @@ test("configuration success returns only after local verification/revalidation; 
   }
   const branding = source("../components/admin/report-branding-settings.tsx");
   assert.match(branding, /if \(inFlight\.current\) return false/);
-  assert.match(branding, /if \(saved && fileRef\.current\) fileRef\.current\.value = ""/);
+  assert.match(branding, /if \(saved\) \{[\s\S]*if \(fileRef\.current\) fileRef\.current\.value = ""/);
   assert.match(branding, /if \(payload\.changed === true\) notify\(kind, true\)/);
   assert.ok(branding.indexOf("setBranding(payload.data)") < branding.indexOf("notify(kind, true)"));
   assert.match(branding, /catch \{ notify\(kind, false\); return false; \}/);

@@ -1,12 +1,11 @@
-import { UserAccessControl } from "@/components/admin/user-access-control";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { normalizedProfile, requireAdminProfile, type Profile } from "@/lib/auth";
 import { localProfiles } from "@/lib/application-persistence";
 import { getServerTranslation } from "@/i18n/server";
 import { ReportBrandingSettings } from "@/components/admin/report-branding-settings";
 import { loadReportBranding } from "@/lib/report-branding";
 import { loadAdministrativeAudit } from "@/lib/administrative-audit";
-import { AdministrativeAudit } from "@/components/admin/administrative-audit";
+import { AdministrativeAuditCompact } from "@/components/admin/administrative-audit-compact";
+import { UserAccessTable } from "@/components/admin/user-access-table";
 
 type AdminPageProps = {
   searchParams: Promise<{
@@ -17,7 +16,7 @@ type AdminPageProps = {
 };
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
-  const { t, locale } = await getServerTranslation("admin");
+  const { t } = await getServerTranslation("admin");
   const { userId } = await requireAdminProfile();
   const params = await searchParams;
   const auditPage = typeof params.audit_page === "string" && /^\d{1,3}$/.test(params.audit_page) ? Math.min(200, Number(params.audit_page)) : 0;
@@ -73,50 +72,14 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       ) : null}
 
       <ReportBrandingSettings initial={branding.data} />
-      <AdministrativeAudit result={audit} page={auditPage} />
+      <AdministrativeAuditCompact entries={audit.entries} page={auditPage} more={audit.more} error={audit.error} />
 
-      <section className="mt-6 grid gap-4">
-        {profiles.length === 0 ? (
-          <div className="rounded-panel border border-border bg-bg-surface p-6">
-            <p className="text-text-secondary">{t("page.empty")}</p>
-          </div>
-        ) : (
-          profiles.map((profile) => (
-            <article
-              key={profile.id}
-              className="rounded-panel border border-border bg-bg-surface p-4"
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-section font-medium">
-                      {profile.full_name ?? t("page.unnamed")}
-                    </h2>
-                    <StatusBadge status={profile.status} />
-                    <span className="rounded-full border border-border px-3 py-1 text-meta capitalize text-text-secondary">{profile.role}</span>
-                  </div>
-                  <p className="mt-2 truncate font-data text-meta text-text-secondary">
-                    {profile.email}
-                  </p>
-                  <p className="mt-1 font-data text-meta text-text-muted">
-                    {new Intl.DateTimeFormat(locale, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(new Date(profile.created_at))}
-                  </p>
-                </div>
-
-                <UserAccessControl
-                  userId={profile.id}
-                  role={profile.role}
-                  status={profile.status}
-                  isCurrentUser={profile.id === userId}
-                />
-              </div>
-            </article>
-          ))
-        )}
-      </section>
+      <UserAccessTable
+        profiles={profiles}
+        currentUserId={userId}
+        notice={params.notice}
+        error={params.error}
+      />
     </main>
   );
 }

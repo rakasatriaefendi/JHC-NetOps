@@ -12,6 +12,7 @@ import {
   updateNetworkNodeAction,
 } from "@/app/actions/devices";
 import { Button } from "@/components/ui/button";
+import { Drawer } from "@/components/ui/drawer";
 import { MutationForm, PendingSubmit } from "@/components/ui/mutation-form";
 import { MonitoringModeLabel, MonitoringModeSelector } from "@/components/monitoring-mode-selector";
 import {
@@ -50,6 +51,7 @@ type Props = {
 export function DeviceInventory({ nodes, runners, targets, canManage, deviceNotice, deviceError, healthNotice, healthError }: Props) {
   const { t } = useTranslation("devices");
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [healthDrawerOpen, setHealthDrawerOpen] = useState(false);
   const [healthNodeId, setHealthNodeId] = useState<string | null>(null);
   const [editingHealthId, setEditingHealthId] = useState<string | null>(null);
   const editingNode = nodes.find((node) => node.id === editingNodeId);
@@ -59,7 +61,18 @@ export function DeviceInventory({ nodes, runners, targets, canManage, deviceNoti
   function openHealth(nodeId: string, targetId: string | null = null) {
     setHealthNodeId(nodeId);
     setEditingHealthId(targetId);
+    setHealthDrawerOpen(true);
     setEditingNodeId(null);
+  }
+
+  function closeHealthDrawer() {
+    setHealthDrawerOpen(false);
+    setHealthNodeId(null);
+    setEditingHealthId(null);
+  }
+
+  function handleEditHealth(targetId: string | null) {
+    setEditingHealthId(targetId);
   }
 
   return (
@@ -128,14 +141,21 @@ export function DeviceInventory({ nodes, runners, targets, canManage, deviceNoti
       </div>
 
       {canManage && editingNode ? <DeviceEditPanel node={editingNode} onClose={() => setEditingNodeId(null)} /> : null}
-      {canManage && healthNode ? <HealthWatchPanel
-        node={healthNode}
-        runners={runners}
-        targets={targets.filter((target) => target.node_id === healthNode.id)}
-        editingTarget={editingHealth?.node_id === healthNode.id ? editingHealth : undefined}
-        onEdit={(targetId) => setEditingHealthId(targetId)}
-        onClose={() => { setHealthNodeId(null); setEditingHealthId(null); }}
-      /> : null}
+
+      <Drawer
+        open={healthDrawerOpen}
+        onClose={closeHealthDrawer}
+        title={healthNode ? t("health.title") : ""}
+        maxWidth="max-w-3xl"
+      >
+        {healthNode && <HealthWatchPanel
+          node={healthNode}
+          runners={runners}
+          targets={targets.filter((target) => target.node_id === healthNode.id)}
+          editingTarget={editingHealth?.node_id === healthNode.id ? editingHealth : undefined}
+          onEdit={handleEditHealth}
+        />}
+      </Drawer>
     </section>
   );
 }
@@ -155,19 +175,27 @@ function DeviceEditPanel({ node, onClose }: { node: NetworkNode; onClose: () => 
   </div>;
 }
 
-function HealthWatchPanel({ node, runners, targets, editingTarget, onEdit, onClose }: { node: NetworkNode; runners: Runner[]; targets: DeviceHealthTarget[]; editingTarget?: DeviceHealthTarget; onEdit: (id: string | null) => void; onClose: () => void }) {
+function HealthWatchPanel({ node, runners, targets, editingTarget, onEdit }: { node: NetworkNode; runners: Runner[]; targets: DeviceHealthTarget[]; editingTarget?: DeviceHealthTarget; onEdit: (id: string | null) => void }) {
   const { t } = useTranslation("devices");
-  return <section className="mt-6 rounded-panel border border-accent bg-bg-surface p-4 md:p-6" id="network-health-targets">
-    <div className="flex items-start justify-between gap-4"><div><p className="text-meta font-medium uppercase tracking-wide text-accent">{t("health.title")}</p><h3 className="mt-2 text-section font-semibold">{node.name}</h3><p className="mt-1 font-data text-meta text-text-muted">{node.ip_address}</p></div><Button variant="secondary" onClick={onClose}>{t("common:actions.close")}</Button></div>
-    <p className="mt-3 max-w-3xl text-text-secondary">{t("health.description")}</p>
-    {targets.length ? <div className="mt-5 grid gap-3">{targets.map((target) => <div className="flex flex-col gap-3 rounded-control border border-border bg-bg-base p-4 lg:flex-row lg:items-center lg:justify-between" key={target.id}>
-      <HealthSummary targets={[target]} runners={runners} />
-      <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => onEdit(target.id)}>{t("health.edit")}</Button><MutationForm action={deleteNetworkTargetAction} kind="delete" onSubmit={(event) => {
-        if (!window.confirm(t("health.removeConfirm", { device: confirmationLabel(node) }))) event.preventDefault();
-      }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={confirmationLabel(node)} /><PendingSubmit  variant="destructive">{t("health.remove")}</PendingSubmit></MutationForm></div>
-    </div>)}</div> : <p className="mt-5 rounded-control border border-border bg-bg-base p-4 text-text-muted">{t("health.notMonitored")}</p>}
-    {runners.length ? <div className="mt-6 border-t border-border pt-5"><h4 className="font-medium">{editingTarget ? t("health.editTitle") : targets.length ? t("health.addRunner") : t("health.configure")}</h4><TargetForm key={editingTarget?.id ?? `create-${targets.length}`} node={node} runners={runners} target={editingTarget} />{editingTarget ? <Button className="mt-3" variant="secondary" onClick={() => onEdit(null)}>{t("health.cancelEdit")}</Button> : null}</div> : <p className="mt-5 text-severity-medium">{t("health.runnerUnavailable")}</p>}
-  </section>;
+  return (
+    <section id="network-health-targets">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-meta font-medium uppercase tracking-wide text-accent">{t("health.title")}</p>
+          <h3 className="mt-2 text-section font-semibold">{node.name}</h3>
+          <p className="mt-1 font-data text-meta text-text-muted">{node.ip_address}</p>
+        </div>
+      </div>
+      <p className="mt-3 max-w-3xl text-text-secondary">{t("health.description")}</p>
+      {targets.length ? <div className="mt-5 grid gap-3">{targets.map((target) => <div className="flex flex-col gap-3 rounded-control border border-border bg-bg-base p-4 lg:flex-row lg:items-center lg:justify-between" key={target.id}>
+        <HealthSummary targets={[target]} runners={runners} />
+        <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => onEdit(target.id)}>{t("health.edit")}</Button><MutationForm action={deleteNetworkTargetAction} kind="delete" onSubmit={(event) => {
+          if (!window.confirm(t("health.removeConfirm", { device: confirmationLabel(node) }))) event.preventDefault();
+        }}><input name="target_id" type="hidden" value={target.id} /><input name="confirmation" type="hidden" value={confirmationLabel(node)} /><PendingSubmit  variant="destructive">{t("health.remove")}</PendingSubmit></MutationForm></div>
+      </div>)}</div> : <p className="mt-5 rounded-control border border-border bg-bg-base p-4 text-text-muted">{t("health.notMonitored")}</p>}
+      {runners.length ? <div className="mt-6 border-t border-border pt-5"><h4 className="font-medium">{editingTarget ? t("health.editTitle") : targets.length ? t("health.addRunner") : t("health.configure")}</h4><TargetForm key={editingTarget?.id ?? `create-${targets.length}`} node={node} runners={runners} target={editingTarget} />{editingTarget ? <Button className="mt-3" variant="secondary" onClick={() => onEdit(null)}>{t("health.cancelEdit")}</Button> : null}</div> : <p className="mt-5 text-severity-medium">{t("health.runnerUnavailable")}</p>}
+    </section>
+  );
 }
 
 function HealthSummary({ targets, runners }: { targets: DeviceHealthTarget[]; runners: Runner[] }) {

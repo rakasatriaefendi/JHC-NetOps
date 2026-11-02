@@ -1,10 +1,39 @@
 # Local PostgreSQL migrations
 
+## Cara membaca index ini
+
+Source saat ini memiliki migration `001`–`019`. Ini adalah daftar perubahan schema,
+bukan perintah untuk menerapkan ulang semuanya pada database yang sudah berjalan.
+Catat versi yang benar-benar diterapkan pada lingkungan tujuan sebelum menyusun
+change window. P18 WebSocket/presence tidak menambah migration baru.
+
+| Kelompok | Tujuan |
+| --- | --- |
+| 001–006 | Fondasi Asset, intelligence, scan, history, Scan Networks, dan Medical Equipment |
+| 007–008 | Application persistence dan shadow-outbox/canary pada cutover P13 |
+| 009–010, 012–014 | Local realtime invalidation dan perluasan/perbaikan domain |
+| 011 | Local Auth credential/session; profile tetap authority role/status |
+| 015 | Menghentikan trigger shadow projection; evidence historis tetap disimpan |
+| 016–017 | Lifecycle akun dan append-only administrative audit |
+| 018 | Interval SNMP 15/30/60/900/1800 detik |
+| 019 | Canonical asset identity, evidence, dan endpoint history |
+
+Runtime memakai `jhc_netops_app`; administrative migration yang mempunyai exact
+guard dijalankan dengan session `postgres` dan `SET ROLE jhc_netops_owner` dalam
+SQL sesuai file. Owner tetap `NOLOGIN`, bukan akun untuk DSN aplikasi. Jangan
+menyamakan privilege fixture GitHub Actions dengan provisioning production.
+Lihat [runbook PostgreSQL](../../deploy/postgresql/README.md) dan
+[P18](../../docs/P18_ZERO_IDLE.md) untuk pemisahan setup, release, serta acceptance.
+
+## Tujuan dan prasyarat per migration
+
 These migrations apply only to the dedicated `jhc_netops` database in the
 PostgreSQL `16/jhcnetops` cluster on port 5433. They must never be applied to
 PostgreSQL `16/main`, `mercure`, `montblanc`, or Supabase.
 
-Migrations are forward-only and non-destructive. `002_asset_intelligence.sql`
+Migrations are applied explicitly in their reviewed order; some alter constraints
+or remove retired triggers, so review each file rather than assuming every change
+is additive. `002_asset_intelligence.sql`
 adds the P10D1 stable source key and bounded normalized evidence fields; it does
 not add P10D2 identity/history tables. `003_active_inventory_scan.sql` adds the
 `active_scan` source and bounded lifecycle metadata only; raw XML is excluded.
@@ -22,9 +51,9 @@ create network activity.
 promoted from the reviewed P12 rehearsal schema. It is **not** part of the Asset
 migration wrapper or backend startup. After a separately approved P13 change
 window, the operator must explicitly run the immutable release file with
-`psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5433 -d jhc_netops -f
-"$REL/backend/migrations/007_application_persistence.sql"` using the reviewed
-owner role. Its transaction guards the database/cluster identity and records
+`sudo -u postgres psql -X -v ON_ERROR_STOP=1 --cluster 16/jhcnetops -d jhc_netops -f
+"$REL/backend/migrations/007_application_persistence.sql"` with session user
+`postgres`; the SQL switches to the reviewed NOLOGIN owner. Its transaction guards the database/cluster identity and records
 schema version 7; it does not create local Auth or Realtime schemas.
 
 `008_application_persistence_outbox.sql` is the separate P13 Batch 5 schema

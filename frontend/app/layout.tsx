@@ -13,11 +13,15 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
   weight: ["400", "500", "600"],
+  display: "optional",
+  adjustFontFallback: true,
 });
 
 const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains-mono",
+  display: "optional",
+  adjustFontFallback: true,
 });
 
 export const metadata: Metadata = {

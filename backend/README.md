@@ -1,176 +1,213 @@
 # JHC NetOps Local Backend
 
-P18 adds authenticated loopback runner WebSocket control and approved-session
-presence-driven standby. Legacy HTTP routes remain for DEGRADED compatibility;
-see [P18 lifecycle, verification and rollback](../docs/P18_ZERO_IDLE.md).
+Backend Fastify adalah pintu masuk penyimpanan dan control plane NetOps. Next.js
+dan Local Runner menggunakan bearer yang berbeda; hanya backend yang mengakses
+PostgreSQL. Runtime menerima `PERSISTENCE_AUTHORITY=local_postgres` dan bind
+loopback. Dokumen ini merujuk source saat ini, bukan bukti acceptance production.
 
-Fastify berjalan pada loopback dan menjadi satu-satunya application boundary ke
-PostgreSQL NetOps. Runtime hanya menerima `PERSISTENCE_AUTHORITY=local_postgres`;
-nilai kosong atau selain itu gagal tertutup. Tidak ada remote repository,
-fallback, atau dual-write.
+## Tanggung jawab dan susunan source
 
-## Environment
+| Folder/file | Tanggung jawab |
+| --- | --- |
+| `src/config.ts` | Validasi environment, token, DSN dedicated, dan konfigurasi modul |
+| `src/main.ts` | Merangkai repository, pool, listener, scheduler, dan shutdown |
+| `src/server.ts` | Registrasi route, batas request, safe logging, dan lifecycle Fastify |
+| `src/persistence/` | Repository domain dan route aplikasi berbasis PostgreSQL |
+| `src/local-auth/` | Registrasi, login, opaque session, dan scrypt password record |
+| `src/realtime/` | Validasi invalidation, broker SSE, dan dedicated LISTEN connection |
+| `src/runner-control/` | WebSocket runner serta state presence/monitoring P18 |
+| `src/runner-work/` | Durable availability, HTTP long-poll compatibility, dan expiry recovery |
+| `src/network-health/`, `src/traffic/`, `src/managed-telemetry/` | Kontrak runner dan publication subsystem |
+| `src/network-discovery/`, `src/device-inspector/` | Lifecycle runner untuk pekerjaan on-demand |
+| `src/assets/` | Ingestion evidence, identity, history, scan, Scan Networks, dan Excel |
+| `src/medical-equipment/` | Registri operasional, kalibrasi, dan servis |
+| `src/report-branding/` | Branding file, validasi, dan audit mutation |
+| `src/cutover/`, `src/data-migration/` | Tooling P12/P13 historis; bukan jalur persistence alternatif |
 
-Salin `.env.example` menjadi `.env` lokal. Nilai rahasia tidak boleh di-commit.
+## Alur request dan data
 
-- `HOST=127.0.0.1`
-- `PORT=3402`
-- `DATABASE_URL` untuk exact dedicated `16/jhcnetops:5433/jhc_netops`
-- `RUNNER_API_TOKEN` untuk route runner
-- `FRONTEND_API_TOKEN` untuk request server-side Next.js
-- `PERSISTENCE_AUTHORITY=local_postgres`
-
-Backend menolak host non-loopback dan target database yang tidak sesuai guard.
-Frontend/browser tidak pernah menerima `DATABASE_URL` atau token backend.
-
-## Runtime
-
-- repository aplikasi membaca/menulis PostgreSQL lokal;
-- runner memakai route `/api/runner/*` dengan bearer token khusus;
-- frontend server memakai route `/api/application/*` dengan bearer token terpisah;
-- Local Auth dan session disimpan di PostgreSQL;
-- realtime memakai transactional `pg_notify`, dedicated `LISTEN`, dan SSE bounded;
-- migration tidak dijalankan otomatis saat startup.
-
-Outbox/watermark lama dan tooling P12/P13 tetap dipertahankan sebagai evidence.
-Mereka tidak mengaktifkan shadow projection pada runtime local-only.
-
-## P17-D2B bounded runner work wait
-
-`POST /api/runner/work/wait` uses the existing runner bearer (not the frontend
-token) and exactly `{ "runner_id": "<registered-runner-id>" }`, body limit 256
-bytes. The response is `{ "data": { "runner_id": "...", "available": [],
-"timed_out": true } }`; available kinds, in priority order, are `manual_ping`,
-`traffic`, `discovery`, `device_inspector`. It never returns job assignments or
-payloads. Identity is a validated, registered ID under the existing shared runner
-bearer trust model, not a new per-runner credential system.
-
-One wait per runner, 32 globally, waits about 10 seconds. Durable queue checks run
-at registration and timeout, with additional checks after successful application
-enqueue responses (repository transactions have already committed). Subscribe
-before checking; revision tracking closes enqueue/check races. Hints coalesce to
-at most one check per 100ms per waiter; known runner IDs wake only that runner.
-Ping enqueue derives its runner in SQL, so its hint is a bounded broadcast.
-Hints are process-local and non-durable: missed responses, multiple backend
-processes or a restart are covered by the next durable check, not event replay.
-Existing atomic claim routes remain the only assignment authority.
-
-No PostgreSQL connection/transaction is held during the wait. Each short read or
-maintenance transaction sets its own 3-second statement timeout; pool acquisition
-is independently bounded. A final query can extend the nominal 10-second wait;
-the runner uses a 20-second HTTP deadline. Only this authenticated wait disables
-the socket's 5-second idle timeout and restores it afterward. Cancellation and
-shutdown release waiters. Capacity/repository/shutdown failures return bounded
-503 codes; unknown runner returns 403, authentication failure 401.
-
-Expiry maintenance runs once at startup and every 10 seconds **after the prior
-pass settles**, even without runners. One transaction updates at most 100 expired
-rows per subsystem using `SKIP LOCKED`, preserving existing lease predicates and
-terminal fields (Ping lease, Traffic 10m queued/30s stopping/45s running recovery,
-Discovery and Inspector expiry). Failures log only a bounded category and retry
-next pass. Large historical expiry backlogs drain over multiple passes. Candidate
-read-only mode does not register this service or start maintenance. No migration,
-new token, environment switch, or startup schema mutation is introduced.
-
-Roll out **backend first**, retaining all old claim routes; the existing runner
-continues working. Then upgrade the runner. A new runner receiving 404/405 for
-work-wait uses the same authenticated local claim endpoints at its existing
-control cadence, rechecking support after 60 seconds. Auth/503/network failures
-never trigger a transport/auth downgrade. Rollback can restore the runner first;
-rolling back the backend first is also compatible through that bounded fallback.
-Do not change Health/SNMP intervals, capture privileges, or shared infrastructure.
-These are source-level expectations; runtime acceptance is still required.
-
-## P17-D4A quiet idle (supersedes the D2B default for upgraded runners)
-
-Upgraded runners opt into `{ "runner_id": "...", "wait_seconds": 60 }`; no
-caller-selected arbitrary duration is allowed. Legacy bodies retain the 10-second
-wait and existing response shape. Only the wait route overrides the socket idle
-timeout; upgraded runner deadline is 70 seconds (20 seconds for legacy wait).
-Waiter bounds, authorization, cancellation and independent 10-second maintenance
-are unchanged. Queue reads still run at most 10 seconds apart **inside** a quiet
-HTTP wait, preserving detection before a 30-second Ping lease expires even when
-an enqueue hint is lost, a response disconnects, or another backend process wrote
-the queue. Normal committed enqueue hints still wake immediately. No volatile
-hint is an assignment; the four existing atomic claim routes remain authoritative.
-
-Reviewed enqueue paths remain Ping POST, Traffic POST, Discovery POST/PATCH and
-Inspector POST in the application route. Their successful responses follow
-repository commit; failure responses never wake. Target configuration uses the
-existing network-target POST/promote/delete and managed-target POST/interval/delete
-paths and is detected independently through the heartbeat, not a browser action
-or a work-wait callback that could be blocked by an active Traffic capture.
-
-Heartbeat responses optionally include `monitoring_assignments: { health,
-telemetry }`: two enabled-assignment existence booleans scoped to the authenticated
-runner ID, not target rows, credentials or a new authority. A failed hint query
-omits the hint and does not fail a successfully persisted heartbeat. On fresh
-explicit false hints, completely empty Health/SNMP watches skip their periodic
-empty assignment GETs. Cached targets/states and pending buffers never qualify
-for this shortcut. Active targets retain all existing refresh/probe/poll/retry
-semantics. A new assignment is detected by the next successful heartbeat (normally
-within 60 seconds plus one local tick/read latency); failure/missing/malformed or
-older-than-120-second hints restore ordinary assignment GETs. Heartbeat cadence
-and 120-second runner offline tolerance are unchanged. SNMP disabled in local
-config still never starts its watch; assignment hints cannot enable it.
-
-Healthy zero-target idle at a 60-second heartbeat is expected to use about **2 HTTP
-requests/minute**: one work wait and one heartbeat; initial startup, mutations,
-failures and active monitoring add legitimate requests. This is a source-derived
-expectation, not a production measurement. PostgreSQL still performs bounded
-queue/expiry work every 10 seconds and one assignment-existence query per
-heartbeat: HTTP reduction does not imply near-zero database work. Backend-first
-rollout preserves old runners. A new runner with a D2B backend negotiates the
-legacy body only for bounded `400 INVALID_WORK_WAIT`, retries quiet support after
-60 seconds and keeps ordinary monitoring refresh without hints. 404/405 retains
-the previous authenticated claim fallback. Other failures never downgrade auth.
-No migration, dependency, credential or shared runtime configuration change.
-
-## P17-B asset identity
-
-Migration 019 is an explicit prerequisite for this release; startup never applies
-it. `asset.assets.id` is canonical, with `network_node_ref` retained as the
-control-plane link (no reverse `network_nodes.asset_id` link). Ingestion resolves
-explicit bindings, unique valid SNMP serials, then unique global MACs inside the
-same transaction as asset/change-history and endpoint writes. Duplicate strong
-evidence is recorded as conflict, never merged. IP-correlated neighbor `node_id`
-is not an explicit binding; Observed Hosts membership/persistence is unchanged.
-
-IP/weak-only observations use an immutable snapshot key (source/IP/MAC/timestamp,
-plus scan-run UUID for active scans), not a cross-snapshot device identifier.
-Retrying the same snapshot is idempotent; a new weak snapshot remains a distinct
-provisional observation. No legacy IDs/keys are rewritten and no duplicate rows
-are deleted. Long-term provisional retention/consolidation requires a later
-reviewed policy, not an IP-only merge. Inputs retain the 1000 evidence/1024 scan
-bounds; ambiguous candidate sets beyond the bounded lookup fail closed.
-
-Endpoint moves close/open the timeline atomically, with a partial unique index
-for current IP ownership. A per-evidence anchor preserves other interface
-endpoints; the same recorded global MAC bridges a legacy node-binding endpoint
-when it moves, without closing another asset's or another interface's endpoints.
-Older evidence cannot displace newer current ownership. The read-only
-Asset Detail panel exposes bounded evidence/history with explicit truncation.
-Health/SNMP still execute against `network_nodes.ip_address`; P17-C fail-closed
-monitoring identity binding is intentionally not implemented here. No engineID
-is captured or manufactured.
-
-## Commands
-
-```bash
-npm ci
-npm run dev
-npm test
-npm run typecheck
-npm run lint
-npm run build
+```mermaid
+sequenceDiagram
+  participant UI as Browser / Next.js
+  participant B as Fastify
+  participant DB as PostgreSQL
+  participant R as Runner
+  UI->>B: Mutation terautentikasi dan berotorisasi
+  B->>DB: Validasi lalu simpan job dalam transaksi
+  DB-->>B: Commit berhasil
+  B-->>R: WebSocket work_available
+  R->>B: Atomic claim dengan runner ID
+  B->>DB: Claim dengan kondisi status/lease
+  DB-->>R: Job yang sah melalui respons backend
+  R->>R: Eksekusi tool yang dibatasi
+  R->>B: Hasil / progress
+  B->>DB: Persist state dan event sesuai kontrak
+  DB-->>B: Transactional NOTIFY
+  B-->>UI: SSE invalidation melalui Next.js
+  UI->>B: Refetch authoritative state
 ```
 
-Preflight PostgreSQL bersifat read-only dan opt-in:
+Sinyal WebSocket/NOTIFY bisa terputus; job tetap berada di PostgreSQL. Backend
+mengecek antrean durable dan menjalankan expiry recovery secara terpisah.
+Duplicate hint tidak memberi hak eksekusi kedua: atomic claim/status binding
+tetap menentukan siapa yang dapat memproses job.
 
-```bash
-npm run preflight:postgres
+## API berdasarkan trust boundary
+
+Tabel ini adalah peta route, bukan daftar payload lengkap. Gunakan
+`contract.ts`, `route.ts`, dan test subsystem saat mengubah integrasi.
+
+| Route | Pemakai / fungsi |
+| --- | --- |
+| `GET /healthz` | Liveness proses; bukan bukti DB, schema, atau seluruh perangkat sehat |
+| `/api/auth/*` | Next server dengan frontend bearer; register/login/session/logout |
+| `/api/application/*` | Next server dengan frontend bearer; read/mutation domain dan pemeriksaan actor |
+| `GET /api/application/presence` | Frontend bearer + session opaque valid/approved; lease tab terlihat |
+| `GET /api/realtime/events` | SSE backend yang diproxy Next; invalidation saja |
+| `GET /api/runner/control` | Upgrade WebSocket loopback dengan runner bearer, tanpa browser Origin |
+| `POST /api/runner/heartbeat` | Heartbeat HTTP compatibility |
+| `POST /api/runner/work/wait` | Long-poll compatibility; tidak meng-claim job |
+| `POST /api/runner/network-health` | Assignment/publication Health serta service action terkait |
+| `POST /api/runner/traffic` | Session dan snapshot/flow runner |
+| `POST /api/runner/managed-telemetry` | Target dan publication telemetry/observed hosts |
+| `POST /api/runner/network-discovery` | Claim prepare/scan, context, progress, complete/fail |
+| `POST /api/runner/device-inspector` | Claim dan hasil/failure inspection |
+
+Bearer memberi akses ke boundary tertentu; actor role/status, runner/session ID,
+target, expected state, lease, allowlist field, dan ukuran payload tetap diperiksa
+sesuai route. Jangan menganggap body dari frontend atau runner otomatis dipercaya.
+
+## Environment dan database
+
+Salin [example](.env.example) menjadi `.env` lokal jika belum ada, lalu isi nilai
+melalui prosedur pengelolaan secret. Jangan mencetak atau meng-commit nilai nyata.
+
+| Variable | Fungsi / aturan |
+| --- | --- |
+| `HOST`, `PORT` | Default `127.0.0.1:3402`; HOST hanya loopback |
+| `PERSISTENCE_AUTHORITY` | Wajib `local_postgres`; tidak ada authority remote |
+| `APPLICATION_DATABASE_URL` | Pool aplikasi, Local Auth, queue, dan realtime |
+| `DATABASE_URL` | Pool Asset/Medical; target dedicated DB yang sama |
+| `RUNNER_API_TOKEN` | Cocok dengan `LOCAL_BACKEND_TOKEN` runner/agent |
+| `FRONTEND_API_TOKEN` | Cocok dengan `LOCAL_BACKEND_FRONTEND_TOKEN` Next server |
+| `MONITORING_STANDBY_GRACE_MS` | Default 30000; rentang valid 0–300000 |
+| `REPORT_BRANDING_DIR` | Folder branding persisten; default development `data/report-branding` |
+| `MEDICAL_DUE_SOON_DAYS` | Default 30; rentang valid 1–180 |
+| `ASSET_SCAN_NETWORKS` | Bootstrap satu kali untuk daftar jaringan; konfigurasi tersimpan di DB selanjutnya menjadi authority |
+| `ASSET_SCAN_HELPER_PATH` | Helper privileged yang direview; bukan arbitrary shell command |
+| `ASSET_SCAN_CONCURRENCY` | Batas paralel fingerprint; default 4, divalidasi kontrak |
+| `ASSET_SCAN_HOST_TIMEOUT_MS`, `ASSET_SCAN_DISCOVERY_TIMEOUT_MS` | Deadline scan yang dibatasi server |
+| `P13_CANDIDATE_READ_ONLY` | Switch historis; `true` ditolak pada runtime local-only saat ini |
+
+DSN runtime wajib `postgresql:`, host loopback, port `5433`, database
+`jhc_netops`, username `jhc_netops_app`, dan password terisi; query/hash URL
+ditolak. Nama dua variable DSN bukan alasan membuat dua authority database.
+Dengan konfigurasi penuh, kedua modul harus mengarah ke dedicated DB yang sama.
+
+Pool aplikasi dan Asset terpisah; LISTEN menggunakan session PostgreSQL
+tersendiri. Pool mempunyai batas koneksi dan deadline. Kehilangan LISTEN
+ditangani dengan reconnect/re-LISTEN serta sync invalidation agar browser
+membaca ulang state. NOTIFY bukan log replay durable.
+
+**Startup bukan operasi read-only.** Selain membuka listener, backend dapat
+menginisialisasi Scan Networks, menandai scan terputus, dan menjalankan expiry
+job. Jangan menyalakan candidate paralel terhadap DB live untuk sekadar mencoba
+build. Startup tidak menjalankan DDL migration.
+
+## P18, monitoring, dan kompatibilitas HTTP
+
+Presence valid mengaktifkan policy monitoring. `ACTIVE` mensyaratkan runner
+mengakui policy revision yang berlaku. Tanpa presence/grace, pekerjaan yang sudah
+diterima dan buffer hasil diselesaikan dahulu; `STANDBY` hanya dilaporkan ketika
+evidence mendukungnya. Kegagalan evidence/control menghasilkan `DEGRADED`.
+
+WebSocket membawa health report, work-kind hint, dan policy. Initial `health`
+harus tervalidasi/disimpan **sebelum** server mengirim `ready`. Satu ID runner
+tidak boleh mempunyai dua control socket. Liveness socket saja tidak boleh
+menggantikan heartbeat aplikasi. Detail limit, reconnect, dan timer ada di
+[P18](../docs/P18_ZERO_IDLE.md).
+
+Jalur compatibility P17 tetap lokal:
+
+- Body work-wait hanya berisi runner ID, atau opt-in `wait_seconds: 60`.
+- Body lama memakai wait 10 detik; quiet wait memakai 60 detik. Deadline runner
+  masing-masing 20/70 detik; durable check tetap maksimal sekitar 10 detik sekali.
+- Satu waiter per runner, maksimum 32; tidak menahan transaksi selama menunggu.
+- Expiry maintenance startup dan setiap 10 detik setelah pass sebelumnya selesai,
+  maksimal 100 row per subsystem/pass dengan `SKIP LOCKED`.
+- Hanya 404/405 mengizinkan fallback endpoint lama; auth/error DB tidak boleh
+  diubah menjadi downgrade otorisasi.
+
+Semua ini mengurangi HTTP idle, bukan menghapus pekerjaan DB. Prioritas work
+adalah Manual Ping → Traffic → Discovery → Device Inspector.
+
+## Domain penyimpanan
+
+| Data | Area utama |
+| --- | --- |
+| Akun, credential, session | `public.profiles`, `local_auth_credentials`, `local_auth_sessions` |
+| Runner dan inventory kontrol | `diagnostic_runners`, `network_nodes`, `network_targets` |
+| Health | `network_health_latest`, `network_health_samples`, `network_health_ping_jobs`, events |
+| Traffic | `traffic_live_sessions`, `traffic_live_snapshots` (termasuk flow snapshot), `flows`, `traffic_metrics` |
+| Discovery / Inspector / Diagnostics | Session/job domain serta bandwidth/hop measurements |
+| SNMP | `managed_telemetry_targets`, latest system/interface, observed hosts, telemetry events |
+| Asset dan alat medis | Schema `asset`; identity, endpoint history, changes, scan, registry/history |
+| Audit | Lifecycle account dan administrative audit yang append-only |
+| Branding | Filesystem persisten, dengan safe audit summary di database |
+
+Tabel outbox/watermark lama dan tool cutover tetap evidence historis; runtime
+tidak menjalankan Supabase shadow projector.
+
+## Development dan verifikasi
+
+Dari folder `backend`, setelah environment dan database siap:
+
+```powershell
+npm.cmd ci
+npm.cmd run dev
 ```
 
-Provisioning, migration, acceptance, dan rollback harus mengikuti runbook di
-[`deploy/postgresql`](../deploy/postgresql/README.md). Jangan arahkan backend ke
-PostgreSQL `16/main:5432`.
+Build/start production lokal menggunakan `npm.cmd run build` lalu
+`npm.cmd start`; script start tidak otomatis memuat `.env`. Environment harus
+sudah diekspor oleh shell/launcher. Launcher production repository menangani itu.
+
+```powershell
+npm.cmd test
+npm.cmd run typecheck
+npm.cmd run lint
+npm.cmd run build
+```
+
+Uji database adalah gate berbeda:
+
+| Perintah dari `backend` | Kebutuhan / dampak |
+| --- | --- |
+| `npm.cmd run preflight:postgres` | Koneksi read-only opt-in ke DB terkonfigurasi; verifikasi identitas dan baseline, bukan seluruh acceptance P18 |
+| `npm.cmd run test:postgres:assets` | Integration Asset; review guard dan fixture sebelum menjalankan |
+| `npm.cmd run test:postgres:integration` | Integration dengan database dan row fixture; bukan read-only |
+
+Gunakan cluster PostgreSQL 16 **terisolasi** untuk integration. Workflow
+[PG16 CI](../.github/workflows/p18-postgres-integration.yml) menyiapkan cluster
+ephemeral dengan guard production; privilege/credential fixture CI bukan template
+provisioning production. Jangan memakai service PostgreSQL proyek lain atau
+database production. Uji unit dengan fake repository tidak membuktikan perilaku
+FK/CHECK/transaction di PostgreSQL nyata.
+
+## Troubleshooting dan deployment
+
+| Gejala | Arah pemeriksaan |
+| --- | --- |
+| Config ditolak | Exact authority, DSN, loopback, token minimum 32 karakter, dan placeholder yang belum diganti |
+| `401` | Jenis bearer sesuai boundary; jangan mencetak header untuk diagnosis |
+| `403` / conflict lifecycle | Role/status actor, binding target/runner/session, expected state dan lease |
+| WS tertutup sekitar initial handshake | Pastikan client mengirim health valid sebelum menunggu ready; periksa close code yang aman |
+| Job tidak diklaim | Row queued dan lease, runner registration/capability, work hint, lalu atomic claim |
+| UI SSE tersambung tetapi data lama | NOTIFY topic/key, listener recovery, authoritative refetch, serta waktu observasi |
+| Inventory berubah setelah read | Sinkronisasi evidence bounded pada jalur read/report dapat menulis evidence; jangan menganggap semua GET bebas efek persistence |
+
+Untuk deployment, baca [runbook PostgreSQL](../deploy/postgresql/README.md) dan
+[P18 rollout](../docs/P18_ZERO_IDLE.md). Install dependensi pada ketiga komponen
+Node. Urutan P18 adalah backend → frontend presence → runner; backend tetap satu
+instance/fork. Rollback runner lebih dahulu sesuai runbook. Symlink rollback
+tidak membatalkan schema atau data, dan restart hanya boleh menarget proses
+NetOps yang direview.
